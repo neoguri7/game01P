@@ -1,52 +1,50 @@
-#include "ResourceManager.h"
+#include "core/ResourceManager.h"
+
 #include "SDL3_image/SDL_image.h"
+#include <print>
+#include <tracy/Tracy.hpp>
 
-void FResourceManager::Init(SDL_Renderer* rendererRef)
-{
-	renderer = rendererRef;
+void FResourceManager::init(SDL_Renderer* r) {
+    ZoneScopedN("ResourceManager::init");
+    renderer = r;
+    std::println("ResourceManager ready.");
 }
 
-SDL_Texture* FResourceManager::LoadTexture(const std::string& filePath)
-{
-	if (textures.contains(filePath))
-	{
-		return textures[filePath];
-	}
-	// disk to CPU
-	SDL_Surface* surface = IMG_Load(filePath.c_str());
-	if (!surface)
-	{
-		return nullptr;
-	}
-	// CPU to GPU
-	SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-	SDL_DestroySurface(surface);
+SDL_Texture* FResourceManager::tryLoadTexture(const std::string& filePath) {
+    ZoneScopedN("ResourceManager::tryLoadTexture");
+    if (auto it = textures.find(filePath); it != textures.end()) {
+        return it->second;
+    }
 
-	textures[filePath] = texture;
-	return texture;
+    ZoneNamedN(loadZone, "LoadFromDiskAndGPU", true);
+    SDL_Surface* surface = IMG_Load(filePath.c_str());
+    if (!surface) {
+        std::println(stderr, "IMG_Load failed: {}", filePath);
+        return nullptr;
+    }
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surface);
+    SDL_DestroySurface(surface);
+
+    if (!tex) {
+        std::println(stderr, "Texture creation failed for {}", filePath);
+        return nullptr;
+    }
+
+    textures[filePath] = tex;
+    return tex;
 }
 
-SDL_Texture* FResourceManager::GetTexture(const std::string& filePath)
-{
-	if (!textures.contains(filePath))
-	{
-		return nullptr;
-	}
-
-	SDL_Texture* texture = textures[filePath];
-	return texture;
+SDL_Texture* FResourceManager::getTexture(const std::string& filePath) const {
+    if (auto it = textures.find(filePath); it != textures.end()) {
+        return it->second;
+    }
+    return nullptr;
 }
 
-void FResourceManager::CLear()
-{
-	// clear textures in GPU memory first
-	for (auto& [key, texture] : textures)
-	{
-		SDL_DestroyTexture(texture);
-	}
-
-	// clear hash map
-	textures.clear();
+void FResourceManager::clear() {
+    ZoneScoped;
+    for (auto& [k, t] : textures) {
+        SDL_DestroyTexture(t);
+    }
+    textures.clear();
 }
-
-

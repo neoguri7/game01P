@@ -1,5 +1,6 @@
 #pragma once
 
+/// @deprecated This is legacy high-level state. Prefer stateful systems (e.g. FGameFlowSystem) in new code.
 /// Transition enum: states communicate intent, the state manager executes the switch.
 enum class EStateTransition
 {

@@ -1,5 +1,6 @@
 #pragma once
 
+/// @deprecated Legacy state used only for reference.
 #include "FBaseState.h"
 
 class FHubState : public FBaseState

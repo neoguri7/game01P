@@ -4,24 +4,15 @@ oc.ps1
 # ============================================
 out/
 .vs/
-# ============================================
-# OpenCode project context
-# ============================================
+
 .opencode/
-.tmp/
-AGENTS.md
-goal.md
-refs.md
-meta-harness-context.md
-structure-report.md
+
 # ============================================
 # Dependencies
 # ============================================
 vcpkg_installed/
-# ============================================
-# User presets
-# ============================================
-CMakeUserPresets.json
+build/
+docs/
 
 # ============================================
 # CMake generated files

@@ -2,21 +2,25 @@
 #include <SDL3/SDL_render.h>
 #include <string>
 #include <unordered_map>
+#include <expected>
 
+/// Holds GPU textures loaded from disk. Best used as registry.ctx() service (lifetime tied to registry).
 class FResourceManager
 {
 public:
-	FResourceManager() = default;
-	~FResourceManager() { CLear(); }
+    FResourceManager() = default;
+    ~FResourceManager() { clear(); }
 
-	void Init(SDL_Renderer* rendererRef);
+    void init(SDL_Renderer* r);
 
-	SDL_Texture* LoadTexture(const std::string& filePath);
-	SDL_Texture* GetTexture(const std::string& filePath);
-	void CLear();
+    // safe load: returns nullptr or use std::expected
+    SDL_Texture* tryLoadTexture(const std::string& filePath);
+    SDL_Texture* getTexture(const std::string& filePath) const;
+
+    [[deprecated("Use clear()")]] void CLear() { clear(); }
+    void clear();
+
 private:
-	std::unordered_map<std::string, SDL_Texture*> textures;
-
-	SDL_Renderer* renderer;
-
+    std::unordered_map<std::string, SDL_Texture*> textures;
+    SDL_Renderer* renderer = nullptr;
 };
