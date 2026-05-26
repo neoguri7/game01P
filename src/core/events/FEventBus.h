@@ -1,11 +1,11 @@
 #pragma once
 #include <entt/entt.hpp>
 #include <functional>
-#include <unordered_map>
-#include <typeindex>
 #include <any>
-#include <vector>
 #include <memory>
+#include <typeindex>
+#include <unordered_map>
+#include <vector>
 
 namespace game {
 
@@ -21,10 +21,21 @@ struct TypedEventCallback : IEventCallback {
 };
 
 /// Event system — lives in registry.ctx().
+///
+/// Dispatch rules:
+/// - publish<T>() dispatches immediately to subscribers in subscription order.
+/// - queueFrame<T>() stores frame-bound events for systems later in the same
+///   frame; consumers read frameEvents<T>().
+/// - beginFrame() clears frame queues once at frame start. Queued events remain
+///   available through update/render debug for that frame and are never
+///   dispatched implicitly.
+/// - clear() is shutdown cleanup and removes subscriptions and queued events.
+///
 /// Usage:
 ///   auto* bus = reg.ctx().find<FEventBus>();
 ///   bus->subscribe<DamagedEvent>([](const DamagedEvent& e) { ... });
 ///   bus->publish<DamagedEvent>({ .entity = e, .amount = 10 });
+///   bus->queueFrame<CollisionEvent>({ .a = a, .b = b });
 struct FEventBus {
     template<typename T>
     void subscribe(std::function<void(const T&)> callback) {
@@ -43,10 +54,36 @@ struct FEventBus {
         }
     }
 
-    void clear() { callbacks_.clear(); }
+    template<typename T>
+    void queueFrame(const T& event) {
+        auto& bucket = frameEvents_[std::type_index(typeid(T))];
+        if (!bucket.has_value()) {
+            bucket = std::vector<T>{};
+        }
+
+        std::any_cast<std::vector<T>&>(bucket).push_back(event);
+    }
+
+    template<typename T>
+    [[nodiscard]] const std::vector<T>& frameEvents() const {
+        static const std::vector<T> empty;
+
+        auto it = frameEvents_.find(std::type_index(typeid(T)));
+        if (it == frameEvents_.end()) return empty;
+
+        return std::any_cast<const std::vector<T>&>(it->second);
+    }
+
+    void beginFrame() { frameEvents_.clear(); }
+
+    void clear() {
+        callbacks_.clear();
+        frameEvents_.clear();
+    }
 
 private:
     std::unordered_map<std::type_index, std::vector<std::shared_ptr<IEventCallback>>> callbacks_;
+    std::unordered_map<std::type_index, std::any> frameEvents_;
 };
 
 inline void InitializeEventBus(entt::registry& reg) {
@@ -65,3 +102,7 @@ inline void InitializeEventBus(entt::registry& reg) {
 #define PUBLISH(type, reg, eventInstance) \
     if (auto* __bus = (reg).ctx().find<::game::FEventBus>()) \
         __bus->publish<type>(eventInstance)
+
+#define QUEUE_FRAME_EVENT(type, reg, eventInstance) \
+    if (auto* __bus = (reg).ctx().find<::game::FEventBus>()) \
+        __bus->queueFrame<type>(eventInstance)

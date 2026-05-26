@@ -2,14 +2,13 @@
 
 #include <SDL3/SDL.h>
 #include <entt/entt.hpp>
+#include <functional>
 #include <memory>
 #include <string>
 
 #include "core/SDLDeleter.h"
 #include "core/Time.h"
-#include "core/InputState.h"
 #include "core/SystemManager.h"
-#include "debug/Logger.h"
 
 namespace game {
 
@@ -31,6 +30,7 @@ public:
     bool initialize(const std::string& title = "Game01P", int w = 1280, int h = 720);
     void run();
     void shutdown();
+    void setOverlayRenderer(std::function<void(entt::registry&, const Time&, const SystemManager&)> renderer);
 
     // Public getters for extreme modifiability
     [[nodiscard]] entt::registry& getRegistry() noexcept { return registry; }
@@ -43,9 +43,9 @@ private:
     void update(float dt);
     void render();
 
-    // Context helpers
-    void setupContextServices();
-    void showDebugWindows();
+    // Registry ctx service lifecycle order is owned by Engine.
+    void initializeContextServices();
+    void shutdownContextServices();
 
     FWindowPtr   window{nullptr};
     FRendererPtr renderer{nullptr};
@@ -53,6 +53,7 @@ private:
     entt::registry registry;
     Time           frameTime;
     SystemManager  systemMgr;
+    std::function<void(entt::registry&, const Time&, const SystemManager&)> overlayRenderer;
     bool           running{false};
 };
 

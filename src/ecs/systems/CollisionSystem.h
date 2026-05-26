@@ -1,4 +1,6 @@
 #pragma once
+#include "core/events/FCollisionEvent.h"
+#include "core/events/FEventBus.h"
 #include "utils/cute_c2.h"
 #include "ecs/components/FCollider.h"
 #include "ecs/components/FPosition.h"
@@ -10,31 +12,12 @@
 
 namespace game {
 
-/// Collision pair data — queried by gameplay systems (damage, bounce, trigger).
-struct CollisionPair {
-    entt::entity   a;
-    entt::entity   b;
-    c2Manifold     manifold;
-    bool           resolved{false};
-};
-
-/// Stored in registry.ctx() each frame for systems that react to collisions.
-struct CollisionEventBus {
-    std::vector<CollisionPair> pairs;
-    void reset() { pairs.clear(); }
-};
-
 struct CollisionSystem : public ecs::ISystem {
-    void onRegister(entt::registry& reg) override {
-        reg.ctx().emplace<CollisionEventBus>();
-    }
-
     void update(entt::registry& reg, float /*dt*/) override {
         ZoneScopedN("CollisionSystem");
 
-        auto* bus = reg.ctx().find<CollisionEventBus>();
-        if (!bus) return;
-        bus->reset();
+        auto* events = reg.ctx().find<FEventBus>();
+        if (!events) return;
 
         auto view = reg.view<FCollider, FPosition>();
         std::vector<entt::entity> ents(view.begin(), view.end());
@@ -79,13 +62,9 @@ struct CollisionSystem : public ecs::ISystem {
                 }
 
                 if (hit && m.count > 0) {
-                    bus->pairs.push_back({aEnt, bEnt, m, false});
+                    events->queueFrame<FCollisionEvent>({aEnt, bEnt, m});
                 }
             }
-        }
-
-        if (!bus->pairs.empty()) {
-            LOG_DEBUG("CollisionSystem: {} pairs detected", bus->pairs.size());
         }
     }
 

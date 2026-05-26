@@ -13,7 +13,9 @@
 namespace game::ecs {
 
 struct SpriteRenderSystem : public ISystem {
-    void update(entt::registry& reg, float /*dt*/) override {
+    void update(entt::registry& /*reg*/, float /*dt*/) override {}
+
+    void render(entt::registry& reg) override {
         ZoneScopedN("SpriteRenderSystem");
 
         auto* rm = reg.ctx().find<FResourceManager>();

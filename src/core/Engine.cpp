@@ -7,22 +7,12 @@
 #include <tracy/Tracy.hpp>
 #include <print>
 
-#include "core/ResourceManager.h" // may be refactored later into ctx
-#include "ecs/components/FPosition.h"
-#include "ecs/components/FVelocity.h"
-#include "ecs/components/FSprite.h"
-#include "ecs/components/FTag.h"
-#include "ecs/components/FCamera.h"
-#include "ecs/components/FLayer.h"
-#include "ecs/systems/MoveSystem.h"
-#include "ecs/systems/SpriteRenderSystem.h"
-#include "ecs/systems/AnimationSystem.h"
-#include "ecs/systems/CollisionSystem.h"
+#include "core/AssetManager.h"
 #include "core/AudioManager.h"
+#include "core/InputState.h"
+#include "core/Logger.h"
+#include "core/ResourceManager.h"
 #include "core/events/FEventBus.h"
-#include "ecs/components/FAnimation.h"
-#include "ecs/components/FCollider.h"
-#include "ecs/components/FText.h"
 
 namespace game {
 
@@ -70,42 +60,50 @@ bool Engine::initialize(const std::string& title, int w, int h) {
     }
     LOG_INFO("Engine initialized.");
 
-    // Core services in registry ctx (avoid singletons)
-    // Order matters: InputState first since it may be needed by systems
-    FInputState::Initialize(registry);
-    FAudioManager::Initialize(registry);
-    InitializeEventBus(registry);
-    setupContextServices();
-
-    // Register example starter systems
-    systemMgr.addSystem<ecs::MoveSystem>();
-    systemMgr.addSystem<ecs::SpriteRenderSystem>();
-    systemMgr.addSystem<ecs::AnimationSystem>();
-    systemMgr.addSystem<CollisionSystem>();
-    systemMgr.onAllSystemsRegistered(registry);
-
-// Seed with demo entity (example - remove later)
-    auto e = registry.create();
-    registry.emplace<FPosition>(e, 100.f, 100.f);
-    registry.emplace<FVelocity>(e, 80.f, -50.f);
-    registry.emplace<FSprite>(e, "assets/player.png");
-    registry.emplace<FTag>(e, "demo_player");
-    registry.emplace<FLayer>(e, 10);
+    initializeContextServices();
 
     running = true;
     return true;
 }
 
-void Engine::setupContextServices() {
-    // Resource Manager lives in ctx for lifetime management
+void Engine::setOverlayRenderer(std::function<void(entt::registry&, const Time&, const SystemManager&)> renderer) {
+    overlayRenderer = std::move(renderer);
+}
+
+void Engine::initializeContextServices() {
+    // Service init order:
+    // 1. Input for frame state, 2. audio, 3. events, 4. asset boundary,
+    // 5. renderer pointer, 6. renderer-backed resources.
+    FInputState::Initialize(registry);
+    FAudioManager::Initialize(registry);
+    InitializeEventBus(registry);
+    FAssetManager::Initialize(registry);
+
+    registry.ctx().emplace<SDL_Renderer*>(renderer.get());
+
     auto& rm = registry.ctx().emplace<FResourceManager>();
     rm.init(renderer.get());
     LOG_DEBUG("ResourceManager registered in context");
+}
 
-    // Register the renderer pointer itself for easy access by render systems
-    registry.ctx().emplace<SDL_Renderer*>(renderer.get());
+void Engine::shutdownContextServices() {
+    // Shutdown order mirrors dependencies: renderer-backed resources are cleared
+    // before renderer ctx removal and before SDL_Renderer destruction.
+    if (auto* rm = registry.ctx().find<FResourceManager>()) {
+        rm->clear();
+    }
+    registry.ctx().erase<FResourceManager>();
+    registry.ctx().erase<SDL_Renderer*>();
 
-    // You can add more ctx services here: InputState, Config, Audio, EventBus etc.
+    FAssetManager::Shutdown(registry);
+
+    if (auto* bus = registry.ctx().find<FEventBus>()) {
+        bus->clear();
+    }
+    registry.ctx().erase<FEventBus>();
+
+    FAudioManager::Shutdown(registry);
+    registry.ctx().erase<FInputState>();
 }
 
 void Engine::run() {
@@ -113,6 +111,10 @@ void Engine::run() {
 
     while (running) {
         const float dt = frameTime.updateDeltaTime();
+
+        if (auto* bus = registry.ctx().find<FEventBus>()) {
+            bus->beginFrame();
+        }
 
         processInput();
         update(dt);
@@ -151,6 +153,10 @@ void Engine::update(float dt) {
     // High level game systems (movement, physics, AI, etc.)
     systemMgr.updateAll(registry, dt);
 
+    if (auto* audio = registry.ctx().find<FAudioManager>()) {
+        audio->gcOneShots();
+    }
+
     // TODO: optional state machine update (e.g. current state.Update(registry, dt))
 
     // debug updates
@@ -167,11 +173,12 @@ void Engine::render() {
     SDL_SetRenderDrawColor(renderer.get(), 30, 30, 40, 255);
     SDL_RenderClear(renderer.get());
 
-    // Game rendering here (systems already queued draw calls or render directly)
-    // For now draw a placeholder + ECS-based sprite system will override.
+    // Game render systems draw after clear and before overlays/present.
+    systemMgr.renderAll(registry);
 
-    // ImGui overlay: Engine Stats + Entity Inspector
-    showDebugWindows();
+    if (overlayRenderer) {
+        overlayRenderer(registry, frameTime, systemMgr);
+    }
 
     ImGui::Render();
     ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer.get());
@@ -179,111 +186,15 @@ void Engine::render() {
     SDL_RenderPresent(renderer.get());
 }
 
-void Engine::showDebugWindows() {
-    // ── Engine Stats ──────────────────────────────────────
-    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Engine Stats", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize);
-    ImGui::Text("FPS: %d", frameTime.getFps());
-    ImGui::Text("Entity count: %zu", registry.storage<entt::entity>().size());
-    ImGui::Text("Systems: %zu", systemMgr.getRegisteredCount());
-    ImGui::Separator();
-    ImGui::TextWrapped("Everything is data in the registry + ctx. Add your systems now.");
-    ImGui::End();
-
-    // ── Entity Inspector ──────────────────────────────────
-    ImGui::SetNextWindowPos(ImVec2(10, 120), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(320, 400), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Entity Inspector");
-
-    // List entities
-    auto& storage = registry.storage<entt::entity>();
-    for (auto entity : storage) {
-        if (!registry.valid(entity)) continue;
-        ImGui::PushID(static_cast<int>(entity));
-
-        // Build label from tag if present
-        std::string label;
-        if (registry.all_of<FTag>(entity)) {
-            label = fmt::format("{} ({})", static_cast<uint32_t>(entity), registry.get<FTag>(entity).value);
-        } else {
-            label = std::to_string(static_cast<uint32_t>(entity));
-        }
-
-        bool expanded = ImGui::TreeNode(label.c_str());
-        if (expanded) {
-            // FPosition
-            if (registry.all_of<FPosition>(entity)) {
-                auto& pos = registry.get<FPosition>(entity);
-                ImGui::Text("    Position: %.1f, %.1f", pos.x, pos.y);
-                ImGui::DragFloat2("  ", &pos.x, 1.f);
-            }
-            // FVelocity
-            if (registry.all_of<FVelocity>(entity)) {
-                auto& vel = registry.get<FVelocity>(entity);
-                ImGui::Text("    Velocity: %.1f, %.1f", vel.vx, vel.vy);
-                ImGui::DragFloat2("  ", &vel.vx, 1.f);
-            }
-            // FSprite
-            if (registry.all_of<FSprite>(entity)) {
-                auto& spr = registry.get<FSprite>(entity);
-                ImGui::Text("    Sprite: %s", spr.texturePath.c_str());
-            }
-            // FCamera
-            if (registry.all_of<FCamera>(entity)) {
-                auto& cam = registry.get<FCamera>(entity);
-                ImGui::Text("    Camera: pos(%.0f, %.0f) zoom=%.2f", cam.position.x, cam.position.y, cam.zoom);
-            }
-            // FLayer
-            if (registry.all_of<FLayer>(entity)) {
-                auto& layer = registry.get<FLayer>(entity);
-                ImGui::Text("    Layer: %d", layer.depth);
-                ImGui::DragInt("  ", &layer.depth, 1);
-            }
-            // FCollider
-            if (registry.all_of<FCollider>(entity)) {
-                auto& col = registry.get<FCollider>(entity);
-                ImGui::Text("    Collider: %s", col.type == EColliderType::AABB ? "AABB" : "Circle");
-                ImGui::Text("    Layer: %d", col.collisionLayer);
-            }
-            // FAnimation
-            if (registry.all_of<FAnimation>(entity)) {
-                auto& anim = registry.get<FAnimation>(entity);
-                ImGui::Text("    Anim: %s (frame %d/%zu)", anim.playing ? "playing" : "stopped", anim.currentFrame, anim.frames.size());
-            }
-            // FText
-            if (registry.all_of<FText>(entity)) {
-                auto& txt = registry.get<FText>(entity);
-                ImGui::Text("    Text: \"%s\"", txt.content.c_str());
-            }
-            ImGui::TreePop();
-        }
-        ImGui::PopID();
-    }
-
-    ImGui::Separator();
-    if (ImGui::Button("Add Demo Entity")) {
-        auto e = registry.create();
-        registry.emplace<FPosition>(e, 200.f, 200.f);
-        registry.emplace<FVelocity>(e, 50.f, -30.f);
-        registry.emplace<FTag>(e, "demo");
-        LOG_INFO("Created demo entity {}", static_cast<uint32_t>(e));
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Clear All Entities")) {
-        registry.clear();
-    }
-
-    ImGui::End();
-}
-
 void Engine::shutdown() {
-    if (!running && !renderer) return;
+    if (!running && !renderer && !window) return;
 
     LOG_INFO("Engine shutting down...");
+    running = false;
 
     registry.clear(); // destroys all entities + components
 
-    FAudioManager::Shutdown(registry);
+    shutdownContextServices();
     FLogger::Shutdown(registry);
 
     if (renderer) {

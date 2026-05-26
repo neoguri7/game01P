@@ -24,6 +24,9 @@ struct ISystem {
 
     // Optional: called once after registration
     virtual void onRegister(entt::registry& /*reg*/) {}
+
+    // Optional: called during the render phase, after clear and before present
+    virtual void render(entt::registry& /*reg*/) {}
 };
 
 template<SystemConcept ConcreteSystem>
@@ -36,6 +39,22 @@ struct SystemWrapper final : public ISystem {
 
     std::string name() const override {
         return impl.name();
+    }
+
+    void onRegister(entt::registry& reg) override {
+        if constexpr (requires(ConcreteSystem& system, entt::registry& registry) {
+            { system.onRegister(registry) } -> std::same_as<void>;
+        }) {
+            impl.onRegister(reg);
+        }
+    }
+
+    void render(entt::registry& reg) override {
+        if constexpr (requires(ConcreteSystem& system, entt::registry& registry) {
+            { system.render(registry) } -> std::same_as<void>;
+        }) {
+            impl.render(reg);
+        }
     }
 
 private:

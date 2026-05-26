@@ -48,6 +48,13 @@ public:
         }
     }
 
+    void renderAll(entt::registry& reg) {
+        ZoneScopedN("SystemManager::renderAll");
+        for (const auto& sys : systems) {
+            sys->render(reg);
+        }
+    }
+
     [[nodiscard]] size_t getRegisteredCount() const noexcept {
         return systems.size();
     }
