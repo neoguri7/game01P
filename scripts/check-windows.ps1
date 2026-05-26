@@ -30,6 +30,13 @@ function Invoke-Native {
 }
 
 if (-not $VcpkgRoot) {
+    $defaultWindowsPath = "D:\vcpkg"
+    if (Test-Path $defaultWindowsPath) {
+        $VcpkgRoot = $defaultWindowsPath
+    }
+}
+
+if (-not $VcpkgRoot) {
     $candidate = Join-Path $PSScriptRoot "..\vcpkg"
     if (Test-Path $candidate) {
         $VcpkgRoot = (Resolve-Path $candidate).Path

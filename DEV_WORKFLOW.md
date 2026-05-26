@@ -50,7 +50,7 @@ Requirements:
 - Visual Studio 2022 or Visual Studio Build Tools
 - CMake
 - vcpkg
-- `VCPKG_ROOT` set to the vcpkg checkout
+- `VCPKG_ROOT` set to the vcpkg checkout, or vcpkg installed at `D:\vcpkg`
 
 ## Lightweight Editor Support
 
