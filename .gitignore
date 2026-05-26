@@ -44,6 +44,7 @@ desktop.ini
 # Logs & temp files
 # ============================================
 *.log
+scripts/remote-windows-check.env
 *~
 *.orig
 *.rej

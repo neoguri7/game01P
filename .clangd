@@ -1,6 +1,8 @@
 CompileFlags:
   Add:
-    - -ID:/repos/game01P/src
-    - -ID:/repos/game01P/out/build/default/vcpkg_installed/x64-windows/include
-  Index:
-    Background: Build
+    - -std=c++23
+    - -Isrc
+  Compiler: clang++
+
+Index:
+  Background: Build
