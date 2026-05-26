@@ -19,8 +19,7 @@ function Invoke-Native {
         [Parameter(Mandatory = $true)]
         [string]$FilePath,
 
-        [Parameter(ValueFromRemainingArguments = $true)]
-        [string[]]$Arguments
+        [string[]]$Arguments = @()
     )
 
     & $FilePath @Arguments
@@ -59,14 +58,21 @@ if ($Clean -and (Test-Path $BuildPath)) {
     Remove-Item -Recurse -Force $BuildPath
 }
 
-Invoke-Native cmake -S $RepoRoot -B $BuildPath `
-    -G "Visual Studio 17 2022" `
-    -A x64 `
-    -DCMAKE_TOOLCHAIN_FILE="$ToolchainFile" `
-    -DVCPKG_TARGET_TRIPLET="$Triplet" `
-    -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+Invoke-Native "cmake" @(
+    "-S", $RepoRoot,
+    "-B", $BuildPath,
+    "-G", "Visual Studio 17 2022",
+    "-A", "x64",
+    "-DCMAKE_TOOLCHAIN_FILE=$ToolchainFile",
+    "-DVCPKG_TARGET_TRIPLET=$Triplet",
+    "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+)
 
-Invoke-Native cmake --build $BuildPath --config $Configuration --parallel
+Invoke-Native "cmake" @(
+    "--build", $BuildPath,
+    "--config", $Configuration,
+    "--parallel"
+)
 
 if ($Run) {
     $ExePath = Join-Path $BuildPath "$Configuration\game01P.exe"

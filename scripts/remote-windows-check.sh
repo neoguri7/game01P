@@ -43,14 +43,14 @@ until ssh "${ssh_options[@]}" -o BatchMode=yes -o ConnectTimeout=5 "$ssh_target"
   sleep 5
 done
 
-remote_commands="\$ErrorActionPreference = 'Stop'; function Invoke-Native { \$cmd = \$args[0]; \$cmdArgs = @(); if (\$args.Count -gt 1) { \$cmdArgs = \$args[1..(\$args.Count - 1)] }; & \$cmd @cmdArgs; if (\$LASTEXITCODE -ne 0) { throw \"native command failed with exit code \$LASTEXITCODE\" } }; Set-Location '$GAME01P_WIN_REPO';"
+remote_commands="\$ErrorActionPreference = 'Stop'; function Invoke-Native { param([string]\$FilePath, [string[]]\$Arguments = @()); & \$FilePath @Arguments; if (\$LASTEXITCODE -ne 0) { throw \"\$FilePath failed with exit code \$LASTEXITCODE\" } }; Set-Location '$GAME01P_WIN_REPO';"
 
 if [[ -n "$GAME01P_WIN_BRANCH" ]]; then
-  remote_commands+=" Invoke-Native git fetch --all --prune; Invoke-Native git checkout '$GAME01P_WIN_BRANCH';"
+  remote_commands+=" Invoke-Native 'git' @('fetch', '--all', '--prune'); Invoke-Native 'git' @('checkout', '$GAME01P_WIN_BRANCH');"
 fi
 
 if [[ "$GAME01P_REMOTE_PULL" == "1" ]]; then
-  remote_commands+=" Invoke-Native git pull --ff-only;"
+  remote_commands+=" Invoke-Native 'git' @('pull', '--ff-only');"
 fi
 
 remote_commands+=" & .\\scripts\\check-windows.ps1 -Configuration '$GAME01P_WIN_CONFIG';"
