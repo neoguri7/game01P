@@ -13,6 +13,7 @@ GAME01P_WIN_USER="${GAME01P_WIN_USER:-}"
 GAME01P_WIN_PORT="${GAME01P_WIN_PORT:-22}"
 GAME01P_WIN_REPO="${GAME01P_WIN_REPO:-C:/dev/game01P}"
 GAME01P_WIN_CONFIG="${GAME01P_WIN_CONFIG:-Debug}"
+GAME01P_CMAKE_GENERATOR="${GAME01P_CMAKE_GENERATOR:-}"
 GAME01P_WIN_BRANCH="${GAME01P_WIN_BRANCH:-}"
 GAME01P_REMOTE_PULL="${GAME01P_REMOTE_PULL:-1}"
 GAME01P_REMOTE_SLEEP="${GAME01P_REMOTE_SLEEP:-0}"
@@ -53,7 +54,11 @@ if [[ "$GAME01P_REMOTE_PULL" == "1" ]]; then
   remote_commands+=" Invoke-Native 'git' @('pull', '--ff-only');"
 fi
 
-remote_commands+=" & .\\scripts\\check-windows.ps1 -Configuration '$GAME01P_WIN_CONFIG';"
+if [[ -n "$GAME01P_CMAKE_GENERATOR" ]]; then
+  remote_commands+=" & .\\scripts\\check-windows.ps1 -Configuration '$GAME01P_WIN_CONFIG' -Generator '$GAME01P_CMAKE_GENERATOR';"
+else
+  remote_commands+=" & .\\scripts\\check-windows.ps1 -Configuration '$GAME01P_WIN_CONFIG';"
+fi
 
 if [[ "$GAME01P_REMOTE_SLEEP" == "1" ]]; then
   remote_commands+=" rundll32.exe powrprof.dll,SetSuspendState 0,1,0;"

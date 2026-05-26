@@ -27,6 +27,12 @@ Run this from PowerShell on the Windows PC:
 .\scripts\check-windows.ps1 -Configuration Debug
 ```
 
+If your Windows PC uses a newer Visual Studio generator:
+
+```powershell
+.\scripts\check-windows.ps1 -Configuration Debug -Generator "Visual Studio 18 2026"
+```
+
 Release build:
 
 ```powershell
@@ -72,6 +78,7 @@ export GAME01P_WIN_USER="your-windows-user"
 export GAME01P_WIN_PORT="22"
 export GAME01P_WIN_REPO="C:/dev/game01P"
 export GAME01P_WIN_CONFIG="Debug"
+export GAME01P_CMAKE_GENERATOR="Visual Studio 18 2026"
 ```
 
 Then run:

@@ -8,6 +8,8 @@ param(
 
     [string]$VcpkgRoot = $env:VCPKG_ROOT,
 
+    [string]$Generator = $(if ($env:GAME01P_CMAKE_GENERATOR) { $env:GAME01P_CMAKE_GENERATOR } else { "Visual Studio 17 2022" }),
+
     [switch]$Clean,
     [switch]$Run
 )
@@ -61,7 +63,7 @@ if ($Clean -and (Test-Path $BuildPath)) {
 Invoke-Native "cmake" @(
     "-S", $RepoRoot,
     "-B", $BuildPath,
-    "-G", "Visual Studio 17 2022",
+    "-G", $Generator,
     "-A", "x64",
     "-DCMAKE_TOOLCHAIN_FILE=$ToolchainFile",
     "-DVCPKG_TARGET_TRIPLET=$Triplet",
