@@ -182,19 +182,6 @@ void PublishAcceptedCommand(entt::registry& registry, const FTacticalD20CommandD
     };
     PUBLISH(FTacticalD20CommandAcceptedEvent, registry, accepted);
     QUEUE_FRAME_EVENT(FTacticalD20CommandAcceptedEvent, registry, accepted);
-
-    const FTacticalD20CommandQueuedEvent queued{
-        .unit = event.unit,
-        .actionId = event.commandId,
-        .movementSpentTiles = event.movementCostTiles,
-        .hasTargetTile = event.hasTargetTile,
-        .targetTileX = event.targetTileX,
-        .targetTileY = event.targetTileY,
-        .targetEntity = event.targetEntity,
-        .validationApproved = true,
-    };
-    PUBLISH(FTacticalD20CommandQueuedEvent, registry, queued);
-    QUEUE_FRAME_EVENT(FTacticalD20CommandQueuedEvent, registry, queued);
 }
 
 void ConsumeValidationEvents(entt::registry& registry) {
@@ -257,6 +244,19 @@ void UpdateActiveDrag(entt::registry& registry, const FInputState& input, entt::
         const auto tileEntity = BoardTileAt(registry, input.mousePos);
         const auto targetEntity = UnitAt(registry, input.mousePos);
         const bool targetsTurnPanel = IsFallbackTacticalD20TurnPanelHit(registry, input.mousePos);
+        if (tileEntity == entt::null && targetEntity == entt::null && !targetsTurnPanel) {
+            constexpr const char* reason = "drop outside board or valid target";
+            // Drag state transition table:
+            //   DraggingCommand + mouse released outside board/target -> DragRejected -> DragIdle
+            PublishDragStateChanged(registry, token, drag.commandId, drag.phase, ETacticalD20CommandDragPhase::DragRejected, reason);
+            SnapBack(registry, token, drag);
+            AppendTacticalD20EventLog(registry, fmt::format("[Event] CommandDropValidated command={} target=none result=invalid: {}", drag.commandId, reason));
+            AppendTacticalD20CombatLog(registry, fmt::format("{} command invalid: {}", drag.commandId, reason));
+            PublishDragStateChanged(registry, token, drag.commandId, ETacticalD20CommandDragPhase::DragRejected, ETacticalD20CommandDragPhase::DragIdle, reason);
+            registry.remove<FTacticalD20CommandDragState>(token);
+            return;
+        }
+
         PublishDropRequest(registry, token, active, drag.commandId, tileEntity, targetEntity, targetsTurnPanel);
 
         // Drag state transition table:

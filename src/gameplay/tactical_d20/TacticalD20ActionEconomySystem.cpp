@@ -210,6 +210,8 @@ bool TryStoreQueuedCommand(entt::registry& registry, entt::entity active) {
             .validationApproved = true,
         };
         if (!CanAcceptCommand(registry, command)) continue;
+        PUBLISH(FTacticalD20CommandQueuedEvent, registry, command);
+        QUEUE_FRAME_EVENT(FTacticalD20CommandQueuedEvent, registry, command);
         registry.emplace_or_replace<FQueuedTacticalD20Command>(
             active,
             command.actionId,
