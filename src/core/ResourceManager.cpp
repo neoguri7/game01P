@@ -1,13 +1,14 @@
 #include "core/ResourceManager.h"
 
 #include "SDL3_image/SDL_image.h"
-#include <print>
 #include <tracy/Tracy.hpp>
+
+#include "core/Logger.h"
 
 void FResourceManager::init(SDL_Renderer* r) {
     ZoneScopedN("ResourceManager::init");
     renderer = r;
-    std::println("ResourceManager ready.");
+    LOG_INFO("ResourceManager ready.");
 }
 
 SDL_Texture* FResourceManager::tryLoadTexture(const std::string& filePath) {
@@ -19,14 +20,14 @@ SDL_Texture* FResourceManager::tryLoadTexture(const std::string& filePath) {
     ZoneNamedN(loadZone, "LoadFromDiskAndGPU", true);
     SDL_Surface* surface = IMG_Load(filePath.c_str());
     if (!surface) {
-        std::println(stderr, "IMG_Load failed: {}", filePath);
+        LOG_ERROR("IMG_Load failed: {}", filePath);
         return nullptr;
     }
     SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surface);
     SDL_DestroySurface(surface);
 
     if (!tex) {
-        std::println(stderr, "Texture creation failed for {}", filePath);
+        LOG_ERROR("Texture creation failed for {}", filePath);
         return nullptr;
     }
 
