@@ -18,10 +18,11 @@ void RegisterDefaultSystems(SystemManager& systemManager, entt::registry& regist
     // before collision/render systems inspect ECS views.
     systemManager.addSystem<TacticalD20SetupSystem>();
     // Tactical D20 flow order: setup spawns units, initiative creates order,
-    // lifecycle assigns the active unit, then action economy resolves turn budget.
+    // action economy queues/resolves command events, then lifecycle advances
+    // combat state from those events.
     systemManager.addSystem<TacticalD20InitiativeSystem>();
-    systemManager.addSystem<TacticalD20CombatLifecycleSystem>();
     systemManager.addSystem<TacticalD20ActionEconomySystem>();
+    systemManager.addSystem<TacticalD20CombatLifecycleSystem>();
     systemManager.addSystem<ecs::MoveSystem>();
     systemManager.addSystem<ecs::SpriteRenderSystem>();
     systemManager.addSystem<ecs::AnimationSystem>();

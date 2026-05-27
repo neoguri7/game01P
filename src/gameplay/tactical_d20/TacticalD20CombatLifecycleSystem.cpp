@@ -3,6 +3,9 @@
 #include "core/events/FEventBus.h"
 #include "ecs/components/FActiveTacticalUnit.h"
 #include "ecs/components/FActionEconomyTurnComplete.h"
+#include "ecs/components/FActionEconomyHasActionOnly.h"
+#include "ecs/components/FActionEconomyHasMoveAndAction.h"
+#include "ecs/components/FActionEconomyHasMoveOnly.h"
 #include "ecs/components/FCombatStateAwaitingCommand.h"
 #include "ecs/components/FCombatStateDefeat.h"
 #include "ecs/components/FCombatStateEnemyThinking.h"
@@ -12,8 +15,10 @@
 #include "ecs/components/FCombatStateTurnEndCheck.h"
 #include "ecs/components/FCombatStateTurnStart.h"
 #include "ecs/components/FCombatStateVictory.h"
+#include "ecs/components/FQueuedTacticalD20Command.h"
 #include "ecs/components/FTacticalTurnOrder.h"
 #include "ecs/components/FTacticalUnit.h"
+#include "ecs/components/FTurnBudget.h"
 #include "ecs/components/FUnitStateDefeated.h"
 #include "gameplay/tactical_d20/FTacticalD20Config.h"
 #include "gameplay/tactical_d20/FTacticalD20Events.h"
@@ -132,6 +137,11 @@ entt::entity ActiveUnit(entt::registry& registry) {
     return entt::null;
 }
 
+void ClearActiveTurnState(entt::registry& registry, entt::entity unitEntity) {
+    registry.remove<FActionEconomyHasMoveAndAction, FActionEconomyHasActionOnly, FActionEconomyHasMoveOnly, FActionEconomyTurnComplete>(unitEntity);
+    registry.remove<FTurnBudget, FQueuedTacticalD20Command>(unitEntity);
+}
+
 void HandleRoundStart(entt::registry& registry, entt::entity stateEntity) {
     // Transition table:
     //   FCombatStateRoundStart + first living unit selected -> FCombatStateTurnStart
@@ -158,8 +168,18 @@ void HandleActionResolved(entt::registry& registry, entt::entity stateEntity) {
 
 void HandleTurnEndCheck(entt::registry& registry, entt::entity stateEntity) {
     // Transition table:
-    //   FCombatStateTurnEndCheck + combat active -> FCombatStateNextTurn
-    Transition<FCombatStateTurnEndCheck, FCombatStateNextTurn>(registry, stateEntity, "TurnEndCheck", "NextTurn");
+    //   FCombatStateTurnEndCheck + active turn complete -> FCombatStateNextTurn
+    //   FCombatStateTurnEndCheck + player active unit  -> FCombatStateAwaitingCommand
+    //   FCombatStateTurnEndCheck + enemy active unit   -> FCombatStateEnemyThinking
+    const auto active = ActiveUnit(registry);
+    if (active == entt::null || registry.all_of<FActionEconomyTurnComplete>(active)) {
+        if (active != entt::null) ClearActiveTurnState(registry, active);
+        return Transition<FCombatStateTurnEndCheck, FCombatStateNextTurn>(registry, stateEntity, "TurnEndCheck", "NextTurn");
+    }
+
+    const auto& unit = registry.get<FTacticalUnit>(active);
+    if (unit.team == "player") return Transition<FCombatStateTurnEndCheck, FCombatStateAwaitingCommand>(registry, stateEntity, "TurnEndCheck", "AwaitingCommand");
+    Transition<FCombatStateTurnEndCheck, FCombatStateEnemyThinking>(registry, stateEntity, "TurnEndCheck", "EnemyThinking");
 }
 
 void HandleNextTurn(entt::registry& registry, entt::entity stateEntity) {
@@ -173,9 +193,22 @@ void HandleNextTurn(entt::registry& registry, entt::entity stateEntity) {
     Transition<FCombatStateNextTurn, FCombatStateTurnStart>(registry, stateEntity, "NextTurn", "TurnStart");
 }
 
-bool HasCompletedActiveTurn(entt::registry& registry) {
+bool HasQueuedCommandForActiveUnit(entt::registry& registry) {
     const auto active = ActiveUnit(registry);
-    return active != entt::null && registry.all_of<FActionEconomyTurnComplete>(active);
+    return active != entt::null && registry.all_of<FQueuedTacticalD20Command>(active);
+}
+
+bool HasResolvedActionForActiveUnit(entt::registry& registry) {
+    const auto active = ActiveUnit(registry);
+    if (active == entt::null) return false;
+
+    auto* bus = registry.ctx().find<FEventBus>();
+    if (!bus) return false;
+
+    for (const auto& event : bus->frameEvents<FTacticalD20ActionResolvedEvent>()) {
+        if (event.unit == active) return true;
+    }
+    return false;
 }
 
 } // namespace
@@ -188,9 +221,9 @@ void TacticalD20CombatLifecycleSystem::update(entt::registry& registry, float /*
     for (auto stateEntity : view) {
         if (registry.all_of<FCombatStateRoundStart>(stateEntity) && !TryTerminalTransition<FCombatStateRoundStart>(registry, stateEntity, "RoundStart")) return HandleRoundStart(registry, stateEntity);
         if (registry.all_of<FCombatStateTurnStart>(stateEntity) && !TryTerminalTransition<FCombatStateTurnStart>(registry, stateEntity, "TurnStart")) return HandleTurnStart(registry, stateEntity);
-        if (registry.all_of<FCombatStateAwaitingCommand>(stateEntity) && !TryTerminalTransition<FCombatStateAwaitingCommand>(registry, stateEntity, "AwaitingCommand") && HasCompletedActiveTurn(registry)) return Transition<FCombatStateAwaitingCommand, FCombatStateResolvingAction>(registry, stateEntity, "AwaitingCommand", "ResolvingAction");
-        if (registry.all_of<FCombatStateEnemyThinking>(stateEntity) && !TryTerminalTransition<FCombatStateEnemyThinking>(registry, stateEntity, "EnemyThinking") && HasCompletedActiveTurn(registry)) return Transition<FCombatStateEnemyThinking, FCombatStateResolvingAction>(registry, stateEntity, "EnemyThinking", "ResolvingAction");
-        if (registry.all_of<FCombatStateResolvingAction>(stateEntity) && !TryTerminalTransition<FCombatStateResolvingAction>(registry, stateEntity, "ResolvingAction")) return HandleActionResolved(registry, stateEntity);
+        if (registry.all_of<FCombatStateAwaitingCommand>(stateEntity) && !TryTerminalTransition<FCombatStateAwaitingCommand>(registry, stateEntity, "AwaitingCommand") && HasQueuedCommandForActiveUnit(registry)) return Transition<FCombatStateAwaitingCommand, FCombatStateResolvingAction>(registry, stateEntity, "AwaitingCommand", "ResolvingAction");
+        if (registry.all_of<FCombatStateEnemyThinking>(stateEntity) && !TryTerminalTransition<FCombatStateEnemyThinking>(registry, stateEntity, "EnemyThinking") && HasQueuedCommandForActiveUnit(registry)) return Transition<FCombatStateEnemyThinking, FCombatStateResolvingAction>(registry, stateEntity, "EnemyThinking", "ResolvingAction");
+        if (registry.all_of<FCombatStateResolvingAction>(stateEntity) && !TryTerminalTransition<FCombatStateResolvingAction>(registry, stateEntity, "ResolvingAction") && HasResolvedActionForActiveUnit(registry)) return HandleActionResolved(registry, stateEntity);
         if (registry.all_of<FCombatStateTurnEndCheck>(stateEntity) && !TryTerminalTransition<FCombatStateTurnEndCheck>(registry, stateEntity, "TurnEndCheck")) return HandleTurnEndCheck(registry, stateEntity);
         if (registry.all_of<FCombatStateNextTurn>(stateEntity) && !TryTerminalTransition<FCombatStateNextTurn>(registry, stateEntity, "NextTurn")) return HandleNextTurn(registry, stateEntity);
     }

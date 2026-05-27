@@ -53,7 +53,7 @@ bool IsPlayerTeam(const FTacticalUnit& unit) {
 
 std::vector<entt::entity> LivingUnits(entt::registry& registry) {
     std::vector<entt::entity> units;
-    auto view = registry.view<FTacticalUnit>(entt::exclude<FUnitStateDefeated>);
+    auto view = registry.view<FTacticalUnit, FAbilityScores>(entt::exclude<FUnitStateDefeated>);
     for (auto entity : view) units.push_back(entity);
     return units;
 }
