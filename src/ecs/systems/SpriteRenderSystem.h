@@ -45,6 +45,7 @@ struct SpriteRenderSystem : public ISystem {
         for (auto entity : entities) {
             const auto& pos = view.get<const FPosition>(entity);
             const auto& spr = view.get<const FSprite>(entity);
+            if (spr.texturePath.empty()) continue;
 
             SDL_Texture* tex = rm->tryLoadTexture(spr.texturePath);
             if (!tex) {
