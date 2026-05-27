@@ -128,7 +128,8 @@ void Engine::processInput() {
 
     // Reset per-frame input state
     if (auto* input = registry.ctx().find<FInputState>()) {
-        input->beginFrame();
+        const ImGuiIO& io = ImGui::GetIO();
+        input->beginFrame(io.WantCaptureKeyboard, io.WantCaptureMouse);
     }
 
     SDL_Event event;

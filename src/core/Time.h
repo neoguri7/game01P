@@ -5,8 +5,16 @@
 
 namespace game {
 
+/// Frame time policy:
+/// - Engine systems currently run on variable timestep `dt` once per rendered frame.
+/// - Future fixed-step simulation should be introduced as a separate scheduler;
+///   gameplay systems must not infer fixed-rate behavior from this class.
+/// - Long frames are clamped so variable-step gameplay does not receive extreme
+///   catch-up deltas after stalls, breakpoints, or window drags.
 class Time {
 public:
+    static constexpr float MAX_DELTA_TIME_SECONDS = 1.0f / 15.0f;
+
     Time() : lastFrameTime{SDL_GetPerformanceCounter()}, deltaTime{0.f}, fpsTimer{0.f}, frameCounter{0} {}
 
     float updateDeltaTime() {
@@ -19,6 +27,9 @@ public:
         lastFrameTime = now;
 
         deltaTime = static_cast<float>(elapsed);
+        if (deltaTime > MAX_DELTA_TIME_SECONDS) {
+            deltaTime = MAX_DELTA_TIME_SECONDS;
+        }
 
         // FPS tracking
         fpsTimer += deltaTime;
