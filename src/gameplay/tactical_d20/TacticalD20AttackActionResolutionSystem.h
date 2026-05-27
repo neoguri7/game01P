@@ -5,9 +5,9 @@
 
 namespace game {
 
-struct TacticalD20ActionResolutionSystem : public ecs::ISystem {
+struct TacticalD20AttackActionResolutionSystem : public ecs::ISystem {
     void update(entt::registry& registry, float dt) override;
-    std::string name() const override { return "TacticalD20ActionResolutionSystem"; }
+    std::string name() const override { return "TacticalD20AttackActionResolutionSystem"; }
 };
 
 } // namespace game

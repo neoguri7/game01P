@@ -1,5 +1,6 @@
 #include "core/factories/FTacticalD20UnitFactory.h"
 
+#include "core/factories/FTacticalD20BoardPlacement.h"
 #include "ecs/components/FAbilityScores.h"
 #include "ecs/components/FCollider.h"
 #include "ecs/components/FLayer.h"
@@ -13,10 +14,6 @@
 namespace game {
 
 entt::entity FTacticalD20UnitFactory::create(entt::registry& registry, const FTacticalD20UnitSpawn& spawn) {
-    constexpr float tileSize = 64.f;
-    constexpr float originX = 64.f;
-    constexpr float originY = 64.f;
-
     auto entity = registry.create();
     registry.emplace<FTacticalUnit>(entity,
         spawn.id,
@@ -33,7 +30,7 @@ entt::entity FTacticalD20UnitFactory::create(entt::registry& registry, const FTa
         spawn.skillProficiencies,
         spawn.actions);
     registry.emplace<FAbilityScores>(entity, spawn.abilities);
-    registry.emplace<FPosition>(entity, originX + static_cast<float>(spawn.tileX) * tileSize, originY + static_cast<float>(spawn.tileY) * tileSize);
+    registry.emplace<FPosition>(entity, TacticalD20TileToWorldX(spawn.tileX), TacticalD20TileToWorldY(spawn.tileY));
     registry.emplace<FCollider>(entity, EColliderType::AABB, glm::vec2{0.f, 0.f}, 24.f, 24.f, 4, spawn.team);
     registry.emplace<FTag>(entity, spawn.id);
     registry.emplace<FLayer>(entity, spawn.team == "player" ? 10 : 11);

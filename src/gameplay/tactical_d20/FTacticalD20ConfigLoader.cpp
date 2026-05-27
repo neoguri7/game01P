@@ -186,6 +186,7 @@ void ParseEnemyAiAndLogging(std::string_view text, FTacticalD20Config& config) {
         config.enemyAi.attackIfInRange = reader::ReadBool(ai, "attackIfInRange", config.enemyAi.attackIfInRange);
         config.enemyAi.moveTowardTargetIfOutOfRange = reader::ReadBool(ai, "moveTowardTargetIfOutOfRange", config.enemyAi.moveTowardTargetIfOutOfRange);
         config.enemyAi.noAttackAfterMoveInFirstPrototype = reader::ReadBool(ai, "noAttackAfterMoveInFirstPrototype", config.enemyAi.noAttackAfterMoveInFirstPrototype);
+        config.enemyAi.enemyThinkDelaySeconds = reader::ReadFloat(ai, "enemyThinkDelaySeconds", config.enemyAi.enemyThinkDelaySeconds);
     }
     if (const auto logging = reader::FindObjectBody(text, "logging"); !logging.empty()) {
         config.logging.combatLogMaxLines = reader::ReadInt(logging, "combatLogMaxLines", config.logging.combatLogMaxLines);

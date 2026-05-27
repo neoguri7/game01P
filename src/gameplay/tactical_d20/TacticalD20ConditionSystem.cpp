@@ -8,7 +8,6 @@
 #include "ecs/components/FConditionDodge.h"
 #include "ecs/components/FConditionPoisoned.h"
 #include "ecs/components/FConditionStunned.h"
-#include "ecs/components/FText.h"
 #include "ecs/components/FTacticalUnit.h"
 #include "ecs/components/FTurnBudget.h"
 #include "ecs/components/FUnitStateDefeated.h"
@@ -21,7 +20,6 @@
 #include <fmt/format.h>
 #include <string>
 #include <tracy/Tracy.hpp>
-#include <vector>
 
 namespace game {
 namespace {
@@ -104,31 +102,25 @@ bool ApplyStunned(entt::registry& registry, entt::entity unit) {
     return true;
 }
 
-std::string ConditionsText(entt::registry& registry, entt::entity unit) {
-    std::vector<std::string> names;
-    if (registry.all_of<FConditionDodge>(unit)) names.push_back("Dodge");
-    if (registry.all_of<FConditionPoisoned>(unit)) names.push_back("Poisoned");
-    if (registry.all_of<FConditionStunned>(unit)) names.push_back("Stunned");
-    if (registry.all_of<FConditionBurning>(unit)) names.push_back("Burning");
-    if (names.empty()) return "-";
-    std::string text = names.front();
-    for (std::size_t i = 1; i < names.size(); ++i) text += ", " + names[i];
-    return text;
-}
-
-void UpdateUnitLabels(entt::registry& registry) {
-    auto view = registry.view<FTacticalUnit, FText>();
-    for (auto entity : view) {
-        const auto& unit = view.get<FTacticalUnit>(entity);
-        auto& text = view.get<FText>(entity);
-        text.content = fmt::format("{} HP {}/{} Conditions: {}", unit.displayName, unit.currentHp, unit.maxHp, ConditionsText(registry, entity));
-    }
-}
-
 void HandleTurnStart(entt::registry& registry) {
+    // Condition transition table:
+    //   FConditionDodge + affected unit turn start -> remove FConditionDodge
+    //   FConditionBurning remainingRounds > 1 + turn start -> decrement
+    //   FConditionBurning remainingRounds <= 1 + turn start -> remove FConditionBurning
+    //   FConditionPoisoned remainingRounds > 1 + turn start -> decrement
+    //   FConditionPoisoned remainingRounds == 1 + turn start -> remove FConditionPoisoned
+    //   FConditionPoisoned remainingRounds < 0 + turn start -> no tag change
+    //   FConditionStunned remainingTurns > 1 + turn start -> decrement and skip
+    //   FConditionStunned remainingTurns <= 1 + turn start -> remove FConditionStunned and skip
     const auto unit = ActiveUnitRaw(registry);
     if (unit == entt::null || registry.all_of<FUnitStateDefeated>(unit)) return;
     ExpireDodge(registry, unit);
+    if (auto* poisoned = registry.try_get<FConditionPoisoned>(unit); poisoned && poisoned->remainingRounds > 0) {
+        poisoned->remainingRounds -= 1;
+        const int remaining = poisoned->remainingRounds;
+        if (remaining <= 0) registry.remove<FConditionPoisoned>(unit);
+        PublishCondition(registry, unit, "poisoned", remaining <= 0 ? "expired" : "ticked", remaining);
+    }
     const bool defeatedByBurning = ApplyBurning(registry, unit);
     if (defeatedByBurning) {
         registry.emplace_or_replace<FActionEconomyTurnComplete>(unit);
@@ -146,7 +138,6 @@ void HandleTurnStart(entt::registry& registry) {
 void TacticalD20ConditionSystem::update(entt::registry& registry, float /*dt*/) {
     ZoneScopedN("TacticalD20ConditionSystem");
     if (IsTurnStart(registry)) HandleTurnStart(registry);
-    UpdateUnitLabels(registry);
 }
 
 } // namespace game

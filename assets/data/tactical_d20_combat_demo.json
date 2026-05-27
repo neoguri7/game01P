@@ -128,7 +128,8 @@
     "type": "nearestTargetMeleeFirst",
     "attackIfInRange": true,
     "moveTowardTargetIfOutOfRange": true,
-    "noAttackAfterMoveInFirstPrototype": true
+    "noAttackAfterMoveInFirstPrototype": true,
+    "enemyThinkDelaySeconds": 0.4
   },
   "logging": {
     "combatLogMaxLines": 12,

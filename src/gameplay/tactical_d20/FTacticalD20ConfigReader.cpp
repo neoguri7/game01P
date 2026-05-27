@@ -85,6 +85,14 @@ int ReadInt(std::string_view text, std::string_view key, int fallback) {
     return std::stoi(match[1].str());
 }
 
+float ReadFloat(std::string_view text, std::string_view key, float fallback) {
+    const std::regex pattern(std::string("\"") + std::string(key) + R"("\s*:\s*(-?\d+(?:\.\d+)?))");
+    const std::string source(text);
+    std::smatch match;
+    if (!std::regex_search(source, match, pattern)) return fallback;
+    return std::stof(match[1].str());
+}
+
 bool ReadBool(std::string_view text, std::string_view key, bool fallback) {
     const std::regex pattern(std::string("\"") + std::string(key) + R"("\s*:\s*(true|false))");
     const std::string source(text);

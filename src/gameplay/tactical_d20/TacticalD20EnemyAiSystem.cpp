@@ -128,15 +128,16 @@ int MovementBudget(entt::registry& registry, entt::entity unit, const FTacticalU
 void QueueCommand(entt::registry& registry, entt::entity unit, const FTacticalD20CommandQueuedEvent& command) {
     PUBLISH(FTacticalD20CommandQueuedEvent, registry, command);
     QUEUE_FRAME_EVENT(FTacticalD20CommandQueuedEvent, registry, command);
-    registry.emplace_or_replace<FQueuedTacticalD20Command>(
-        unit,
-        command.actionId,
-        command.movementSpentTiles,
-        command.hasTargetTile,
-        command.targetTileX,
-        command.targetTileY,
-        command.targetEntity,
-        true);
+    registry.emplace_or_replace<FQueuedTacticalD20Command>(unit, FQueuedTacticalD20Command{
+        .actionId = command.actionId,
+        .movementSpentTiles = command.movementSpentTiles,
+        .hasTargetTile = command.hasTargetTile,
+        .targetTileX = command.targetTileX,
+        .targetTileY = command.targetTileY,
+        .targetEntity = command.targetEntity,
+        .validationApproved = true,
+        .endTurnAfterResolution = command.endTurnAfterResolution,
+    });
 }
 
 void QueueWait(entt::registry& registry, entt::entity enemy, const std::string& reason) {
@@ -152,8 +153,13 @@ void Think(entt::registry& registry, entt::entity enemyEntity) {
     const auto& target = registry.get<FTacticalUnit>(targetEntity);
     const int distance = std::abs(target.tileX - enemy.tileX) + std::abs(target.tileY - enemy.tileY);
     const auto* config = registry.ctx().find<FTacticalD20Config>();
+    const std::string_view aiType = config ? std::string_view(config->enemyAi.type) : std::string_view("nearestTargetMeleeFirst");
+    if (aiType != "nearestTargetMeleeFirst") {
+        return QueueWait(registry, enemyEntity, fmt::format("{} waits: unsupported enemy AI type '{}'.", enemy.displayName, aiType));
+    }
     const bool canAttack = !config || config->enemyAi.attackIfInRange;
     const bool canMove = !config || config->enemyAi.moveTowardTargetIfOutOfRange;
+    const bool endTurnAfterMove = config ? config->enemyAi.noAttackAfterMoveInFirstPrototype : true;
 
     if (distance == 1 && canAttack && HasAction(enemy, "attack")) {
         AppendTacticalD20CombatLog(registry, fmt::format("{} attacks {}.", enemy.displayName, target.displayName));
@@ -175,6 +181,7 @@ void Think(entt::registry& registry, entt::entity enemyEntity) {
         .targetTileX = destination.x,
         .targetTileY = destination.y,
         .validationApproved = true,
+        .endTurnAfterResolution = endTurnAfterMove,
     });
 }
 

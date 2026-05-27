@@ -38,6 +38,9 @@ void ClearActionEconomyTags(entt::registry& registry, entt::entity unitEntity) {
 }
 
 void ResetTurnBudget(entt::registry& registry, entt::entity unitEntity) {
+    // Action economy transition table:
+    //   active unit + TurnStart -> HasMoveAndAction
+    //   any previous action economy tag + TurnStart -> removed before HasMoveAndAction
     const auto* config = registry.ctx().find<FTacticalD20Config>();
     const int movementTiles = BaseMovementTiles(registry.get<FTacticalUnit>(unitEntity), config);
     ClearActionEconomyTags(registry, unitEntity);
@@ -107,19 +110,21 @@ bool TryStoreQueuedCommand(entt::registry& registry, entt::entity active) {
             .targetTileY = accepted.targetTileY,
             .targetEntity = accepted.targetEntity,
             .validationApproved = true,
+            .endTurnAfterResolution = accepted.endTurnAfterResolution,
         };
         if (!CanAcceptCommand(registry, command)) continue;
         PUBLISH(FTacticalD20CommandQueuedEvent, registry, command);
         QUEUE_FRAME_EVENT(FTacticalD20CommandQueuedEvent, registry, command);
-        registry.emplace_or_replace<FQueuedTacticalD20Command>(
-            active,
-            command.actionId,
-            command.movementSpentTiles,
-            command.hasTargetTile,
-            command.targetTileX,
-            command.targetTileY,
-            command.targetEntity,
-            command.validationApproved);
+        registry.emplace_or_replace<FQueuedTacticalD20Command>(active, FQueuedTacticalD20Command{
+            .actionId = command.actionId,
+            .movementSpentTiles = command.movementSpentTiles,
+            .hasTargetTile = command.hasTargetTile,
+            .targetTileX = command.targetTileX,
+            .targetTileY = command.targetTileY,
+            .targetEntity = command.targetEntity,
+            .validationApproved = command.validationApproved,
+            .endTurnAfterResolution = command.endTurnAfterResolution,
+        });
         return true;
     }
     return false;

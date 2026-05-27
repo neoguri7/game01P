@@ -59,6 +59,7 @@ struct FTacticalD20EnemyAiConfig {
     bool attackIfInRange{true};
     bool moveTowardTargetIfOutOfRange{true};
     bool noAttackAfterMoveInFirstPrototype{true};
+    float enemyThinkDelaySeconds{0.4f};
 };
 
 struct FTacticalD20LoggingConfig {

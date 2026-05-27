@@ -27,6 +27,7 @@ struct FTacticalD20CommandQueuedEvent {
     int targetTileY{0};
     entt::entity targetEntity{entt::null};
     bool validationApproved{false};
+    bool endTurnAfterResolution{false};
 };
 
 struct FTacticalD20CommandDropRequestedEvent {
@@ -38,6 +39,7 @@ struct FTacticalD20CommandDropRequestedEvent {
     int targetTileY{0};
     entt::entity targetEntity{entt::null};
     bool targetsTurnPanel{false};
+    bool endTurnAfterResolution{false};
 };
 
 struct FTacticalD20MovementPathValidatedEvent {
@@ -76,6 +78,7 @@ struct FTacticalD20CommandAcceptedEvent {
     int targetTileY{0};
     entt::entity targetEntity{entt::null};
     bool targetsTurnPanel{false};
+    bool endTurnAfterResolution{false};
 };
 
 struct FTacticalD20CommandDragStateChangedEvent {

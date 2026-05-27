@@ -13,6 +13,7 @@ struct FQueuedTacticalD20Command {
     int targetTileY{0};
     entt::entity targetEntity{entt::null};
     bool validationApproved{false};
+    bool endTurnAfterResolution{false};
 };
 
 } // namespace game
