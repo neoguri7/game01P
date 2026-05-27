@@ -47,19 +47,23 @@ void PublishCondition(entt::registry& registry, entt::entity unit, const std::st
     const FTacticalD20ConditionChangedEvent event{unit, condition, change, remaining};
     PUBLISH(FTacticalD20ConditionChangedEvent, registry, event);
     QUEUE_FRAME_EVENT(FTacticalD20ConditionChangedEvent, registry, event);
-    AppendTacticalD20EventLog(registry, fmt::format("[Event] ConditionChanged condition={} change={} remaining={}", condition, change, remaining));
+    const auto unitKey = TacticalD20EntityLogKey(registry, unit);
+    AppendTacticalD20EventLog(registry, fmt::format("[Event] ConditionChanged unit={} condition={} change={} remaining={}", unitKey, condition, change, remaining));
     if (change == "applied") {
         const FTacticalD20ConditionAppliedEvent applied{unit, condition, remaining};
         PUBLISH(FTacticalD20ConditionAppliedEvent, registry, applied);
         QUEUE_FRAME_EVENT(FTacticalD20ConditionAppliedEvent, registry, applied);
+        AppendTacticalD20EventLog(registry, fmt::format("[Event] ConditionApplied unit={} condition={} remaining={}", unitKey, condition, remaining));
     } else if (change == "ticked") {
         const FTacticalD20ConditionTickedEvent ticked{unit, condition, remaining};
         PUBLISH(FTacticalD20ConditionTickedEvent, registry, ticked);
         QUEUE_FRAME_EVENT(FTacticalD20ConditionTickedEvent, registry, ticked);
+        AppendTacticalD20EventLog(registry, fmt::format("[Event] ConditionTicked unit={} condition={} remaining={}", unitKey, condition, remaining));
     } else if (change == "expired") {
         const FTacticalD20ConditionExpiredEvent expired{unit, condition};
         PUBLISH(FTacticalD20ConditionExpiredEvent, registry, expired);
         QUEUE_FRAME_EVENT(FTacticalD20ConditionExpiredEvent, registry, expired);
+        AppendTacticalD20EventLog(registry, fmt::format("[Event] ConditionExpired unit={} condition={}", unitKey, condition));
     }
 }
 
@@ -67,7 +71,8 @@ void PublishDamage(entt::registry& registry, entt::entity unit, const FTacticalD
     const FTacticalD20DamageAppliedEvent event{unit, unit, "fire", applied.damageApplied, applied.hpBefore, applied.hpAfter, applied.defeated};
     PUBLISH(FTacticalD20DamageAppliedEvent, registry, event);
     QUEUE_FRAME_EVENT(FTacticalD20DamageAppliedEvent, registry, event);
-    AppendTacticalD20EventLog(registry, fmt::format("[Event] DamageApplied type=fire amount={} hp={}->{} defeated={}",
+    AppendTacticalD20EventLog(registry, fmt::format("[Event] DamageApplied target={} type=fire amount={} hp={}->{} defeated={}",
+        TacticalD20EntityLogKey(registry, unit),
         applied.damageApplied,
         applied.hpBefore,
         applied.hpAfter,

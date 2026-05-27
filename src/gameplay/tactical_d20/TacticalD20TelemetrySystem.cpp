@@ -65,6 +65,7 @@ void CaptureEventCounts(const FEventBus& bus, FTacticalD20Telemetry& telemetry) 
     AddCount<FTacticalD20ActiveUnitChangedEvent>(bus, telemetry, "ActiveUnitChanged");
     AddCount<FTacticalD20TurnEndedEvent>(bus, telemetry, "TurnEnded");
     AddCount<FTacticalD20CommandDragStartedEvent>(bus, telemetry, "CommandDragStarted");
+    AddCount<FTacticalD20CommandDragStateChangedEvent>(bus, telemetry, "CommandDragStateChanged");
     AddCount<FTacticalD20CommandSelectedEvent>(bus, telemetry, "CommandSelected");
     AddCount<FTacticalD20CommandDropRequestedEvent>(bus, telemetry, "CommandDropRequested");
     AddCount<FTacticalD20MovementPathValidatedEvent>(bus, telemetry, "MovementPathValidated");

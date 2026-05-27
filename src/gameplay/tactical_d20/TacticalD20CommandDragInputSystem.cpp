@@ -16,6 +16,7 @@
 #include "ecs/components/FTacticalD20CommandDragState.h"
 #include "ecs/components/FTacticalUnit.h"
 #include "gameplay/tactical_d20/FTacticalD20BoardInteraction.h"
+#include "gameplay/tactical_d20/FTacticalD20CommandDragLog.h"
 #include "gameplay/tactical_d20/FTacticalD20Events.h"
 #include "gameplay/tactical_d20/FTacticalD20LogUtils.h"
 #include "gameplay/tactical_d20/FTacticalD20TurnPanelHitZone.h"
@@ -33,35 +34,6 @@ bool ContainsPoint(const FPosition& position, const FCollider& collider, const g
     const float centerY = position.y + collider.offset.y;
     return point.x >= centerX - collider.halfWidth && point.x <= centerX + collider.halfWidth
         && point.y >= centerY - collider.halfHeight && point.y <= centerY + collider.halfHeight;
-}
-
-const char* DragPhaseName(ETacticalD20CommandDragPhase phase) {
-    switch (phase) {
-        case ETacticalD20CommandDragPhase::DragIdle: return "DragIdle";
-        case ETacticalD20CommandDragPhase::DraggingCommand: return "DraggingCommand";
-        case ETacticalD20CommandDragPhase::DropCandidate: return "DropCandidate";
-        case ETacticalD20CommandDragPhase::DragRejected: return "DragRejected";
-        case ETacticalD20CommandDragPhase::CommandAccepted: return "CommandAccepted";
-    }
-    return "DragIdle";
-}
-
-void PublishDragStateChanged(entt::registry& registry,
-                             entt::entity token,
-                             const std::string& commandId,
-                             ETacticalD20CommandDragPhase previous,
-                             ETacticalD20CommandDragPhase next,
-                             const std::string& reason = "") {
-    const FTacticalD20CommandDragStateChangedEvent event{
-        .token = token,
-        .commandId = commandId,
-        .previousState = DragPhaseName(previous),
-        .nextState = DragPhaseName(next),
-        .reason = reason,
-    };
-    PUBLISH(FTacticalD20CommandDragStateChangedEvent, registry, event);
-    QUEUE_FRAME_EVENT(FTacticalD20CommandDragStateChangedEvent, registry, event);
-    AppendTacticalD20StateLog(registry, fmt::format("[DragState] {} -> {}", event.previousState, event.nextState));
 }
 
 entt::entity ActiveUnit(entt::registry& registry) {
@@ -207,11 +179,11 @@ void ConsumeValidationEvents(entt::registry& registry) {
         //   DropCandidate + invalid CommandDropValidated -> DragRejected    -> DragIdle
         auto drag = registry.get<FTacticalD20CommandDragState>(event.token);
         const auto terminalPhase = event.valid ? ETacticalD20CommandDragPhase::CommandAccepted : ETacticalD20CommandDragPhase::DragRejected;
-        PublishDragStateChanged(registry, event.token, drag.commandId, drag.phase, terminalPhase, event.invalidReason);
+        PublishTacticalD20DragStateChanged(registry, event.token, drag.commandId, drag.phase, terminalPhase, event.invalidReason);
         SnapBack(registry, event.token, drag);
         AppendTacticalD20CommandValidationLogs(registry, event);
         if (event.valid) PublishAcceptedCommand(registry, event);
-        PublishDragStateChanged(registry, event.token, drag.commandId, terminalPhase, ETacticalD20CommandDragPhase::DragIdle, event.invalidReason);
+        PublishTacticalD20DragStateChanged(registry, event.token, drag.commandId, terminalPhase, ETacticalD20CommandDragPhase::DragIdle, event.invalidReason);
         registry.remove<FTacticalD20CommandDragState>(event.token);
     }
 }
@@ -233,10 +205,14 @@ void BeginDrag(entt::registry& registry, const FInputState& input, entt::entity 
         input.mousePos.y - position.y,
         ETacticalD20CommandDragPhase::DraggingCommand,
         "");
-    PublishDragStateChanged(registry, token, command.id, ETacticalD20CommandDragPhase::DragIdle, ETacticalD20CommandDragPhase::DraggingCommand);
+    PublishTacticalD20DragStateChanged(registry, token, command.id, ETacticalD20CommandDragPhase::DragIdle, ETacticalD20CommandDragPhase::DraggingCommand);
     const FTacticalD20CommandSelectedEvent selected{token, active, command.id};
     PUBLISH(FTacticalD20CommandSelectedEvent, registry, selected);
     QUEUE_FRAME_EVENT(FTacticalD20CommandSelectedEvent, registry, selected);
+    AppendTacticalD20EventLog(registry, fmt::format("[Event] CommandSelected command={} unit={} token={}",
+        command.id,
+        TacticalD20EntityLogKey(registry, active),
+        TacticalD20EntityLogKey(registry, token)));
     const FTacticalD20CommandDragStartedEvent started{token, active, command.id};
     PUBLISH(FTacticalD20CommandDragStartedEvent, registry, started);
     QUEUE_FRAME_EVENT(FTacticalD20CommandDragStartedEvent, registry, started);
@@ -268,11 +244,11 @@ void UpdateActiveDrag(entt::registry& registry, const FInputState& input, entt::
             QUEUE_FRAME_EVENT(FTacticalD20CommandDropValidatedEvent, registry, rejected);
             // Drag state transition table:
             //   DraggingCommand + mouse released outside board/target -> DragRejected -> DragIdle
-            PublishDragStateChanged(registry, token, drag.commandId, drag.phase, ETacticalD20CommandDragPhase::DragRejected, reason);
+            PublishTacticalD20DragStateChanged(registry, token, drag.commandId, drag.phase, ETacticalD20CommandDragPhase::DragRejected, reason);
             SnapBack(registry, token, drag);
             AppendTacticalD20EventLog(registry, fmt::format("[Event] CommandDropValidated command={} target=none result=invalid: {}", drag.commandId, reason));
             AppendTacticalD20CombatLog(registry, fmt::format("{} command invalid: {}", drag.commandId, reason));
-            PublishDragStateChanged(registry, token, drag.commandId, ETacticalD20CommandDragPhase::DragRejected, ETacticalD20CommandDragPhase::DragIdle, reason);
+            PublishTacticalD20DragStateChanged(registry, token, drag.commandId, ETacticalD20CommandDragPhase::DragRejected, ETacticalD20CommandDragPhase::DragIdle, reason);
             registry.remove<FTacticalD20CommandDragState>(token);
             return;
         }
@@ -281,7 +257,7 @@ void UpdateActiveDrag(entt::registry& registry, const FInputState& input, entt::
 
         // Drag state transition table:
         //   DraggingCommand + mouse released -> DropCandidate
-        PublishDragStateChanged(registry, token, drag.commandId, drag.phase, ETacticalD20CommandDragPhase::DropCandidate);
+        PublishTacticalD20DragStateChanged(registry, token, drag.commandId, drag.phase, ETacticalD20CommandDragPhase::DropCandidate);
         drag.phase = ETacticalD20CommandDragPhase::DropCandidate;
         return;
     }

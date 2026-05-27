@@ -104,7 +104,8 @@ void PublishDamageEvent(entt::registry& registry, entt::entity attacker, entt::e
     const FTacticalD20DamageAppliedEvent damageEvent{attacker, target, "weapon", applied.damageApplied, applied.hpBefore, applied.hpAfter, applied.defeated};
     PUBLISH(FTacticalD20DamageAppliedEvent, registry, damageEvent);
     QUEUE_FRAME_EVENT(FTacticalD20DamageAppliedEvent, registry, damageEvent);
-    AppendTacticalD20EventLog(registry, fmt::format("[Event] DamageApplied amount={} hp={}->{} defeated={}",
+    AppendTacticalD20EventLog(registry, fmt::format("[Event] DamageApplied target={} amount={} hp={}->{} defeated={}",
+        TacticalD20EntityLogKey(registry, target),
         applied.damageApplied,
         applied.hpBefore,
         applied.hpAfter,

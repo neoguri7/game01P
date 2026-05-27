@@ -30,7 +30,7 @@ void ResolveDodge(entt::registry& registry, entt::entity unit) {
     const FTacticalD20ConditionAppliedEvent applied{unit, "dodge", 1};
     PUBLISH(FTacticalD20ConditionAppliedEvent, registry, applied);
     QUEUE_FRAME_EVENT(FTacticalD20ConditionAppliedEvent, registry, applied);
-    AppendTacticalD20EventLog(registry, "[Event] ConditionApplied condition=dodge remaining=1");
+    AppendTacticalD20EventLog(registry, fmt::format("[Event] ConditionApplied unit={} condition=dodge remaining=1", TacticalD20EntityLogKey(registry, unit)));
     PublishTacticalD20ActionResolved(registry, unit, "dodge", true);
 }
 
