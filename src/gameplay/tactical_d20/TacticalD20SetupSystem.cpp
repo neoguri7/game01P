@@ -11,6 +11,7 @@
 #include "gameplay/tactical_d20/FTacticalD20Config.h"
 #include "gameplay/tactical_d20/FTacticalD20EventLog.h"
 #include "gameplay/tactical_d20/FTacticalD20Events.h"
+#include "gameplay/tactical_d20/FTacticalD20LogUtils.h"
 #include "gameplay/tactical_d20/FTacticalD20StateLog.h"
 #include <algorithm>
 #include <array>
@@ -50,14 +51,6 @@ void EnsureObservableLogs(entt::registry& registry) {
     if (!registry.ctx().contains<FTacticalD20CombatLog>()) registry.ctx().emplace<FTacticalD20CombatLog>();
     if (!registry.ctx().contains<FTacticalD20EventLog>()) registry.ctx().emplace<FTacticalD20EventLog>();
     EnsureStateLog(registry);
-}
-
-void AppendStateLog(entt::registry& registry, const FTacticalD20Config& config, const std::string& line) {
-    auto& log = registry.ctx().get<FTacticalD20StateLog>();
-    log.lines.push_back(line);
-    while (static_cast<int>(log.lines.size()) > config.logging.stateLogMaxLines) {
-        log.lines.erase(log.lines.begin());
-    }
 }
 
 void SpawnUnits(entt::registry& registry, const FTacticalD20Config& config) {
@@ -101,9 +94,12 @@ void TransitionSetupToInitiative(entt::registry& registry, const FTacticalD20Con
     for (auto entity : view) {
         registry.remove<FCombatStateSetup>(entity);
         registry.emplace<FCombatStateInitiativeRolling>(entity);
-        AppendStateLog(registry, config, fmt::format("[CombatState] {} -> {}", "CombatSetup", "InitiativeRolling"));
-        const FTacticalD20CombatStateChangedEvent event{"CombatSetup", "InitiativeRolling"};
+        (void)config;
+        AppendTacticalD20StateLog(registry, fmt::format("[CombatState] {} -> {}", "CombatSetup", "InitiativeRolling"));
+        const FTacticalD20CombatStateChangedEvent event{.previousState = "CombatSetup", .nextState = "InitiativeRolling"};
         PUBLISH(FTacticalD20CombatStateChangedEvent, registry, event);
+        QUEUE_FRAME_EVENT(FTacticalD20CombatStateChangedEvent, registry, event);
+        AppendTacticalD20EventLog(registry, "[Event] CombatStateChanged CombatSetup->InitiativeRolling");
     }
 }
 
@@ -114,7 +110,10 @@ void TacticalD20SetupSystem::update(entt::registry& registry, float /*dt*/) {
     auto* config = registry.ctx().find<FTacticalD20Config>();
     if (!config || registry.view<FCombatStateSetup>().empty()) return;
 
-    PUBLISH(FTacticalD20CombatSetupRequestedEvent, registry, FTacticalD20CombatSetupRequestedEvent{});
+    const FTacticalD20CombatSetupRequestedEvent setupRequested{};
+    PUBLISH(FTacticalD20CombatSetupRequestedEvent, registry, setupRequested);
+    QUEUE_FRAME_EVENT(FTacticalD20CombatSetupRequestedEvent, registry, setupRequested);
+    AppendTacticalD20EventLog(registry, "[Event] CombatSetupRequested");
     EnsureBoardInteractionState(registry);
     EnsureObservableLogs(registry);
     SpawnBoard(registry, *config);
@@ -126,6 +125,11 @@ void TacticalD20SetupSystem::update(entt::registry& registry, float /*dt*/) {
         .unitCount = static_cast<int>(config->units.size()),
     };
     PUBLISH(FTacticalD20CombatSetupCompletedEvent, registry, setupCompleted);
+    QUEUE_FRAME_EVENT(FTacticalD20CombatSetupCompletedEvent, registry, setupCompleted);
+    AppendTacticalD20EventLog(registry, fmt::format("[Event] CombatSetupCompleted grid={}x{} units={}",
+        setupCompleted.gridWidth,
+        setupCompleted.gridHeight,
+        setupCompleted.unitCount));
     TransitionSetupToInitiative(registry, *config);
 }
 

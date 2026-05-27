@@ -15,6 +15,7 @@ namespace game {
 namespace {
 
 void ResolveDash(entt::registry& registry, entt::entity unit) {
+    ZoneScopedN("TacticalD20::ActionResolution");
     // Action economy transition table:
     //   HasMoveAndAction + Dash resolved -> HasMoveOnly
     auto& budget = registry.get<FTurnBudget>(unit);

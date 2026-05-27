@@ -11,6 +11,7 @@
 #include "ecs/components/FUnitStateDefeated.h"
 #include "gameplay/tactical_d20/FTacticalD20Config.h"
 #include "gameplay/tactical_d20/FTacticalD20Events.h"
+#include "gameplay/tactical_d20/FTacticalD20LogUtils.h"
 #include "gameplay/tactical_d20/FTacticalD20Random.h"
 #include "gameplay/tactical_d20/FTacticalD20Rules.h"
 #include "gameplay/tactical_d20/FTacticalD20StateLog.h"
@@ -30,21 +31,12 @@ void EnsureInitiativeServices(entt::registry& registry) {
     if (!registry.ctx().contains<FTacticalD20StateLog>()) registry.ctx().emplace<FTacticalD20StateLog>();
 }
 
-void AppendStateLog(entt::registry& registry, const std::string& line) {
-    if (auto* log = registry.ctx().find<FTacticalD20StateLog>()) {
-        log->lines.push_back(line);
-        if (auto* config = registry.ctx().find<FTacticalD20Config>()) {
-            while (static_cast<int>(log->lines.size()) > config->logging.stateLogMaxLines) {
-                log->lines.erase(log->lines.begin());
-            }
-        }
-    }
-}
-
 void PublishStateChange(entt::registry& registry, const char* previousState, const char* nextState) {
-    AppendStateLog(registry, fmt::format("[CombatState] {} -> {}", previousState, nextState));
-    const FTacticalD20CombatStateChangedEvent event{previousState, nextState};
+    AppendTacticalD20StateLog(registry, fmt::format("[CombatState] {} -> {}", previousState, nextState));
+    const FTacticalD20CombatStateChangedEvent event{.previousState = previousState, .nextState = nextState};
     PUBLISH(FTacticalD20CombatStateChangedEvent, registry, event);
+    QUEUE_FRAME_EVENT(FTacticalD20CombatStateChangedEvent, registry, event);
+    AppendTacticalD20EventLog(registry, fmt::format("[Event] CombatStateChanged {}->{}", previousState, nextState));
 }
 
 bool IsPlayerTeam(const FTacticalUnit& unit) {
@@ -59,16 +51,26 @@ std::vector<entt::entity> LivingUnits(entt::registry& registry) {
 }
 
 int RollD20(entt::registry& registry) {
+    ZoneScopedN("TacticalD20::DiceRoll");
     auto& random = registry.ctx().get<FTacticalD20Random>();
     std::uniform_int_distribution<int> distribution(1, D20Sides);
     return distribution(random.rng);
 }
 
 void RollInitiative(entt::registry& registry, entt::entity entity) {
+    ZoneScopedN("TacticalD20::InitiativeResolution");
     const auto& abilities = registry.get<FAbilityScores>(entity);
+    const auto& unit = registry.get<FTacticalUnit>(entity);
     const int dexterityModifier = AbilityModifier(abilities, ETacticalD20Ability::Dexterity);
     const int naturalRoll = RollD20(registry);
-    registry.emplace_or_replace<FInitiativeRoll>(entity, naturalRoll, dexterityModifier, naturalRoll + dexterityModifier);
+    const int total = naturalRoll + dexterityModifier;
+    registry.emplace_or_replace<FInitiativeRoll>(entity, naturalRoll, dexterityModifier, total);
+    const auto breakdown = fmt::format("d20({}) + DEX({}) = {}", naturalRoll, dexterityModifier, total);
+    const FTacticalD20InitiativeRollResolvedEvent event{entity, unit.id, naturalRoll, dexterityModifier, total, breakdown};
+    PUBLISH(FTacticalD20InitiativeRollResolvedEvent, registry, event);
+    QUEUE_FRAME_EVENT(FTacticalD20InitiativeRollResolvedEvent, registry, event);
+    AppendTacticalD20EventLog(registry, fmt::format("[Event] InitiativeRollResolved unit={} total={}", unit.id, total));
+    AppendTacticalD20CombatLog(registry, fmt::format("{} initiative: {}.", unit.displayName, breakdown));
 }
 
 void SortTurnOrder(entt::registry& registry, std::vector<entt::entity>& units) {

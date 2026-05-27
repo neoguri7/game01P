@@ -59,6 +59,13 @@ public:
         return systems.size();
     }
 
+    [[nodiscard]] std::vector<std::string> getSystemNames() const {
+        std::vector<std::string> names;
+        names.reserve(systems.size());
+        for (const auto& sys : systems) names.push_back(sys->name());
+        return names;
+    }
+
     void clear() {
         systems.clear();
     }

@@ -18,6 +18,7 @@
 #include "gameplay/tactical_d20/TacticalD20MoveActionResolutionSystem.h"
 #include "gameplay/tactical_d20/TacticalD20MovementPathValidationSystem.h"
 #include "gameplay/tactical_d20/TacticalD20SetupSystem.h"
+#include "gameplay/tactical_d20/TacticalD20TelemetrySystem.h"
 #include "gameplay/tactical_d20/TacticalD20UnitLabelSystem.h"
 #include "gameplay/tactical_d20/TacticalD20WaitActionResolutionSystem.h"
 
@@ -47,6 +48,7 @@ void RegisterDefaultSystems(SystemManager& systemManager, entt::registry& regist
     systemManager.addSystem<TacticalD20AttackActionResolutionSystem>();
     systemManager.addSystem<TacticalD20WaitActionResolutionSystem>();
     systemManager.addSystem<TacticalD20CombatLifecycleSystem>();
+    systemManager.addSystem<TacticalD20TelemetrySystem>();
     systemManager.addSystem<ecs::MoveSystem>();
     systemManager.addSystem<ecs::SpriteRenderSystem>();
     systemManager.addSystem<ecs::AnimationSystem>();

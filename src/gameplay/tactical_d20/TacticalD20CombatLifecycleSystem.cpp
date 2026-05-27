@@ -22,6 +22,7 @@
 #include "ecs/components/FUnitStateDefeated.h"
 #include "gameplay/tactical_d20/FTacticalD20Config.h"
 #include "gameplay/tactical_d20/FTacticalD20Events.h"
+#include "gameplay/tactical_d20/FTacticalD20LogUtils.h"
 #include "gameplay/tactical_d20/FTacticalD20StateLog.h"
 
 #include <algorithm>
@@ -36,19 +37,12 @@ void EnsureLifecycleServices(entt::registry& registry) {
     if (!registry.ctx().contains<FTacticalD20StateLog>()) registry.ctx().emplace<FTacticalD20StateLog>();
 }
 
-void AppendStateLog(entt::registry& registry, const std::string& line) {
-    if (auto* log = registry.ctx().find<FTacticalD20StateLog>()) {
-        log->lines.push_back(line);
-        if (auto* config = registry.ctx().find<FTacticalD20Config>()) {
-            while (static_cast<int>(log->lines.size()) > config->logging.stateLogMaxLines) log->lines.erase(log->lines.begin());
-        }
-    }
-}
-
 void PublishStateChange(entt::registry& registry, const char* previousState, const char* nextState) {
-    AppendStateLog(registry, fmt::format("[CombatState] {} -> {}", previousState, nextState));
-    const FTacticalD20CombatStateChangedEvent event{previousState, nextState};
+    AppendTacticalD20StateLog(registry, fmt::format("[CombatState] {} -> {}", previousState, nextState));
+    const FTacticalD20CombatStateChangedEvent event{.previousState = previousState, .nextState = nextState};
     PUBLISH(FTacticalD20CombatStateChangedEvent, registry, event);
+    QUEUE_FRAME_EVENT(FTacticalD20CombatStateChangedEvent, registry, event);
+    AppendTacticalD20EventLog(registry, fmt::format("[Event] CombatStateChanged {}->{}", previousState, nextState));
 }
 
 template<typename PreviousTag, typename NextTag>
@@ -85,14 +79,22 @@ bool TryTerminalTransition(entt::registry& registry, entt::entity stateEntity, c
     return false;
 }
 
-void ClearActiveUnit(entt::registry& registry) {
+entt::entity CurrentActiveUnit(entt::registry& registry) {
     auto view = registry.view<FActiveTacticalUnit>();
-    for (auto entity : view) registry.remove<FActiveTacticalUnit>(entity);
+    for (auto entity : view) return entity;
+    return entt::null;
 }
 
 void AssignActiveUnit(entt::registry& registry, entt::entity unitEntity) {
-    ClearActiveUnit(registry);
+    const auto previous = CurrentActiveUnit(registry);
+    auto view = registry.view<FActiveTacticalUnit>();
+    for (auto entity : view) registry.remove<FActiveTacticalUnit>(entity);
     registry.emplace_or_replace<FActiveTacticalUnit>(unitEntity);
+    const auto& unit = registry.get<FTacticalUnit>(unitEntity);
+    const FTacticalD20ActiveUnitChangedEvent event{previous, unitEntity, unit.id};
+    PUBLISH(FTacticalD20ActiveUnitChangedEvent, registry, event);
+    QUEUE_FRAME_EVENT(FTacticalD20ActiveUnitChangedEvent, registry, event);
+    AppendTacticalD20EventLog(registry, fmt::format("[Event] ActiveUnitChanged unit={}", unit.id));
 }
 
 bool SelectLivingUnitAtIndex(entt::registry& registry, FTacticalTurnOrder& order, int startIndex) {
@@ -111,6 +113,11 @@ bool SelectLivingUnitAtIndex(entt::registry& registry, FTacticalTurnOrder& order
 bool SelectFirstTurn(entt::registry& registry, entt::entity stateEntity) {
     auto& order = registry.get<FTacticalTurnOrder>(stateEntity);
     order.round += 1;
+    const FTacticalD20RoundStartedEvent event{order.round};
+    PUBLISH(FTacticalD20RoundStartedEvent, registry, event);
+    QUEUE_FRAME_EVENT(FTacticalD20RoundStartedEvent, registry, event);
+    AppendTacticalD20CombatLog(registry, fmt::format("Round {} begins.", order.round));
+    AppendTacticalD20EventLog(registry, fmt::format("[Event] RoundStarted round={}", order.round));
     return SelectLivingUnitAtIndex(registry, order, 0);
 }
 
@@ -168,6 +175,12 @@ void HandleTurnStart(entt::registry& registry, entt::entity stateEntity) {
     if (active == entt::null) return;
 
     const auto& unit = registry.get<FTacticalUnit>(active);
+    const int round = registry.get<FTacticalTurnOrder>(stateEntity).round;
+    const FTacticalD20TurnStartedEvent event{active, unit.id, round};
+    PUBLISH(FTacticalD20TurnStartedEvent, registry, event);
+    QUEUE_FRAME_EVENT(FTacticalD20TurnStartedEvent, registry, event);
+    AppendTacticalD20CombatLog(registry, fmt::format("{} turn begins.", unit.displayName));
+    AppendTacticalD20EventLog(registry, fmt::format("[Event] TurnStarted unit={} round={}", unit.id, round));
     if (unit.team == "player") Transition<FCombatStateTurnStart, FCombatStateAwaitingCommand>(registry, stateEntity, "TurnStart", "AwaitingCommand");
     else Transition<FCombatStateTurnStart, FCombatStateEnemyThinking>(registry, stateEntity, "TurnStart", "EnemyThinking");
 }
@@ -185,7 +198,15 @@ void HandleTurnEndCheck(entt::registry& registry, entt::entity stateEntity) {
     //   FCombatStateTurnEndCheck + enemy active unit   -> FCombatStateEnemyThinking
     const auto active = ActiveUnit(registry);
     if (active == entt::null || registry.all_of<FActionEconomyTurnComplete>(active)) {
-        if (active != entt::null) ClearActiveTurnState(registry, active);
+        if (active != entt::null) {
+            const auto& unit = registry.get<FTacticalUnit>(active);
+            const int round = registry.get<FTacticalTurnOrder>(stateEntity).round;
+            const FTacticalD20TurnEndedEvent event{active, unit.id, round};
+            PUBLISH(FTacticalD20TurnEndedEvent, registry, event);
+            QUEUE_FRAME_EVENT(FTacticalD20TurnEndedEvent, registry, event);
+            AppendTacticalD20EventLog(registry, fmt::format("[Event] TurnEnded unit={} round={}", unit.id, round));
+            ClearActiveTurnState(registry, active);
+        }
         return Transition<FCombatStateTurnEndCheck, FCombatStateNextTurn>(registry, stateEntity, "TurnEndCheck", "NextTurn");
     }
 

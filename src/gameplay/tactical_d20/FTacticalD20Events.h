@@ -14,8 +14,52 @@ struct FTacticalD20CombatSetupCompletedEvent {
 };
 
 struct FTacticalD20CombatStateChangedEvent {
+    const char* machine{"CombatState"};
     const char* previousState{"CombatSetup"};
     const char* nextState{"InitiativeRolling"};
+};
+
+struct FTacticalD20InitiativeRollResolvedEvent {
+    entt::entity unit{entt::null};
+    std::string unitId;
+    int naturalRoll{0};
+    int dexterityModifier{0};
+    int total{0};
+    std::string breakdown;
+};
+
+struct FTacticalD20RoundStartedEvent {
+    int round{0};
+};
+
+struct FTacticalD20TurnStartedEvent {
+    entt::entity unit{entt::null};
+    std::string unitId;
+    int round{0};
+};
+
+struct FTacticalD20ActiveUnitChangedEvent {
+    entt::entity previousUnit{entt::null};
+    entt::entity nextUnit{entt::null};
+    std::string nextUnitId;
+};
+
+struct FTacticalD20TurnEndedEvent {
+    entt::entity unit{entt::null};
+    std::string unitId;
+    int round{0};
+};
+
+struct FTacticalD20CommandDragStartedEvent {
+    entt::entity token{entt::null};
+    entt::entity unit{entt::null};
+    std::string commandId;
+};
+
+struct FTacticalD20CommandSelectedEvent {
+    entt::entity token{entt::null};
+    entt::entity unit{entt::null};
+    std::string commandId;
 };
 
 struct FTacticalD20CommandQueuedEvent {
@@ -109,6 +153,18 @@ struct FTacticalD20AttackResolvedEvent {
     bool disadvantageApplied{false};
 };
 
+struct FTacticalD20AttackRollResolvedEvent {
+    entt::entity attacker{entt::null};
+    entt::entity target{entt::null};
+    std::string weaponId;
+    int naturalRoll{0};
+    int total{0};
+    int targetNumber{0};
+    bool hit{false};
+    bool criticalHit{false};
+    std::string breakdown;
+};
+
 struct FTacticalD20DamageAppliedEvent {
     entt::entity source{entt::null};
     entt::entity target{entt::null};
@@ -124,6 +180,23 @@ struct FTacticalD20ConditionChangedEvent {
     std::string conditionId;
     std::string change;
     int remainingRounds{0};
+};
+
+struct FTacticalD20ConditionAppliedEvent {
+    entt::entity unit{entt::null};
+    std::string conditionId;
+    int remainingRounds{0};
+};
+
+struct FTacticalD20ConditionTickedEvent {
+    entt::entity unit{entt::null};
+    std::string conditionId;
+    int remainingRounds{0};
+};
+
+struct FTacticalD20ConditionExpiredEvent {
+    entt::entity unit{entt::null};
+    std::string conditionId;
 };
 
 } // namespace game

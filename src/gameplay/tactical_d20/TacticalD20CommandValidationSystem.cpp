@@ -183,6 +183,7 @@ FCommandValidation ValidateActiveUnitTarget(entt::registry& registry, const FTac
     return validation;
 }
 FCommandValidation ValidateCommand(entt::registry& registry, const FEventBus& bus, const FTacticalD20CommandDropRequestedEvent& request) {
+    ZoneScopedN("TacticalD20::CommandValidation");
     FCommandValidation validation;
     if (request.unit == entt::null || request.unit != ActiveUnit(registry) || !registry.valid(request.unit) || !registry.all_of<FTacticalUnit>(request.unit)) {
         validation.reason = "active unit is unavailable";

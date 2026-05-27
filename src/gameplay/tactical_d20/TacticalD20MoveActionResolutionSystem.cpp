@@ -18,6 +18,7 @@ namespace game {
 namespace {
 
 void ResolveMove(entt::registry& registry, entt::entity unit, const FQueuedTacticalD20Command& command) {
+    ZoneScopedN("TacticalD20::ActionResolution");
     // Action economy transition table:
     //   HasMoveAndAction + Move resolved -> HasActionOnly
     //   HasMoveOnly + Move resolved -> TurnComplete

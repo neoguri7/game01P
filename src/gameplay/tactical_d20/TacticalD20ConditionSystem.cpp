@@ -48,6 +48,19 @@ void PublishCondition(entt::registry& registry, entt::entity unit, const std::st
     PUBLISH(FTacticalD20ConditionChangedEvent, registry, event);
     QUEUE_FRAME_EVENT(FTacticalD20ConditionChangedEvent, registry, event);
     AppendTacticalD20EventLog(registry, fmt::format("[Event] ConditionChanged condition={} change={} remaining={}", condition, change, remaining));
+    if (change == "applied") {
+        const FTacticalD20ConditionAppliedEvent applied{unit, condition, remaining};
+        PUBLISH(FTacticalD20ConditionAppliedEvent, registry, applied);
+        QUEUE_FRAME_EVENT(FTacticalD20ConditionAppliedEvent, registry, applied);
+    } else if (change == "ticked") {
+        const FTacticalD20ConditionTickedEvent ticked{unit, condition, remaining};
+        PUBLISH(FTacticalD20ConditionTickedEvent, registry, ticked);
+        QUEUE_FRAME_EVENT(FTacticalD20ConditionTickedEvent, registry, ticked);
+    } else if (change == "expired") {
+        const FTacticalD20ConditionExpiredEvent expired{unit, condition};
+        PUBLISH(FTacticalD20ConditionExpiredEvent, registry, expired);
+        QUEUE_FRAME_EVENT(FTacticalD20ConditionExpiredEvent, registry, expired);
+    }
 }
 
 void PublishDamage(entt::registry& registry, entt::entity unit, const FTacticalD20DamageApplicationResult& applied) {
@@ -69,6 +82,7 @@ void ExpireDodge(entt::registry& registry, entt::entity unit) {
 }
 
 bool ApplyBurning(entt::registry& registry, entt::entity unit) {
+    ZoneScopedN("TacticalD20::ConditionTicking");
     auto* burning = registry.try_get<FConditionBurning>(unit);
     if (!burning) return false;
     if (!registry.ctx().contains<FTacticalD20Random>()) registry.ctx().emplace<FTacticalD20Random>();
@@ -76,7 +90,11 @@ bool ApplyBurning(entt::registry& registry, entt::entity unit) {
     const auto* config = registry.ctx().find<FTacticalD20Config>();
     const std::string dice = config ? config->conditions.burningDamageDice : "1d4";
     const auto damage = ResolveDamage(dice, 0, false, random.rng);
-    const auto applied = ApplyDamageAndDefeat(registry, unit, damage.finalDamage);
+    FTacticalD20DamageApplicationResult applied;
+    {
+        ZoneScopedN("TacticalD20::DamageApplication");
+        applied = ApplyDamageAndDefeat(registry, unit, damage.finalDamage);
+    }
     burning->remainingRounds -= 1;
     const int remaining = burning->remainingRounds;
     if (remaining <= 0) registry.remove<FConditionBurning>(unit);
@@ -92,6 +110,7 @@ bool ApplyBurning(entt::registry& registry, entt::entity unit) {
 }
 
 bool ApplyStunned(entt::registry& registry, entt::entity unit) {
+    ZoneScopedN("TacticalD20::ConditionTicking");
     auto* stunned = registry.try_get<FConditionStunned>(unit);
     if (!stunned) return false;
     stunned->remainingTurns -= 1;

@@ -1,5 +1,6 @@
 #include "gameplay/tactical_d20/FTacticalD20LogUtils.h"
 
+#include "core/Logger.h"
 #include "ecs/components/FTacticalUnit.h"
 #include "gameplay/tactical_d20/FTacticalD20CombatLog.h"
 #include "gameplay/tactical_d20/FTacticalD20Config.h"
@@ -31,6 +32,15 @@ void TrimLines(std::vector<std::string>& lines, int maxLines) {
     while (static_cast<int>(lines.size()) > maxLines) lines.erase(lines.begin());
 }
 
+bool ConsoleLogEnabled(entt::registry& registry) {
+    const auto* config = registry.ctx().find<FTacticalD20Config>();
+    return !config || config->logging.consoleLogEnabled;
+}
+
+void MirrorConsole(entt::registry& registry, const char* category, const std::string& line) {
+    if (ConsoleLogEnabled(registry)) LOG_INFO("[TacticalD20:{}] {}", category, line);
+}
+
 std::string TargetLabel(entt::registry& registry, const FTacticalD20CommandDropValidatedEvent& event) {
     if (event.targetsTurnPanel) return "turn_panel";
     if (event.targetEntity != entt::null && registry.valid(event.targetEntity) && registry.all_of<FTacticalUnit>(event.targetEntity)) {
@@ -47,6 +57,7 @@ void AppendTacticalD20StateLog(entt::registry& registry, const std::string& line
     auto& log = registry.ctx().get<FTacticalD20StateLog>();
     log.lines.push_back(line);
     TrimLines(log.lines, MaxStateLogLines(registry));
+    MirrorConsole(registry, "State", line);
 }
 
 void AppendTacticalD20EventLog(entt::registry& registry, const std::string& line) {
@@ -54,6 +65,7 @@ void AppendTacticalD20EventLog(entt::registry& registry, const std::string& line
     auto& log = registry.ctx().get<FTacticalD20EventLog>();
     log.lines.push_back(line);
     TrimLines(log.lines, MaxEventLogLines(registry));
+    MirrorConsole(registry, "Event", line);
 }
 
 void AppendTacticalD20CombatLog(entt::registry& registry, const std::string& line) {
@@ -61,6 +73,7 @@ void AppendTacticalD20CombatLog(entt::registry& registry, const std::string& lin
     auto& log = registry.ctx().get<FTacticalD20CombatLog>();
     log.lines.push_back(line);
     TrimLines(log.lines, MaxCombatLogLines(registry));
+    MirrorConsole(registry, "Combat", line);
 }
 
 void AppendTacticalD20CommandValidationLogs(entt::registry& registry, const FTacticalD20CommandDropValidatedEvent& event) {

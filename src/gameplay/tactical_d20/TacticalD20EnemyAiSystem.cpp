@@ -146,6 +146,7 @@ void QueueWait(entt::registry& registry, entt::entity enemy, const std::string& 
 }
 
 void Think(entt::registry& registry, entt::entity enemyEntity) {
+    ZoneScopedN("TacticalD20::EnemyAiDecision");
     if (registry.all_of<FQueuedTacticalD20Command>(enemyEntity)) return;
     const auto& enemy = registry.get<FTacticalUnit>(enemyEntity);
     const auto targetEntity = NearestPlayer(registry, enemy);

@@ -109,17 +109,15 @@ entt::entity TopCommandTokenAt(entt::registry& registry, const glm::vec2& point)
 
 entt::entity BoardTileAt(entt::registry& registry, const glm::vec2& point) {
     auto view = registry.view<FTacticalBoardTile, FPosition, FCollider>();
-    for (auto entity : view) {
+    for (auto entity : view)
         if (ContainsPoint(view.get<FPosition>(entity), view.get<FCollider>(entity), point)) return entity;
-    }
     return entt::null;
 }
 
 entt::entity UnitAt(entt::registry& registry, const glm::vec2& point) {
     auto view = registry.view<FTacticalUnit, FPosition, FCollider>();
-    for (auto entity : view) {
+    for (auto entity : view)
         if (ContainsPoint(view.get<FPosition>(entity), view.get<FCollider>(entity), point)) return entity;
-    }
     return entt::null;
 }
 
@@ -128,12 +126,25 @@ void UpdateBoardHover(entt::registry& registry, const glm::vec2& point) {
     if (!interaction) return;
 
     const auto tileEntity = BoardTileAt(registry, point);
+    interaction->hoveredEntity = UnitAt(registry, point);
     interaction->hasHoveredTile = tileEntity != entt::null;
     if (tileEntity == entt::null) return;
 
     const auto& tile = registry.get<FTacticalBoardTile>(tileEntity);
     interaction->hoveredTileX = tile.tileX;
     interaction->hoveredTileY = tile.tileY;
+}
+
+void UpdateBoardSelection(entt::registry& registry, const glm::vec2& point) {
+    auto* interaction = registry.ctx().find<FTacticalD20BoardInteraction>();
+    if (!interaction) return;
+    interaction->selectedEntity = UnitAt(registry, point);
+    const auto tileEntity = BoardTileAt(registry, point);
+    interaction->hasSelectedTile = tileEntity != entt::null;
+    if (tileEntity == entt::null) return;
+    const auto& tile = registry.get<FTacticalBoardTile>(tileEntity);
+    interaction->selectedTileX = tile.tileX;
+    interaction->selectedTileY = tile.tileY;
 }
 
 void SnapBack(entt::registry& registry, entt::entity token, const FTacticalD20CommandDragState& drag) {
@@ -223,7 +234,13 @@ void BeginDrag(entt::registry& registry, const FInputState& input, entt::entity 
         ETacticalD20CommandDragPhase::DraggingCommand,
         "");
     PublishDragStateChanged(registry, token, command.id, ETacticalD20CommandDragPhase::DragIdle, ETacticalD20CommandDragPhase::DraggingCommand);
-    (void)active;
+    const FTacticalD20CommandSelectedEvent selected{token, active, command.id};
+    PUBLISH(FTacticalD20CommandSelectedEvent, registry, selected);
+    QUEUE_FRAME_EVENT(FTacticalD20CommandSelectedEvent, registry, selected);
+    const FTacticalD20CommandDragStartedEvent started{token, active, command.id};
+    PUBLISH(FTacticalD20CommandDragStartedEvent, registry, started);
+    QUEUE_FRAME_EVENT(FTacticalD20CommandDragStartedEvent, registry, started);
+    AppendTacticalD20EventLog(registry, fmt::format("[Event] CommandDragStarted command={}", command.id));
 }
 
 void UpdateActiveDrag(entt::registry& registry, const FInputState& input, entt::entity active) {
@@ -246,6 +263,9 @@ void UpdateActiveDrag(entt::registry& registry, const FInputState& input, entt::
         const bool targetsTurnPanel = IsFallbackTacticalD20TurnPanelHit(registry, input.mousePos);
         if (tileEntity == entt::null && targetEntity == entt::null && !targetsTurnPanel) {
             constexpr const char* reason = "drop outside board or valid target";
+            const FTacticalD20CommandDropValidatedEvent rejected{.token = token, .unit = active, .commandId = drag.commandId, .valid = false, .invalidReason = reason};
+            PUBLISH(FTacticalD20CommandDropValidatedEvent, registry, rejected);
+            QUEUE_FRAME_EVENT(FTacticalD20CommandDropValidatedEvent, registry, rejected);
             // Drag state transition table:
             //   DraggingCommand + mouse released outside board/target -> DragRejected -> DragIdle
             PublishDragStateChanged(registry, token, drag.commandId, drag.phase, ETacticalD20CommandDragPhase::DragRejected, reason);
@@ -277,6 +297,7 @@ void TacticalD20CommandDragInputSystem::update(entt::registry& registry, float /
 
     ConsumeValidationEvents(registry);
     UpdateBoardHover(registry, input->mousePos);
+    if (input->mouseLeftPressed && !input->uiCapturesMouse) UpdateBoardSelection(registry, input->mousePos);
 
     const auto active = ActiveUnit(registry);
     UpdateActiveDrag(registry, *input, active);

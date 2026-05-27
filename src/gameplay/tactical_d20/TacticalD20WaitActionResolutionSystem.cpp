@@ -12,6 +12,7 @@ namespace game {
 namespace {
 
 void ResolveWait(entt::registry& registry, entt::entity unit) {
+    ZoneScopedN("TacticalD20::ActionResolution");
     // Action economy transition table:
     //   any active action economy state + Wait resolved -> TurnComplete
     SetTacticalD20ActionEconomy<FActionEconomyTurnComplete>(registry, unit);

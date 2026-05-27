@@ -124,7 +124,7 @@ void Engine::run() {
 }
 
 void Engine::processInput() {
-    ZoneScoped;
+    ZoneScopedN("Engine::processInput");
 
     // Reset per-frame input state
     if (auto* input = registry.ctx().find<FInputState>()) {
@@ -177,6 +177,7 @@ void Engine::render() {
     systemMgr.renderAll(registry);
 
     if (overlayRenderer) {
+        ZoneScopedN("Engine::debugOverlayRender");
         overlayRenderer(registry, frameTime, systemMgr);
     }
 

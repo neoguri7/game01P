@@ -15,6 +15,7 @@ namespace game {
 namespace {
 
 void ResolveDodge(entt::registry& registry, entt::entity unit) {
+    ZoneScopedN("TacticalD20::ActionResolution");
     // Condition transition table:
     //   no FConditionDodge + Dodge resolved -> add FConditionDodge
     //   FConditionDodge + Dodge resolved -> refresh FConditionDodge
@@ -26,6 +27,10 @@ void ResolveDodge(entt::registry& registry, entt::entity unit) {
     const FTacticalD20ConditionChangedEvent condition{unit, "dodge", "applied", 1};
     PUBLISH(FTacticalD20ConditionChangedEvent, registry, condition);
     QUEUE_FRAME_EVENT(FTacticalD20ConditionChangedEvent, registry, condition);
+    const FTacticalD20ConditionAppliedEvent applied{unit, "dodge", 1};
+    PUBLISH(FTacticalD20ConditionAppliedEvent, registry, applied);
+    QUEUE_FRAME_EVENT(FTacticalD20ConditionAppliedEvent, registry, applied);
+    AppendTacticalD20EventLog(registry, "[Event] ConditionApplied condition=dodge remaining=1");
     PublishTacticalD20ActionResolved(registry, unit, "dodge", true);
 }
 

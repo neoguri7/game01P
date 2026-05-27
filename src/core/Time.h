@@ -26,9 +26,12 @@ public:
         const double elapsed = static_cast<double>(now - lastFrameTime) / static_cast<double>(freq);
         lastFrameTime = now;
 
-        deltaTime = static_cast<float>(elapsed);
+        rawDeltaTime = static_cast<float>(elapsed);
+        deltaTime = rawDeltaTime;
+        deltaClamped = false;
         if (deltaTime > MAX_DELTA_TIME_SECONDS) {
             deltaTime = MAX_DELTA_TIME_SECONDS;
+            deltaClamped = true;
         }
 
         // FPS tracking
@@ -44,12 +47,16 @@ public:
     }
 
     [[nodiscard]] float getDeltaTime() const noexcept { return deltaTime; }
+    [[nodiscard]] float getRawDeltaTime() const noexcept { return rawDeltaTime; }
+    [[nodiscard]] bool  wasDeltaClamped() const noexcept { return deltaClamped; }
     [[nodiscard]] int   getFps() const noexcept { return currentFps; }
 
 private:
     Uint64 lastFrameTime;
     float  deltaTime;
+    float  rawDeltaTime{0.f};
     float  fpsTimer;
+    bool   deltaClamped{false};
     int    frameCounter;
     int    currentFps = 0;
 };

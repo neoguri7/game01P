@@ -89,7 +89,18 @@ void PublishAttackEvent(entt::registry& registry, const FTacticalD20AttackResolv
         event.hit ? "hit" : "miss"));
 }
 
+void PublishAttackRollEvent(entt::registry& registry, const FTacticalD20AttackRollResolvedEvent& event) {
+    PUBLISH(FTacticalD20AttackRollResolvedEvent, registry, event);
+    QUEUE_FRAME_EVENT(FTacticalD20AttackRollResolvedEvent, registry, event);
+    AppendTacticalD20EventLog(registry, fmt::format("[Event] AttackRollResolved natural={} total={} hit={} crit={}",
+        event.naturalRoll,
+        event.total,
+        event.hit,
+        event.criticalHit));
+}
+
 void PublishDamageEvent(entt::registry& registry, entt::entity attacker, entt::entity target, const FTacticalD20DamageApplicationResult& applied) {
+    ZoneScopedN("TacticalD20::DamageApplication");
     const FTacticalD20DamageAppliedEvent damageEvent{attacker, target, "weapon", applied.damageApplied, applied.hpBefore, applied.hpAfter, applied.defeated};
     PUBLISH(FTacticalD20DamageAppliedEvent, registry, damageEvent);
     QUEUE_FRAME_EVENT(FTacticalD20DamageAppliedEvent, registry, damageEvent);
@@ -107,6 +118,7 @@ void ResolveInvalidAttack(entt::registry& registry, entt::entity attacker, const
 }
 
 void ResolveAttack(entt::registry& registry, entt::entity attackerEntity, entt::entity targetEntity) {
+    ZoneScopedN("TacticalD20::ActionResolution");
     // Action economy transition table:
     //   HasMoveAndAction/HasActionOnly + Attack resolved or invalid -> TurnComplete
     if (targetEntity == entt::null || !registry.valid(targetEntity) || !registry.all_of<FTacticalUnit>(targetEntity)) {
@@ -135,20 +147,29 @@ void ResolveAttack(entt::registry& registry, entt::entity attackerEntity, entt::
         ? TacticalD20PrototypeProficiencyBonus(config ? config->proficiencyBonus : 2)
         : 0;
     const auto policy = TacticalD20AttackRollPolicy(registry, attackerEntity, targetEntity);
-    auto roll = ResolveD20Roll(FTacticalD20RollRequest{
-        .mode = policy.mode,
-        .abilityModifier = abilityMod,
-        .proficiencyBonus = proficiency,
-        .targetNumber = target.armorClass + coverBonus,
-    }, random.rng);
+    FTacticalD20RollResult roll;
+    {
+        ZoneScopedN("TacticalD20::DiceRoll");
+        roll = ResolveD20Roll(FTacticalD20RollRequest{
+            .mode = policy.mode,
+            .abilityModifier = abilityMod,
+            .proficiencyBonus = proficiency,
+            .targetNumber = target.armorClass + coverBonus,
+        }, random.rng);
+    }
     const auto outcome = ResolveAttackOutcome(roll, target.armorClass + coverBonus);
+    PublishAttackRollEvent(registry, {attackerEntity, targetEntity, weapon->id, roll.selectedRoll, roll.total, target.armorClass + coverBonus, outcome.hit, outcome.criticalHit, roll.breakdown});
     PublishAttackEvent(registry, {attackerEntity, targetEntity, weapon->id, roll.selectedRoll, roll.total, target.armorClass + coverBonus, outcome.hit, outcome.criticalHit, cover, policy.disadvantageApplied});
     AppendTacticalD20CombatLog(registry, fmt::format("{} attack: {} vs AC {} -- {}.", weapon->displayName, roll.breakdown, target.armorClass + coverBonus, outcome.hit ? "HIT" : "MISS"));
     if (cover) AppendTacticalD20CombatLog(registry, fmt::format("{} has cover: +{} AC.", target.displayName, coverBonus));
     if (outcome.hit) {
         const int damageMod = AbilityModifier(registry.get<FAbilityScores>(attackerEntity), AbilityFromString(weapon->damageAbility, attackAbility));
         const auto damage = ResolveDamage(weapon->damageDice, damageMod, outcome.criticalHit, random.rng);
-        const auto applied = ApplyDamageAndDefeat(registry, targetEntity, damage.finalDamage);
+        FTacticalD20DamageApplicationResult applied;
+        {
+            ZoneScopedN("TacticalD20::DamageApplication");
+            applied = ApplyDamageAndDefeat(registry, targetEntity, damage.finalDamage);
+        }
         PublishDamageEvent(registry, attackerEntity, targetEntity, applied);
         AppendTacticalD20CombatLog(registry, fmt::format("Damage: {}. {} HP {} -> {}{}.", damage.breakdown, target.displayName, applied.hpBefore, applied.hpAfter, applied.defeated ? " defeated" : ""));
     }
