@@ -1,5 +1,6 @@
 #pragma once
 #include <glm/vec2.hpp>
+#include <string>
 
 namespace game {
 
@@ -20,7 +21,7 @@ struct FCollider {
     int collisionLayer{1};
 
     /// Optional: tag override for collision resolution names
-    const char* collisionTag{nullptr};
+    std::string collisionTag;
 };
 
 } // namespace game
