@@ -71,6 +71,11 @@ struct FTacticalD20LoggingConfig {
     bool tracyZonesEnabled{true};
 };
 
+struct FTacticalD20VisualFeedbackConfig {
+    float acceptedSeconds{0.35f};
+    float rejectedSeconds{0.9f};
+};
+
 struct FTacticalD20Config {
     int gridWidth{8};
     int gridHeight{6};
@@ -90,6 +95,7 @@ struct FTacticalD20Config {
     int coverAcBonus{2};
     FTacticalD20EnemyAiConfig enemyAi{};
     FTacticalD20LoggingConfig logging{};
+    FTacticalD20VisualFeedbackConfig visualFeedback{};
     std::vector<std::string> warnings;
 };
 

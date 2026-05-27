@@ -196,6 +196,10 @@ void ParseEnemyAiAndLogging(std::string_view text, FTacticalD20Config& config) {
         config.logging.imguiLogEnabled = reader::ReadBool(logging, "imguiLogEnabled", config.logging.imguiLogEnabled);
         config.logging.tracyZonesEnabled = reader::ReadBool(logging, "tracyZonesEnabled", config.logging.tracyZonesEnabled);
     }
+    if (const auto visual = reader::FindObjectBody(text, "visualFeedback"); !visual.empty()) {
+        config.visualFeedback.acceptedSeconds = std::max(0.01f, reader::ReadFloat(visual, "acceptedSeconds", config.visualFeedback.acceptedSeconds));
+        config.visualFeedback.rejectedSeconds = std::max(0.01f, reader::ReadFloat(visual, "rejectedSeconds", config.visualFeedback.rejectedSeconds));
+    }
 }
 
 void ParseConfigText(std::string_view text, FTacticalD20Config& config) {

@@ -138,5 +138,9 @@
     "consoleLogEnabled": true,
     "imguiLogEnabled": true,
     "tracyZonesEnabled": true
+  },
+  "visualFeedback": {
+    "acceptedSeconds": 0.35,
+    "rejectedSeconds": 0.9
   }
 }

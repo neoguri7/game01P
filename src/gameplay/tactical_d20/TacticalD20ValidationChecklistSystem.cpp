@@ -2,6 +2,7 @@
 
 #include "core/InputState.h"
 #include "core/events/FEventBus.h"
+#include "ecs/components/FConditionDodge.h"
 #include "ecs/components/FCombatStateDefeat.h"
 #include "ecs/components/FCombatStateVictory.h"
 #include "gameplay/tactical_d20/FTacticalD20CombatLog.h"
@@ -11,12 +12,38 @@
 
 #include <string>
 #include <tracy/Tracy.hpp>
+#include <vector>
 
 namespace game {
 namespace {
 
+struct FDodgeAttackObservationState {
+    std::vector<std::pair<entt::entity, int>> targetAttackCounts;
+};
+
 bool Contains(const std::string& value, const char* needle) {
     return value.find(needle) != std::string::npos;
+}
+
+FDodgeAttackObservationState& DodgeObservationState(entt::registry& registry) {
+    if (!registry.ctx().contains<FDodgeAttackObservationState>()) registry.ctx().emplace<FDodgeAttackObservationState>();
+    return registry.ctx().get<FDodgeAttackObservationState>();
+}
+
+void ClearDodgeObservation(entt::registry& registry, entt::entity target) {
+    auto& state = DodgeObservationState(registry);
+    std::erase_if(state.targetAttackCounts, [target](const auto& entry) {
+        return entry.first == target;
+    });
+}
+
+int& DodgeAttackCount(entt::registry& registry, entt::entity target) {
+    auto& state = DodgeObservationState(registry);
+    for (auto& entry : state.targetAttackCounts) {
+        if (entry.first == target) return entry.second;
+    }
+    state.targetAttackCounts.push_back({target, 0});
+    return state.targetAttackCounts.back().second;
 }
 
 void MarkInvalidDrop(entt::registry& registry, const FTacticalD20CommandDropValidatedEvent& event) {
@@ -28,12 +55,19 @@ void MarkInvalidDrop(entt::registry& registry, const FTacticalD20CommandDropVali
     if (Contains(reason, "requires")) MarkTacticalD20Checklist(registry, "edge.move_budget", ETacticalD20ChecklistStatus::Observed, reason);
     if (Contains(reason, "outside range") || Contains(reason, "exceeds range")) MarkTacticalD20Checklist(registry, "edge.attack_range", ETacticalD20ChecklistStatus::Observed, reason);
     if (Contains(reason, "line of sight")) MarkTacticalD20Checklist(registry, "edge.ranged_los", ETacticalD20ChecklistStatus::Observed, reason);
+    if (Contains(reason, "melee") && Contains(reason, "not adjacent")) MarkTacticalD20Checklist(registry, "edge.melee_adjacency", ETacticalD20ChecklistStatus::Observed, reason);
 }
 
 void MarkAttack(entt::registry& registry, const FEventBus& bus) {
     for (const auto& event : bus.frameEvents<FTacticalD20AttackResolvedEvent>()) {
-        MarkTacticalD20Checklist(registry, "accept.ruleset", ETacticalD20ChecklistStatus::Observed, "AttackResolved event observed.");
         if (event.coverApplied) MarkTacticalD20Checklist(registry, "edge.cover", ETacticalD20ChecklistStatus::Observed, "AttackResolved coverApplied=true");
+        if (event.disadvantageApplied && registry.valid(event.target) && registry.all_of<FConditionDodge>(event.target)) {
+            int& count = DodgeAttackCount(registry, event.target);
+            ++count;
+            if (count >= 2) {
+                MarkTacticalD20Checklist(registry, "edge.dodge_multi_attack", ETacticalD20ChecklistStatus::Observed, "Multiple disadvantaged attacks resolved while Dodge remained active.");
+            }
+        }
     }
     for (const auto& event : bus.frameEvents<FTacticalD20AttackRollResolvedEvent>()) {
         if (event.naturalRoll == 20 && event.hit && event.criticalHit) {
@@ -51,26 +85,28 @@ void MarkAttack(entt::registry& registry, const FEventBus& bus) {
 void MarkConditions(entt::registry& registry, const FEventBus& bus) {
     for (const auto& event : bus.frameEvents<FTacticalD20DamageAppliedEvent>()) {
         if (event.damageType == "fire" && event.defeated) {
-            MarkTacticalD20Checklist(registry, "edge.condition_skip", ETacticalD20ChecklistStatus::Observed, "Burning damage defeated active unit.");
+            MarkTacticalD20Checklist(registry, "edge.burning_defeat_skip", ETacticalD20ChecklistStatus::Observed, "Burning damage defeated active unit.");
         }
     }
     for (const auto& event : bus.frameEvents<FTacticalD20ConditionTickedEvent>()) {
-        MarkTacticalD20Checklist(registry, "accept.conditions", ETacticalD20ChecklistStatus::Observed, "Condition tick event observed.");
         if (event.conditionId == "stunned") {
-            MarkTacticalD20Checklist(registry, "edge.condition_skip", ETacticalD20ChecklistStatus::Observed, "Stunned condition ticked and turn skipped.");
+            MarkTacticalD20Checklist(registry, "edge.stunned_skip", ETacticalD20ChecklistStatus::Observed, "Stunned condition ticked and turn skipped.");
         }
+    }
+    for (const auto& event : bus.frameEvents<FTacticalD20ConditionExpiredEvent>()) {
+        if (event.conditionId == "dodge") ClearDodgeObservation(registry, event.unit);
     }
 }
 
 void MarkCoreAcceptance(entt::registry& registry, const FEventBus& bus) {
     if (!bus.frameEvents<FTacticalD20CombatSetupCompletedEvent>().empty()) {
-        MarkTacticalD20Checklist(registry, "accept.board", ETacticalD20ChecklistStatus::Observed, "Combat setup completed with board and units.");
+        MarkTacticalD20Checklist(registry, "accept.board", ETacticalD20ChecklistStatus::Hooked, "Combat setup completed with board and units.");
     }
     if (!bus.frameEvents<FTacticalD20CommandDropValidatedEvent>().empty()) {
-        MarkTacticalD20Checklist(registry, "accept.drag_drop", ETacticalD20ChecklistStatus::Observed, "Command drop validation event observed.");
+        MarkTacticalD20Checklist(registry, "accept.drag_drop", ETacticalD20ChecklistStatus::Hooked, "Command drop validation event observed.");
     }
     if (!bus.frameEvents<FTacticalD20CombatStateChangedEvent>().empty()) {
-        MarkTacticalD20Checklist(registry, "accept.observability", ETacticalD20ChecklistStatus::Observed, "State transition event/log observed.");
+        MarkTacticalD20Checklist(registry, "accept.observability", ETacticalD20ChecklistStatus::Hooked, "State transition event/log observed.");
     }
 }
 

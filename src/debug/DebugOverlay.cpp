@@ -12,6 +12,7 @@
 #include "core/Logger.h"
 #include "debug/DemoBootstrap.h"
 #include "debug/TacticalD20TelemetryPanel.h"
+#include "debug/TacticalD20VisualFeedbackPanel.h"
 #include "ecs/components/FAnimation.h"
 #include "ecs/components/FCamera.h"
 #include "ecs/components/FCollider.h"
@@ -136,6 +137,7 @@ void RenderEntityInspector(entt::registry& registry) {
 void RenderDebugOverlay(entt::registry& registry, const Time& frameTime, const SystemManager& systemManager) {
     ZoneScopedN("RenderDebugOverlay");
     RenderEngineStats(registry, frameTime, systemManager);
+    RenderTacticalD20VisualFeedbackPanel(registry);
     RenderTacticalD20TelemetryPanel(registry, frameTime, systemManager);
     RenderEntityInspector(registry);
 }
