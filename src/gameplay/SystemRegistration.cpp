@@ -6,8 +6,11 @@
 #include "ecs/systems/MoveSystem.h"
 #include "ecs/systems/SpriteRenderSystem.h"
 #include "gameplay/tactical_d20/TacticalD20ActionEconomySystem.h"
+#include "gameplay/tactical_d20/TacticalD20CommandDragInputSystem.h"
+#include "gameplay/tactical_d20/TacticalD20CommandValidationSystem.h"
 #include "gameplay/tactical_d20/TacticalD20CombatLifecycleSystem.h"
 #include "gameplay/tactical_d20/TacticalD20InitiativeSystem.h"
+#include "gameplay/tactical_d20/TacticalD20MovementPathValidationSystem.h"
 #include "gameplay/tactical_d20/TacticalD20SetupSystem.h"
 
 namespace game {
@@ -17,10 +20,13 @@ void RegisterDefaultSystems(SystemManager& systemManager, entt::registry& regist
     // TacticalD20SetupSystem runs before general systems so setup entities exist
     // before collision/render systems inspect ECS views.
     systemManager.addSystem<TacticalD20SetupSystem>();
-    // Tactical D20 flow order: setup spawns units, initiative creates order,
-    // action economy queues/resolves command events, then lifecycle advances
-    // combat state from those events.
+    // Tactical D20 flow order: input state is captured by Engine::processInput,
+    // drag emits drop requests, validation emits queued commands, action economy
+    // stores/resolves them, then lifecycle advances combat state from events.
     systemManager.addSystem<TacticalD20InitiativeSystem>();
+    systemManager.addSystem<TacticalD20CommandDragInputSystem>();
+    systemManager.addSystem<TacticalD20MovementPathValidationSystem>();
+    systemManager.addSystem<TacticalD20CommandValidationSystem>();
     systemManager.addSystem<TacticalD20ActionEconomySystem>();
     systemManager.addSystem<TacticalD20CombatLifecycleSystem>();
     systemManager.addSystem<ecs::MoveSystem>();
