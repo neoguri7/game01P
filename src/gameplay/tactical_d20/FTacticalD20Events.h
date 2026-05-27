@@ -93,4 +93,34 @@ struct FTacticalD20ActionResolvedEvent {
     bool turnComplete{false};
 };
 
+struct FTacticalD20AttackResolvedEvent {
+    entt::entity attacker{entt::null};
+    entt::entity target{entt::null};
+    std::string weaponId;
+    int d20{0};
+    int total{0};
+    int effectiveArmorClass{0};
+    bool hit{false};
+    bool criticalHit{false};
+    bool coverApplied{false};
+    bool disadvantageApplied{false};
+};
+
+struct FTacticalD20DamageAppliedEvent {
+    entt::entity source{entt::null};
+    entt::entity target{entt::null};
+    std::string damageType{"weapon"};
+    int damage{0};
+    int hpBefore{0};
+    int hpAfter{0};
+    bool defeated{false};
+};
+
+struct FTacticalD20ConditionChangedEvent {
+    entt::entity unit{entt::null};
+    std::string conditionId;
+    std::string change;
+    int remainingRounds{0};
+};
+
 } // namespace game

@@ -7,11 +7,8 @@
 #include "ecs/components/FActionEconomyTurnComplete.h"
 #include "ecs/components/FActiveTacticalUnit.h"
 #include "ecs/components/FCombatStateAwaitingCommand.h"
-#include "ecs/components/FCombatStateEnemyThinking.h"
-#include "ecs/components/FCombatStateResolvingAction.h"
 #include "ecs/components/FCombatStateTurnStart.h"
 #include "ecs/components/FQueuedTacticalD20Command.h"
-#include "ecs/components/FTacticalTurnOrder.h"
 #include "ecs/components/FTacticalUnit.h"
 #include "ecs/components/FTurnBudget.h"
 #include "gameplay/tactical_d20/FTacticalD20Config.h"
@@ -38,12 +35,6 @@ entt::entity ActiveUnit(entt::registry& registry) {
 
 void ClearActionEconomyTags(entt::registry& registry, entt::entity unitEntity) {
     registry.remove<FActionEconomyHasMoveAndAction, FActionEconomyHasActionOnly, FActionEconomyHasMoveOnly, FActionEconomyTurnComplete>(unitEntity);
-}
-
-template<typename NextTag>
-void SetActionEconomyState(entt::registry& registry, entt::entity unitEntity) {
-    ClearActionEconomyTags(registry, unitEntity);
-    registry.emplace<NextTag>(unitEntity);
 }
 
 void ResetTurnBudget(entt::registry& registry, entt::entity unitEntity) {
@@ -93,101 +84,9 @@ bool CanAcceptCommand(entt::registry& registry, const FTacticalD20CommandQueuedE
     return false;
 }
 
-FTacticalD20CommandQueuedEvent DefaultCommandForState(entt::registry& registry, entt::entity unitEntity) {
-    constexpr std::string_view turnEndingActions[] = {"wait", "attack", "dodge"};
-
-    for (const auto actionId : turnEndingActions) {
-        FTacticalD20CommandQueuedEvent command{.unit = unitEntity, .actionId = std::string(actionId)};
-        if (CanAcceptCommand(registry, command)) return command;
-    }
-    FTacticalD20CommandQueuedEvent dashCommand{.unit = unitEntity, .actionId = "dash"};
-    if (CanAcceptCommand(registry, dashCommand)) return dashCommand;
-    FTacticalD20CommandQueuedEvent moveCommand{.unit = unitEntity, .actionId = "move"};
-    if (CanAcceptCommand(registry, moveCommand)) return moveCommand;
-    return {.unit = entt::null, .actionId = ""};
-}
-
-void PublishResolution(entt::registry& registry, entt::entity unitEntity, std::string_view actionId, bool turnComplete) {
-    const int movement = registry.all_of<FTurnBudget>(unitEntity) ? registry.get<FTurnBudget>(unitEntity).movementBudgetTiles : 0;
-    const FTacticalD20ActionResolvedEvent event{unitEntity, std::string(actionId), movement, turnComplete};
-    PUBLISH(FTacticalD20ActionResolvedEvent, registry, event);
-    QUEUE_FRAME_EVENT(FTacticalD20ActionResolvedEvent, registry, event);
-}
-
-void ResolveMove(entt::registry& registry, entt::entity unitEntity, int spentTiles) {
-    // Transition table:
-    //   HasMoveAndAction + Move resolved -> HasActionOnly
-    //   HasMoveOnly      + Move resolved -> TurnComplete
-    auto& budget = registry.get<FTurnBudget>(unitEntity);
-    budget.movementBudgetTiles = std::max(budget.movementBudgetTiles - std::max(spentTiles, 0), 0);
-    if (registry.all_of<FActionEconomyHasMoveAndAction>(unitEntity)) SetActionEconomyState<FActionEconomyHasActionOnly>(registry, unitEntity);
-    else SetActionEconomyState<FActionEconomyTurnComplete>(registry, unitEntity);
-    PublishResolution(registry, unitEntity, "move", registry.all_of<FActionEconomyTurnComplete>(unitEntity));
-}
-
-void ResolveDash(entt::registry& registry, entt::entity unitEntity) {
-    // Transition table:
-    //   HasMoveAndAction + Dash resolved -> HasMoveOnly
-    auto& budget = registry.get<FTurnBudget>(unitEntity);
-    const auto* config = registry.ctx().find<FTacticalD20Config>();
-    const int extraMovementMultiplier = config ? std::max(config->actions.dashExtraMovementMultiplier, 0) : 1;
-    budget.movementBudgetTiles += budget.baseMovementTiles * extraMovementMultiplier;
-    SetActionEconomyState<FActionEconomyHasMoveOnly>(registry, unitEntity);
-    PublishResolution(registry, unitEntity, "dash", false);
-}
-
-void ResolveTurnEndingAction(entt::registry& registry, entt::entity unitEntity, std::string_view actionId) {
-    // Transition table:
-    //   HasMoveAndAction + Attack/Dodge/Wait resolved -> TurnComplete
-    //   HasActionOnly    + Attack/Dodge/Wait resolved -> TurnComplete
-    //   HasMoveOnly      + Wait resolved              -> TurnComplete
-    SetActionEconomyState<FActionEconomyTurnComplete>(registry, unitEntity);
-    PublishResolution(registry, unitEntity, actionId, true);
-}
-
-void ResolveCommand(entt::registry& registry, const FTacticalD20CommandQueuedEvent& command) {
-    if (!CanAcceptCommand(registry, command)) return;
-
-    if (command.actionId == "move" && CanResolveMove(registry, command.unit)) return ResolveMove(registry, command.unit, command.movementSpentTiles);
-    if (command.actionId == "dash" && registry.all_of<FActionEconomyHasMoveAndAction>(command.unit)) return ResolveDash(registry, command.unit);
-    if ((command.actionId == "attack" || command.actionId == "dodge" || command.actionId == "wait")
-        && CanResolveTurnEndingAction(registry, command.unit, command.actionId)) {
-        return ResolveTurnEndingAction(registry, command.unit, command.actionId);
-    }
-}
-
-bool IsEnemyThinking(entt::registry& registry) {
-    auto enemyView = registry.view<FCombatStateEnemyThinking, FTacticalTurnOrder>();
-    return enemyView.begin() != enemyView.end();
-}
-
 bool IsAwaitingCommand(entt::registry& registry) {
-    auto playerView = registry.view<FCombatStateAwaitingCommand, FTacticalTurnOrder>();
+    auto playerView = registry.view<FCombatStateAwaitingCommand>();
     return playerView.begin() != playerView.end();
-}
-
-bool IsResolvingAction(entt::registry& registry) {
-    auto resolvingView = registry.view<FCombatStateResolvingAction, FTacticalTurnOrder>();
-    return resolvingView.begin() != resolvingView.end();
-}
-
-bool TryResolveQueuedCommand(entt::registry& registry, entt::entity active) {
-    if (!registry.all_of<FQueuedTacticalD20Command>(active)) return false;
-
-    const auto queuedCommand = registry.get<FQueuedTacticalD20Command>(active);
-    registry.remove<FQueuedTacticalD20Command>(active);
-    if (!queuedCommand.validationApproved) return false;
-
-    ResolveCommand(registry, FTacticalD20CommandQueuedEvent{
-        active,
-        queuedCommand.actionId,
-        queuedCommand.movementSpentTiles,
-        queuedCommand.hasTargetTile,
-        queuedCommand.targetTileX,
-        queuedCommand.targetTileY,
-        queuedCommand.targetEntity,
-        queuedCommand.validationApproved});
-    return true;
 }
 
 bool TryStoreQueuedCommand(entt::registry& registry, entt::entity active) {
@@ -226,26 +125,6 @@ bool TryStoreQueuedCommand(entt::registry& registry, entt::entity active) {
     return false;
 }
 
-void QueueEnemyCommand(entt::registry& registry, entt::entity active) {
-    if (registry.all_of<FQueuedTacticalD20Command>(active)) return;
-
-    auto command = DefaultCommandForState(registry, active);
-    if (command.unit == entt::null) return;
-    command.validationApproved = true;
-
-    PUBLISH(FTacticalD20CommandQueuedEvent, registry, command);
-    QUEUE_FRAME_EVENT(FTacticalD20CommandQueuedEvent, registry, command);
-    registry.emplace_or_replace<FQueuedTacticalD20Command>(
-        active,
-        command.actionId,
-        command.movementSpentTiles,
-        command.hasTargetTile,
-        command.targetTileX,
-        command.targetTileY,
-        command.targetEntity,
-        true);
-}
-
 } // namespace
 
 void TacticalD20ActionEconomySystem::update(entt::registry& registry, float /*dt*/) {
@@ -259,12 +138,6 @@ void TacticalD20ActionEconomySystem::update(entt::registry& registry, float /*dt
         TryStoreQueuedCommand(registry, active);
         return;
     }
-    if (IsEnemyThinking(registry)) {
-        QueueEnemyCommand(registry, active);
-        return;
-    }
-    if (!IsResolvingAction(registry)) return;
-    TryResolveQueuedCommand(registry, active);
 }
 
 } // namespace game

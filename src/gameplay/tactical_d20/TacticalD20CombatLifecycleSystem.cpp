@@ -137,6 +137,12 @@ entt::entity ActiveUnit(entt::registry& registry) {
     return entt::null;
 }
 
+entt::entity ActiveUnitRaw(entt::registry& registry) {
+    auto view = registry.view<FActiveTacticalUnit, FTacticalUnit>();
+    for (auto entity : view) return entity;
+    return entt::null;
+}
+
 void ClearActiveTurnState(entt::registry& registry, entt::entity unitEntity) {
     registry.remove<FActionEconomyHasMoveAndAction, FActionEconomyHasActionOnly, FActionEconomyHasMoveOnly, FActionEconomyTurnComplete>(unitEntity);
     registry.remove<FTurnBudget, FQueuedTacticalD20Command>(unitEntity);
@@ -150,8 +156,14 @@ void HandleRoundStart(entt::registry& registry, entt::entity stateEntity) {
 
 void HandleTurnStart(entt::registry& registry, entt::entity stateEntity) {
     // Transition table:
+    //   FCombatStateTurnStart + active unit skipped/defeated -> FCombatStateTurnEndCheck
     //   FCombatStateTurnStart + player active unit -> FCombatStateAwaitingCommand
     //   FCombatStateTurnStart + enemy active unit  -> FCombatStateEnemyThinking
+    const auto rawActive = ActiveUnitRaw(registry);
+    if (rawActive != entt::null && registry.any_of<FActionEconomyTurnComplete, FUnitStateDefeated>(rawActive)) {
+        return Transition<FCombatStateTurnStart, FCombatStateTurnEndCheck>(registry, stateEntity, "TurnStart", "TurnEndCheck");
+    }
+
     const auto active = ActiveUnit(registry);
     if (active == entt::null) return;
 
