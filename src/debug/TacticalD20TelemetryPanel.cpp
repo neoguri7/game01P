@@ -15,6 +15,7 @@
 #include "gameplay/tactical_d20/FTacticalD20EventLog.h"
 #include "gameplay/tactical_d20/FTacticalD20StateLog.h"
 #include "gameplay/tactical_d20/FTacticalD20Telemetry.h"
+#include "gameplay/tactical_d20/FTacticalD20ValidationChecklist.h"
 
 namespace game {
 namespace {
@@ -34,6 +35,25 @@ void RenderSystemOrder(const SystemManager& systemManager) {
     if (!ImGui::CollapsingHeader("System Order")) return;
     const auto names = systemManager.getSystemNames();
     for (std::size_t i = 0; i < names.size(); ++i) ImGui::Text("%zu. %s", i + 1, names[i].c_str());
+}
+
+void RenderValidationChecklist(entt::registry& registry) {
+    const auto* checklist = registry.ctx().find<FTacticalD20ValidationChecklist>();
+    if (!checklist) return;
+    if (ImGui::CollapsingHeader("System Order Validation")) {
+        for (const auto& row : checklist->systemOrder) {
+            ImGui::Text("%s %s", row.passed ? "[PASS]" : "[FAIL]", row.description.c_str());
+            if (!row.evidence.empty()) ImGui::TextWrapped("  %s", row.evidence.c_str());
+        }
+    }
+    if (!ImGui::CollapsingHeader("Phase 8 Checklist")) return;
+    for (const auto& item : checklist->items) {
+        ImGui::Text("[%s] %s: %s",
+            TacticalD20ChecklistStatusName(item.status),
+            item.category.c_str(),
+            item.description.c_str());
+        if (!item.evidence.empty()) ImGui::TextWrapped("  %s", item.evidence.c_str());
+    }
 }
 
 void RenderTelemetryRows(entt::registry& registry, const Time& frameTime) {
@@ -76,6 +96,7 @@ void RenderTacticalD20TelemetryPanel(entt::registry& registry, const Time& frame
     ImGui::Begin("Tactical D20 Telemetry");
     RenderTelemetryRows(registry, frameTime);
     RenderSystemOrder(systemManager);
+    RenderValidationChecklist(registry);
     RenderLogs(registry, config);
     ImGui::End();
 }

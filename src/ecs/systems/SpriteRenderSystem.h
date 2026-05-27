@@ -3,11 +3,14 @@
 #include "ecs/systems/ISystem.h"
 #include "ecs/components/FPosition.h"
 #include "ecs/components/FSprite.h"
+#include "ecs/components/FLayer.h"
 #include "core/ResourceManager.h"
 
 #include <entt/entt.hpp>
 #include <SDL3/SDL.h>
+#include <algorithm>
 #include <string>
+#include <vector>
 #include <tracy/Tracy.hpp>
 
 namespace game::ecs {
@@ -32,7 +35,14 @@ struct SpriteRenderSystem : public ISystem {
         SDL_Renderer* rend = *rendPtr;
 
         auto view = reg.view<const FPosition, const FSprite>();
-        for (auto entity : view) {
+        std::vector<entt::entity> entities(view.begin(), view.end());
+        std::ranges::sort(entities, [&reg](entt::entity lhs, entt::entity rhs) {
+            const int lhsLayer = reg.all_of<FLayer>(lhs) ? reg.get<FLayer>(lhs).depth : 0;
+            const int rhsLayer = reg.all_of<FLayer>(rhs) ? reg.get<FLayer>(rhs).depth : 0;
+            return lhsLayer < rhsLayer;
+        });
+
+        for (auto entity : entities) {
             const auto& pos = view.get<const FPosition>(entity);
             const auto& spr = view.get<const FSprite>(entity);
 
