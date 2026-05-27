@@ -17,8 +17,12 @@
 #include "ecs/components/FTacticalUnit.h"
 #include "gameplay/tactical_d20/FTacticalD20BoardInteraction.h"
 #include "gameplay/tactical_d20/FTacticalD20Events.h"
+#include "gameplay/tactical_d20/FTacticalD20LogUtils.h"
+#include "gameplay/tactical_d20/FTacticalD20TurnPanelHitZone.h"
 
+#include <fmt/format.h>
 #include <glm/vec2.hpp>
+#include <string>
 #include <tracy/Tracy.hpp>
 
 namespace game {
@@ -29,6 +33,35 @@ bool ContainsPoint(const FPosition& position, const FCollider& collider, const g
     const float centerY = position.y + collider.offset.y;
     return point.x >= centerX - collider.halfWidth && point.x <= centerX + collider.halfWidth
         && point.y >= centerY - collider.halfHeight && point.y <= centerY + collider.halfHeight;
+}
+
+const char* DragPhaseName(ETacticalD20CommandDragPhase phase) {
+    switch (phase) {
+        case ETacticalD20CommandDragPhase::DragIdle: return "DragIdle";
+        case ETacticalD20CommandDragPhase::DraggingCommand: return "DraggingCommand";
+        case ETacticalD20CommandDragPhase::DropCandidate: return "DropCandidate";
+        case ETacticalD20CommandDragPhase::DragRejected: return "DragRejected";
+        case ETacticalD20CommandDragPhase::CommandAccepted: return "CommandAccepted";
+    }
+    return "DragIdle";
+}
+
+void PublishDragStateChanged(entt::registry& registry,
+                             entt::entity token,
+                             const std::string& commandId,
+                             ETacticalD20CommandDragPhase previous,
+                             ETacticalD20CommandDragPhase next,
+                             const std::string& reason = "") {
+    const FTacticalD20CommandDragStateChangedEvent event{
+        .token = token,
+        .commandId = commandId,
+        .previousState = DragPhaseName(previous),
+        .nextState = DragPhaseName(next),
+        .reason = reason,
+    };
+    PUBLISH(FTacticalD20CommandDragStateChangedEvent, registry, event);
+    QUEUE_FRAME_EVENT(FTacticalD20CommandDragStateChangedEvent, registry, event);
+    AppendTacticalD20StateLog(registry, fmt::format("[DragState] {} -> {}", event.previousState, event.nextState));
 }
 
 entt::entity ActiveUnit(entt::registry& registry) {
@@ -47,7 +80,13 @@ bool IsCombatEnded(entt::registry& registry) {
 
 bool IsInputLocked(entt::registry& registry, entt::entity active) {
     return !registry.view<FCombatStateResolvingAction>().empty()
-        || (active != entt::null && registry.all_of<FQueuedTacticalD20Command>(active));
+        || (active != entt::null
+            && registry.all_of<FQueuedTacticalD20Command>(active)
+            && registry.get<FQueuedTacticalD20Command>(active).validationApproved);
+}
+
+bool HasActiveDrag(entt::registry& registry) {
+    return !registry.view<FTacticalD20CommandDragState>().empty();
 }
 
 entt::entity TopCommandTokenAt(entt::registry& registry, const glm::vec2& point) {
@@ -103,9 +142,6 @@ void SnapBack(entt::registry& registry, entt::entity token, const FTacticalD20Co
         position.x = drag.originX;
         position.y = drag.originY;
     }
-    if (registry.valid(token) && registry.all_of<FTacticalD20CommandDragState>(token)) {
-        registry.remove<FTacticalD20CommandDragState>(token);
-    }
 }
 
 void PublishDropRequest(entt::registry& registry,
@@ -113,12 +149,14 @@ void PublishDropRequest(entt::registry& registry,
                         entt::entity active,
                         const std::string& commandId,
                         entt::entity tileEntity,
-                        entt::entity targetEntity) {
+                        entt::entity targetEntity,
+                        bool targetsTurnPanel) {
     FTacticalD20CommandDropRequestedEvent event;
     event.token = token;
     event.unit = active;
     event.commandId = commandId;
     event.targetEntity = targetEntity;
+    event.targetsTurnPanel = targetsTurnPanel;
     event.hasTargetTile = tileEntity != entt::null;
     if (event.hasTargetTile) {
         const auto& tile = registry.get<FTacticalBoardTile>(tileEntity);
@@ -130,12 +168,64 @@ void PublishDropRequest(entt::registry& registry,
     QUEUE_FRAME_EVENT(FTacticalD20CommandDropRequestedEvent, registry, event);
 }
 
+void PublishAcceptedCommand(entt::registry& registry, const FTacticalD20CommandDropValidatedEvent& event) {
+    const FTacticalD20CommandAcceptedEvent accepted{
+        .token = event.token,
+        .unit = event.unit,
+        .commandId = event.commandId,
+        .movementSpentTiles = event.movementCostTiles,
+        .hasTargetTile = event.hasTargetTile,
+        .targetTileX = event.targetTileX,
+        .targetTileY = event.targetTileY,
+        .targetEntity = event.targetEntity,
+        .targetsTurnPanel = event.targetsTurnPanel,
+    };
+    PUBLISH(FTacticalD20CommandAcceptedEvent, registry, accepted);
+    QUEUE_FRAME_EVENT(FTacticalD20CommandAcceptedEvent, registry, accepted);
+
+    const FTacticalD20CommandQueuedEvent queued{
+        .unit = event.unit,
+        .actionId = event.commandId,
+        .movementSpentTiles = event.movementCostTiles,
+        .hasTargetTile = event.hasTargetTile,
+        .targetTileX = event.targetTileX,
+        .targetTileY = event.targetTileY,
+        .targetEntity = event.targetEntity,
+        .validationApproved = true,
+    };
+    PUBLISH(FTacticalD20CommandQueuedEvent, registry, queued);
+    QUEUE_FRAME_EVENT(FTacticalD20CommandQueuedEvent, registry, queued);
+}
+
+void ConsumeValidationEvents(entt::registry& registry) {
+    auto* bus = registry.ctx().find<FEventBus>();
+    if (!bus) return;
+
+    for (const auto& event : bus->frameEvents<FTacticalD20CommandDropValidatedEvent>()) {
+        if (event.token == entt::null || !registry.valid(event.token) || !registry.all_of<FTacticalD20CommandDragState>(event.token)) continue;
+
+        // Drag state transition table:
+        //   DropCandidate + valid CommandDropValidated   -> CommandAccepted -> DragIdle
+        //   DropCandidate + invalid CommandDropValidated -> DragRejected    -> DragIdle
+        auto drag = registry.get<FTacticalD20CommandDragState>(event.token);
+        const auto terminalPhase = event.valid ? ETacticalD20CommandDragPhase::CommandAccepted : ETacticalD20CommandDragPhase::DragRejected;
+        PublishDragStateChanged(registry, event.token, drag.commandId, drag.phase, terminalPhase, event.invalidReason);
+        SnapBack(registry, event.token, drag);
+        AppendTacticalD20CommandValidationLogs(registry, event);
+        if (event.valid) PublishAcceptedCommand(registry, event);
+        PublishDragStateChanged(registry, event.token, drag.commandId, terminalPhase, ETacticalD20CommandDragPhase::DragIdle, event.invalidReason);
+        registry.remove<FTacticalD20CommandDragState>(event.token);
+    }
+}
+
 void BeginDrag(entt::registry& registry, const FInputState& input, entt::entity active) {
     const auto token = TopCommandTokenAt(registry, input.mousePos);
     if (token == entt::null) return;
 
     const auto& position = registry.get<FPosition>(token);
     const auto& command = registry.get<FCommandToken>(token);
+    // Drag state transition table:
+    //   DragIdle + mouse pressed on command token during player turn -> DraggingCommand
     registry.emplace_or_replace<FTacticalD20CommandDragState>(
         token,
         command.id,
@@ -145,6 +235,7 @@ void BeginDrag(entt::registry& registry, const FInputState& input, entt::entity 
         input.mousePos.y - position.y,
         ETacticalD20CommandDragPhase::DraggingCommand,
         "");
+    PublishDragStateChanged(registry, token, command.id, ETacticalD20CommandDragPhase::DragIdle, ETacticalD20CommandDragPhase::DraggingCommand);
     (void)active;
 }
 
@@ -165,15 +256,12 @@ void UpdateActiveDrag(entt::registry& registry, const FInputState& input, entt::
 
         const auto tileEntity = BoardTileAt(registry, input.mousePos);
         const auto targetEntity = UnitAt(registry, input.mousePos);
-        PublishDropRequest(registry, token, active, drag.commandId, tileEntity, targetEntity);
+        const bool targetsTurnPanel = IsFallbackTacticalD20TurnPanelHit(registry, input.mousePos);
+        PublishDropRequest(registry, token, active, drag.commandId, tileEntity, targetEntity, targetsTurnPanel);
 
-        if (tileEntity == entt::null && targetEntity == entt::null) {
-            drag.phase = ETacticalD20CommandDragPhase::DragRejected;
-            drag.invalidReason = "drop outside board or valid target";
-            SnapBack(registry, token, drag);
-            return;
-        }
-
+        // Drag state transition table:
+        //   DraggingCommand + mouse released -> DropCandidate
+        PublishDragStateChanged(registry, token, drag.commandId, drag.phase, ETacticalD20CommandDragPhase::DropCandidate);
         drag.phase = ETacticalD20CommandDragPhase::DropCandidate;
         return;
     }
@@ -187,13 +275,14 @@ void TacticalD20CommandDragInputSystem::update(entt::registry& registry, float /
     const auto* input = registry.ctx().find<FInputState>();
     if (!input) return;
 
+    ConsumeValidationEvents(registry);
     UpdateBoardHover(registry, input->mousePos);
 
     const auto active = ActiveUnit(registry);
     UpdateActiveDrag(registry, *input, active);
 
     if (input->uiCapturesMouse || !input->mouseLeftPressed || active == entt::null) return;
-    if (!IsAwaitingPlayerCommand(registry) || IsCombatEnded(registry) || IsInputLocked(registry, active)) return;
+    if (!IsAwaitingPlayerCommand(registry) || IsCombatEnded(registry) || IsInputLocked(registry, active) || HasActiveDrag(registry)) return;
 
     BeginDrag(registry, *input, active);
 }

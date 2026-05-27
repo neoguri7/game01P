@@ -8,9 +8,11 @@
 #include "gameplay/tactical_d20/FTacticalD20Events.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <fmt/format.h>
 #include <string>
+#include <vector>
 #include <tracy/Tracy.hpp>
 
 namespace game {
@@ -21,6 +23,12 @@ struct FPathValidation {
     std::string reason;
     int costTiles{0};
     int budgetTiles{0};
+};
+
+struct FSearchNode {
+    int tileX{0};
+    int tileY{0};
+    int costTiles{0};
 };
 
 entt::entity TileAt(entt::registry& registry, int tileX, int tileY) {
@@ -48,45 +56,52 @@ bool IsWall(entt::registry& registry, int tileX, int tileY) {
 }
 
 bool IsBlockedPathTile(entt::registry& registry, entt::entity unit, int tileX, int tileY) {
-    return IsWall(registry, tileX, tileY) || OccupyingUnitAt(registry, tileX, tileY, unit) != entt::null;
+    return TileAt(registry, tileX, tileY) == entt::null
+        || IsWall(registry, tileX, tileY)
+        || OccupyingUnitAt(registry, tileX, tileY, unit) != entt::null;
 }
 
-bool IsEndpoint(int tileX, int tileY, int startX, int startY, int targetX, int targetY) {
-    return (tileX == startX && tileY == startY) || (tileX == targetX && tileY == targetY);
+bool WasVisited(const std::vector<FSearchNode>& nodes, int tileX, int tileY) {
+    return std::ranges::any_of(nodes, [tileX, tileY](const FSearchNode& node) {
+        return node.tileX == tileX && node.tileY == tileY;
+    });
 }
 
-bool SegmentClear(entt::registry& registry,
-                  entt::entity unit,
-                  int fromX,
-                  int fromY,
-                  int toX,
-                  int toY,
-                  int startX,
-                  int startY,
-                  int targetX,
-                  int targetY) {
-    const int stepX = (toX > fromX) - (toX < fromX);
-    const int stepY = (toY > fromY) - (toY < fromY);
-    int x = fromX;
-    int y = fromY;
+int FindShortestNoDiagonalPathCost(entt::registry& registry,
+                                   entt::entity unit,
+                                   int startX,
+                                   int startY,
+                                   int targetX,
+                                   int targetY,
+                                   int budgetTiles) {
+    constexpr std::array<FSearchNode, 4> Directions{{
+        {.tileX = 1, .tileY = 0},
+        {.tileX = -1, .tileY = 0},
+        {.tileX = 0, .tileY = 1},
+        {.tileX = 0, .tileY = -1},
+    }};
 
-    while (x != toX || y != toY) {
-        x += stepX;
-        y += stepY;
-        if (IsEndpoint(x, y, startX, startY, targetX, targetY)) continue;
-        if (IsBlockedPathTile(registry, unit, x, y)) return false;
+    std::vector<FSearchNode> frontier{{.tileX = startX, .tileY = startY, .costTiles = 0}};
+    for (std::size_t cursor = 0; cursor < frontier.size(); ++cursor) {
+        const auto current = frontier[cursor];
+        if (current.tileX == targetX && current.tileY == targetY) return current.costTiles;
+        if (current.costTiles >= budgetTiles) continue;
+
+        for (const auto& direction : Directions) {
+            const FSearchNode next{
+                .tileX = current.tileX + direction.tileX,
+                .tileY = current.tileY + direction.tileY,
+                .costTiles = current.costTiles + 1,
+            };
+            if (WasVisited(frontier, next.tileX, next.tileY)) continue;
+            if (next.tileX != targetX || next.tileY != targetY) {
+                if (IsBlockedPathTile(registry, unit, next.tileX, next.tileY)) continue;
+            }
+            frontier.push_back(next);
+        }
     }
-    return true;
-}
 
-bool ManhattanPathClear(entt::registry& registry, entt::entity unit, int startX, int startY, int targetX, int targetY) {
-    const bool horizontalThenVertical =
-        SegmentClear(registry, unit, startX, startY, targetX, startY, startX, startY, targetX, targetY)
-        && SegmentClear(registry, unit, targetX, startY, targetX, targetY, startX, startY, targetX, targetY);
-    if (horizontalThenVertical) return true;
-
-    return SegmentClear(registry, unit, startX, startY, startX, targetY, startX, startY, targetX, targetY)
-        && SegmentClear(registry, unit, startX, targetY, targetX, targetY, startX, startY, targetX, targetY);
+    return -1;
 }
 
 FPathValidation ValidateMovement(entt::registry& registry, const FTacticalD20CommandDropRequestedEvent& request) {
@@ -124,11 +139,20 @@ FPathValidation ValidateMovement(entt::registry& registry, const FTacticalD20Com
         result.reason = fmt::format("move requires {} tiles, only {} available", result.costTiles, result.budgetTiles);
         return result;
     }
-    if (!ManhattanPathClear(registry, request.unit, unit.tileX, unit.tileY, request.targetTileX, request.targetTileY)) {
+    const int pathCost = FindShortestNoDiagonalPathCost(
+        registry,
+        request.unit,
+        unit.tileX,
+        unit.tileY,
+        request.targetTileX,
+        request.targetTileY,
+        result.budgetTiles);
+    if (pathCost < 0) {
         result.reason = "move path crosses a wall or occupied tile";
         return result;
     }
 
+    result.costTiles = pathCost;
     result.valid = true;
     return result;
 }

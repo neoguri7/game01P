@@ -5,14 +5,11 @@
 #include "ecs/components/FCombatStateAwaitingCommand.h"
 #include "ecs/components/FCombatStateDefeat.h"
 #include "ecs/components/FCombatStateVictory.h"
-#include "ecs/components/FPosition.h"
-#include "ecs/components/FTacticalD20CommandDragState.h"
 #include "ecs/components/FTacticalBoardTile.h"
 #include "ecs/components/FTacticalUnit.h"
 #include "ecs/components/FUnitStateDefeated.h"
 #include "gameplay/tactical_d20/FTacticalD20Config.h"
 #include "gameplay/tactical_d20/FTacticalD20Events.h"
-#include "gameplay/tactical_d20/FTacticalD20StateLog.h"
 
 #include <algorithm>
 #include <cmath>
@@ -211,43 +208,6 @@ FCommandValidation ValidateCommand(entt::registry& registry, const FEventBus& bu
     validation.reason = "unknown command";
     return validation;
 }
-std::string TargetLabel(entt::registry& registry, const FTacticalD20CommandDropValidatedEvent& event) {
-    if (event.targetEntity != entt::null && registry.valid(event.targetEntity) && registry.all_of<FTacticalUnit>(event.targetEntity)) {
-        return registry.get<FTacticalUnit>(event.targetEntity).id;
-    }
-    if (event.hasTargetTile) return fmt::format("tile({}, {})", event.targetTileX, event.targetTileY);
-    return "none";
-}
-
-void AppendLog(entt::registry& registry, const FTacticalD20CommandDropValidatedEvent& event) {
-    auto* log = registry.ctx().find<FTacticalD20StateLog>();
-    if (!log) return;
-
-    const auto target = TargetLabel(registry, event);
-    const auto result = event.valid ? "valid" : fmt::format("invalid: {}", event.invalidReason);
-    log->lines.push_back(fmt::format("[Event] CommandDropValidated command={} target={} result={}", event.commandId, target, result));
-    log->lines.push_back(fmt::format("[Combat] {} command {}", event.commandId, result));
-
-    if (const auto* config = registry.ctx().find<FTacticalD20Config>()) {
-        while (static_cast<int>(log->lines.size()) > config->logging.stateLogMaxLines) log->lines.erase(log->lines.begin());
-    }
-}
-
-void ResolveDragState(entt::registry& registry, const FTacticalD20CommandDropValidatedEvent& event) {
-    if (event.token == entt::null || !registry.valid(event.token) || !registry.all_of<FTacticalD20CommandDragState>(event.token)) return;
-
-    auto drag = registry.get<FTacticalD20CommandDragState>(event.token);
-    drag.phase = event.valid ? ETacticalD20CommandDragPhase::CommandAccepted : ETacticalD20CommandDragPhase::DragRejected;
-    drag.invalidReason = event.invalidReason;
-
-    if (registry.all_of<FPosition>(event.token)) {
-        auto& position = registry.get<FPosition>(event.token);
-        position.x = drag.originX;
-        position.y = drag.originY;
-    }
-    registry.remove<FTacticalD20CommandDragState>(event.token);
-}
-
 void PublishValidated(entt::registry& registry, const FTacticalD20CommandDropRequestedEvent& request, const FCommandValidation& validation) {
     FTacticalD20CommandDropValidatedEvent event;
     event.token = request.token;
@@ -257,27 +217,13 @@ void PublishValidated(entt::registry& registry, const FTacticalD20CommandDropReq
     event.targetTileX = request.targetTileX;
     event.targetTileY = request.targetTileY;
     event.targetEntity = validation.targetEntity != entt::null ? validation.targetEntity : request.targetEntity;
+    event.targetsTurnPanel = request.targetsTurnPanel;
     event.valid = validation.valid;
     event.invalidReason = validation.reason;
     event.movementCostTiles = validation.movementCostTiles;
 
     PUBLISH(FTacticalD20CommandDropValidatedEvent, registry, event);
     QUEUE_FRAME_EVENT(FTacticalD20CommandDropValidatedEvent, registry, event);
-    AppendLog(registry, event);
-    ResolveDragState(registry, event);
-
-    if (!event.valid) return;
-
-    const FTacticalD20CommandQueuedEvent command{
-        event.unit,
-        event.commandId,
-        event.movementCostTiles,
-        event.hasTargetTile,
-        event.targetTileX,
-        event.targetTileY,
-        event.targetEntity};
-    PUBLISH(FTacticalD20CommandQueuedEvent, registry, command);
-    QUEUE_FRAME_EVENT(FTacticalD20CommandQueuedEvent, registry, command);
 }
 
 } // namespace

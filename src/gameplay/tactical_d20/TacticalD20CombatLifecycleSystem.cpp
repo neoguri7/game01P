@@ -195,7 +195,9 @@ void HandleNextTurn(entt::registry& registry, entt::entity stateEntity) {
 
 bool HasQueuedCommandForActiveUnit(entt::registry& registry) {
     const auto active = ActiveUnit(registry);
-    return active != entt::null && registry.all_of<FQueuedTacticalD20Command>(active);
+    return active != entt::null
+        && registry.all_of<FQueuedTacticalD20Command>(active)
+        && registry.get<FQueuedTacticalD20Command>(active).validationApproved;
 }
 
 bool HasResolvedActionForActiveUnit(entt::registry& registry) {

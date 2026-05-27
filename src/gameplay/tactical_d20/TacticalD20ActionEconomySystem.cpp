@@ -176,6 +176,8 @@ bool TryResolveQueuedCommand(entt::registry& registry, entt::entity active) {
 
     const auto queuedCommand = registry.get<FQueuedTacticalD20Command>(active);
     registry.remove<FQueuedTacticalD20Command>(active);
+    if (!queuedCommand.validationApproved) return false;
+
     ResolveCommand(registry, FTacticalD20CommandQueuedEvent{
         active,
         queuedCommand.actionId,
@@ -183,7 +185,8 @@ bool TryResolveQueuedCommand(entt::registry& registry, entt::entity active) {
         queuedCommand.hasTargetTile,
         queuedCommand.targetTileX,
         queuedCommand.targetTileY,
-        queuedCommand.targetEntity});
+        queuedCommand.targetEntity,
+        queuedCommand.validationApproved});
     return true;
 }
 
@@ -193,10 +196,20 @@ bool TryStoreQueuedCommand(entt::registry& registry, entt::entity active) {
     auto* bus = registry.ctx().find<FEventBus>();
     if (!bus) return false;
 
-    for (const auto& command : bus->frameEvents<FTacticalD20CommandQueuedEvent>()) {
-        if (command.unit != active) continue;
-        if (!CanAcceptCommand(registry, command)) continue;
+    for (const auto& accepted : bus->frameEvents<FTacticalD20CommandAcceptedEvent>()) {
+        if (accepted.unit != active) continue;
 
+        const FTacticalD20CommandQueuedEvent command{
+            .unit = accepted.unit,
+            .actionId = accepted.commandId,
+            .movementSpentTiles = accepted.movementSpentTiles,
+            .hasTargetTile = accepted.hasTargetTile,
+            .targetTileX = accepted.targetTileX,
+            .targetTileY = accepted.targetTileY,
+            .targetEntity = accepted.targetEntity,
+            .validationApproved = true,
+        };
+        if (!CanAcceptCommand(registry, command)) continue;
         registry.emplace_or_replace<FQueuedTacticalD20Command>(
             active,
             command.actionId,
@@ -204,7 +217,8 @@ bool TryStoreQueuedCommand(entt::registry& registry, entt::entity active) {
             command.hasTargetTile,
             command.targetTileX,
             command.targetTileY,
-            command.targetEntity);
+            command.targetEntity,
+            command.validationApproved);
         return true;
     }
     return false;
@@ -213,8 +227,9 @@ bool TryStoreQueuedCommand(entt::registry& registry, entt::entity active) {
 void QueueEnemyCommand(entt::registry& registry, entt::entity active) {
     if (registry.all_of<FQueuedTacticalD20Command>(active)) return;
 
-    const auto command = DefaultCommandForState(registry, active);
+    auto command = DefaultCommandForState(registry, active);
     if (command.unit == entt::null) return;
+    command.validationApproved = true;
 
     PUBLISH(FTacticalD20CommandQueuedEvent, registry, command);
     QUEUE_FRAME_EVENT(FTacticalD20CommandQueuedEvent, registry, command);
@@ -225,7 +240,8 @@ void QueueEnemyCommand(entt::registry& registry, entt::entity active) {
         command.hasTargetTile,
         command.targetTileX,
         command.targetTileY,
-        command.targetEntity);
+        command.targetEntity,
+        true);
 }
 
 } // namespace

@@ -12,6 +12,7 @@ struct FQueuedTacticalD20Command {
     int targetTileX{0};
     int targetTileY{0};
     entt::entity targetEntity{entt::null};
+    bool validationApproved{false};
 };
 
 } // namespace game

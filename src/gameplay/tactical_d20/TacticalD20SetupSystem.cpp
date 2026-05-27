@@ -7,7 +7,9 @@
 #include "ecs/components/FCombatStateInitiativeRolling.h"
 #include "ecs/components/FCombatStateSetup.h"
 #include "gameplay/tactical_d20/FTacticalD20BoardInteraction.h"
+#include "gameplay/tactical_d20/FTacticalD20CombatLog.h"
 #include "gameplay/tactical_d20/FTacticalD20Config.h"
+#include "gameplay/tactical_d20/FTacticalD20EventLog.h"
 #include "gameplay/tactical_d20/FTacticalD20Events.h"
 #include "gameplay/tactical_d20/FTacticalD20StateLog.h"
 #include <algorithm>
@@ -42,6 +44,12 @@ void EnsureStateLog(entt::registry& registry) {
     if (!registry.ctx().contains<FTacticalD20StateLog>()) {
         registry.ctx().emplace<FTacticalD20StateLog>();
     }
+}
+
+void EnsureObservableLogs(entt::registry& registry) {
+    if (!registry.ctx().contains<FTacticalD20CombatLog>()) registry.ctx().emplace<FTacticalD20CombatLog>();
+    if (!registry.ctx().contains<FTacticalD20EventLog>()) registry.ctx().emplace<FTacticalD20EventLog>();
+    EnsureStateLog(registry);
 }
 
 void AppendStateLog(entt::registry& registry, const FTacticalD20Config& config, const std::string& line) {
@@ -108,7 +116,7 @@ void TacticalD20SetupSystem::update(entt::registry& registry, float /*dt*/) {
 
     PUBLISH(FTacticalD20CombatSetupRequestedEvent, registry, FTacticalD20CombatSetupRequestedEvent{});
     EnsureBoardInteractionState(registry);
-    EnsureStateLog(registry);
+    EnsureObservableLogs(registry);
     SpawnBoard(registry, *config);
     SpawnUnits(registry, *config);
     SpawnCommandTokens(registry);

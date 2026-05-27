@@ -20,13 +20,15 @@ void RegisterDefaultSystems(SystemManager& systemManager, entt::registry& regist
     // TacticalD20SetupSystem runs before general systems so setup entities exist
     // before collision/render systems inspect ECS views.
     systemManager.addSystem<TacticalD20SetupSystem>();
-    // Tactical D20 flow order: input state is captured by Engine::processInput,
-    // drag emits drop requests, validation emits queued commands, action economy
-    // stores/resolves them, then lifecycle advances combat state from events.
+    // Tactical D20 flow order: input state is captured by Engine::processInput.
+    // First drag pass emits drop requests; validators emit validation events;
+    // second drag pass consumes those events for snapback/acceptance; action
+    // economy stores accepted commands; lifecycle advances combat state.
     systemManager.addSystem<TacticalD20InitiativeSystem>();
     systemManager.addSystem<TacticalD20CommandDragInputSystem>();
     systemManager.addSystem<TacticalD20MovementPathValidationSystem>();
     systemManager.addSystem<TacticalD20CommandValidationSystem>();
+    systemManager.addSystem<TacticalD20CommandDragInputSystem>();
     systemManager.addSystem<TacticalD20ActionEconomySystem>();
     systemManager.addSystem<TacticalD20CombatLifecycleSystem>();
     systemManager.addSystem<ecs::MoveSystem>();
