@@ -1,7 +1,8 @@
 #pragma once
 
-/// @deprecated Legacy state. Use GameStateMachine only if high-level flow is simple.
-/// Prefer implementing logic as pure ECS systems (FTitleSystem) that read/write registry components.
+/// High-level app-flow state for the title screen only.
+/// Do not add entity gameplay state here; gameplay transitions belong in ECS
+/// tag components and FEventBus-driven systems.
 #include "FBaseState.h"
 
 class FTitleState : public FBaseState

@@ -8,9 +8,15 @@
 namespace game {
 
 /**
- * Lightweight state machine.
- * High-level flow management (title screen -> hub -> dungeon)
- * Each state receives the living registry.
+ * Lightweight high-level app-flow state machine.
+ *
+ * Scope:
+ * - allowed: title/menu/scene-flow transitions.
+ * - forbidden: entity gameplay state such as idle/running/dead/attacking.
+ *
+ * Gameplay state must be modeled with ECS tag components and changed by systems
+ * via FEventBus events. Any system that changes gameplay state tags must keep a
+ * transition table near that system.
  */
 class GameStateMachine {
 public:

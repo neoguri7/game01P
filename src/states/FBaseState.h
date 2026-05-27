@@ -1,7 +1,8 @@
 #pragma once
 
-/// @deprecated This is legacy high-level state. Prefer stateful systems (e.g. FGameFlowSystem) in new code.
-/// Transition enum: states communicate intent, the state manager executes the switch.
+/// App-flow transition intents only.
+/// Gameplay state must not be represented here; use ECS tag components plus
+/// FEventBus-driven transition systems with documented transition tables.
 enum class EStateTransition
 {
     None,
@@ -14,7 +15,9 @@ enum class EStateTransition
     Quit
 };
 
-/// Base state interface for polymorphic game states.
+/// Base interface for high-level app-flow states only (title, menus, scene flow).
+/// Gameplay state such as alive/dead/attacking/stunned belongs in ECS tags and
+/// event-driven systems, not in this polymorphic state stack.
 class FBaseState
 {
 public:
