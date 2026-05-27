@@ -6,6 +6,26 @@ macOS/WSL은 코드 작성과 가벼운 점검에 사용하고, native Windows�
 
 자세한 내용은 [DEV_WORKFLOW.md](DEV_WORKFLOW.md)를 참고하세요.
 
+Windows 원격 빌드 리모컨:
+
+```bash
+GAME01P_WIN_HOST="your-windows-host" ./scripts/remote-win-build.sh
+```
+
+## Checkout 동기화 규칙
+
+macOS/Linux checkout과 Windows checkout은 서로 다른 작업 폴더입니다. 한쪽에서
+작업한 뒤 다른 쪽으로 넘어가기 전에 Git으로 동기화하세요.
+
+```text
+작업 전: git pull --ff-only
+작업 후: commit + push
+다른 머신으로 이동: git pull --ff-only
+```
+
+동시에 양쪽 checkout에서 같은 파일을 수정하지 마세요. Windows Remote SSH는 주로
+`git pull`, configure, build, test, 로그 확인 용도로 사용합니다.
+
 ## Windows 빌드 다운로드 방법
 
 1. GitHub 저장소의 Actions 탭을 엽니다.

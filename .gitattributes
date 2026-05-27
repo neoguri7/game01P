@@ -1,0 +1,20 @@
+* text=auto
+
+# Keep source and build metadata stable across Windows/macOS/Linux checkouts.
+*.c text eol=lf
+*.cc text eol=lf
+*.cpp text eol=lf
+*.cxx text eol=lf
+*.h text eol=lf
+*.hh text eol=lf
+*.hpp text eol=lf
+*.hxx text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+CMakePresets.json text eol=lf
+CMakeUserPresets.json text eol=lf
+
+# Shell scripts and project docs should stay LF.
+*.sh text eol=lf
+*.md text eol=lf
+*.json text eol=lf

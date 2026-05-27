@@ -3,10 +3,19 @@ oc.ps1
 # Build output
 # ============================================
 out/
+build/
+build-*/
+Testing/
 .vs/
+.cache/
+.ninja_deps
+.ninja_log
 
+.codex
 .codex/
+.agents
 .agents/
+.opencode
 .opencode/
 opencode.json
 AGENTS.md
@@ -16,9 +25,6 @@ ENGINE_FOUNDATION_ROADMAP.md
 # Dependencies
 # ============================================
 vcpkg_installed/
-build/
-docs/
-out/
 # ============================================
 # CMake generated files
 # ============================================
@@ -31,19 +37,25 @@ CTestTestfile.cmake
 # IDE & Editor
 # ============================================
 .vscode/
+.idea/
 *.user
 *.suo
 *.sublime-*
+*.VC.db
+*.VC.VC.opendb
+*.ipch
 # ============================================
 # OS files
 # ============================================
 .DS_Store
 Thumbs.db
 desktop.ini
+DerivedData/
 # ============================================
 # Logs & temp files
 # ============================================
 *.log
+*.tmp
 scripts/remote-windows-check.env
 *~
 *.orig
