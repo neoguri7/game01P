@@ -19,6 +19,8 @@ Testing/
 .opencode/
 opencode.json
 AGENTS.md
+.clinerules/
+design/
 PROJECT_VISION.md
 ENGINE_FOUNDATION_ROADMAP.md
 # ============================================
