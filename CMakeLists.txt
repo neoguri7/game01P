@@ -24,6 +24,10 @@ add_executable (game01P ${SRC_FILES})
 # Add the src directory as an include path #include "core/Game.h"
 target_include_directories(game01P PRIVATE "src")
 
+target_compile_options(game01P PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/EHsc>
+)
+
 find_package(SDL3 CONFIG REQUIRED)
 find_package(EnTT CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)

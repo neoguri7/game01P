@@ -9,6 +9,7 @@
 #include "ecs/components/FText.h"
 #include "ecs/components/FTacticalUnit.h"
 
+#include <cstdint>
 #include <fmt/format.h>
 
 namespace game {
@@ -34,7 +35,15 @@ entt::entity FTacticalD20UnitFactory::create(entt::registry& registry, const FTa
     registry.emplace<FCollider>(entity, EColliderType::AABB, glm::vec2{0.f, 0.f}, 24.f, 24.f, 4, spawn.team);
     registry.emplace<FTag>(entity, spawn.id);
     registry.emplace<FLayer>(entity, spawn.team == "player" ? 10 : 11);
-    registry.emplace<FText>(entity, fmt::format("{} HP {}/{} Conditions: -", spawn.displayName, spawn.maxHp, spawn.maxHp), "", 14, 255, 255, 255, 255);
+    registry.emplace<FText>(
+        entity,
+        fmt::format("{} HP {}/{} Conditions: -", spawn.displayName, spawn.maxHp, spawn.maxHp),
+        "",
+        14,
+        std::uint8_t{255},
+        std::uint8_t{255},
+        std::uint8_t{255},
+        std::uint8_t{255});
     return entity;
 }
 
