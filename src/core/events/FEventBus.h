@@ -1,7 +1,7 @@
 #pragma once
 #include <entt/entt.hpp>
-#include <functional>
 #include <any>
+#include <functional>
 #include <memory>
 #include <typeindex>
 #include <unordered_map>
@@ -94,7 +94,8 @@ inline void InitializeEventBus(entt::registry& reg) {
 
 } // namespace game
 
-// Convenience macros
+// Legacy convenience macros. Prefer the typed helpers in FEventPublishing.h for
+// new code.
 #define SUBSCRIBE(type, reg, lambda) \
     if (auto* __bus = (reg).ctx().find<::game::FEventBus>()) \
         __bus->subscribe<type>(lambda)

@@ -20,9 +20,12 @@ Testing/
 opencode.json
 AGENTS.md
 .clinerules/
+.github/
 design/
 PROJECT_VISION.md
 ENGINE_FOUNDATION_ROADMAP.md
+
+package-lock.json
 # ============================================
 # Dependencies
 # ============================================
