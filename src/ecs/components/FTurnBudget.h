@@ -3,8 +3,8 @@
 namespace game {
 
 struct FTurnBudget {
-    int baseMovementTiles{0};
-    int movementBudgetTiles{0};
+    int baseMovementFeet{0};
+    int remainingMovementFeet{0};
 };
 
 } // namespace game
