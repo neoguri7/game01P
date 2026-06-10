@@ -10,7 +10,6 @@ enum class EStateTransition
     ToHub,
     ToDungeon,
     ToBossFloor,
-    ToCombat,
     ToGameOver,
     Quit
 };

@@ -1,6 +1,6 @@
 # CMakeList.txt : CMake project for game01P, include source and define
 #
-cmake_minimum_required (VERSION 3.10)
+cmake_minimum_required (VERSION 3.21)
 
 # Enable Hot Reload for MSVC compilers if supported.
 if (POLICY CMP0141)
@@ -53,6 +53,15 @@ target_link_libraries( game01P
 )
 
 set_property(TARGET game01P PROPERTY CXX_STANDARD 23)
+
+if (WIN32)
+	add_custom_command(TARGET game01P POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			$<TARGET_RUNTIME_DLLS:game01P>
+			$<TARGET_FILE_DIR:game01P>
+		COMMAND_EXPAND_LISTS
+	)
+endif()
 
 
 # TODO: Add tests and install targets if needed.

@@ -21,7 +21,8 @@ opencode.json
 AGENTS.md
 .clinerules/
 .github/
-design/
+docs/
+.kilo/
 package-lock.json
 # ============================================
 # Dependencies

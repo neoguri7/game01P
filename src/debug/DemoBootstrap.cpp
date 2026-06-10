@@ -1,14 +1,11 @@
 #include "debug/DemoBootstrap.h"
 
 #include "core/factories/FDemoEntityFactory.h"
-#include "core/factories/FTacticalCombatStateFactory.h"
-#include "gameplay/tactical_d20/FTacticalCombatConfigLoader.h"
 
 namespace game {
 
 void BootstrapDemoScene(entt::registry& registry) {
-    FTacticalCombatConfigLoader::Initialize(registry);
-    FTacticalCombatStateFactory::createSetupState(registry);
+    FDemoEntityFactory::create(registry);
 }
 
 entt::entity CreateDebugDemoEntity(entt::registry& registry) {

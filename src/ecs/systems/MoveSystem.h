@@ -6,6 +6,7 @@
 
 #include <entt/entt.hpp>
 #include <string>
+#include <tracy/Tracy.hpp>
 
 namespace game::ecs {
 

@@ -1,8 +1,23 @@
 #include "core/Engine.h"
 #include "debug/DebugOverlay.h"
 #include "debug/DemoBootstrap.h"
-#include "gameplay/SystemRegistration.h"
+#include "ecs/systems/AnimationSystem.h"
+#include "ecs/systems/CollisionSystem.h"
+#include "ecs/systems/MoveSystem.h"
+#include "ecs/systems/SpriteRenderSystem.h"
 #include <cstdlib>
+
+namespace {
+
+void RegisterCoreDemoSystems(game::SystemManager& systems)
+{
+    systems.addSystem<game::ecs::MoveSystem>();
+    systems.addSystem<game::CollisionSystem>();
+    systems.addSystem<game::ecs::AnimationSystem>();
+    systems.addSystem<game::ecs::SpriteRenderSystem>();
+}
+
+} // namespace
 
 int main(int argc, char* argv[])
 {
@@ -12,7 +27,7 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
-    game::RegisterDefaultSystems(engine.getSystemManager(), engine.getRegistry());
+    RegisterCoreDemoSystems(engine.getSystemManager());
     game::BootstrapDemoScene(engine.getRegistry());
     engine.setOverlayRenderer(game::RenderDebugOverlay);
 

@@ -8,6 +8,9 @@
 
 #include "core/AssetManager.h"
 #include "core/AudioManager.h"
+#include "core/EngineAbility.h"
+#include "core/EngineAbilityPipeline.h"
+#include "core/EngineState.h"
 #include "core/InputState.h"
 #include "core/Logger.h"
 #include "core/ResourceManager.h"
@@ -78,6 +81,19 @@ void Engine::initializeContextServices() {
     InitializeEventBus(registry);
     FAssetManager::Initialize(registry);
 
+    auto& windowState = registry.ctx().emplace<FEngineWindowState>();
+    SDL_GetWindowSize(window.get(), &windowState.width, &windowState.height);
+    windowState.windowOpen = window != nullptr;
+
+    registry.ctx().emplace<FEngineFrameState>();
+
+    auto& runtimeState = registry.ctx().emplace<FEngineRuntimeState>();
+    runtimeState.rendererReady = renderer != nullptr;
+    runtimeState.inputReady = registry.ctx().contains<FInputState>();
+    if (windowState.windowOpen) runtimeState.tags.add(EEngineTag::WindowOpen);
+    if (runtimeState.rendererReady) runtimeState.tags.add(EEngineTag::RendererReady);
+    if (runtimeState.inputReady) runtimeState.tags.add(EEngineTag::InputReady);
+
     registry.ctx().emplace<SDL_Renderer*>(renderer.get());
 
     auto& rm = registry.ctx().emplace<FResourceManager>();
@@ -95,6 +111,10 @@ void Engine::shutdownContextServices() {
     registry.ctx().erase<SDL_Renderer*>();
 
     FAssetManager::Shutdown(registry);
+
+    registry.ctx().erase<FEngineRuntimeState>();
+    registry.ctx().erase<FEngineFrameState>();
+    registry.ctx().erase<FEngineWindowState>();
 
     if (auto* bus = registry.ctx().find<FEventBus>()) {
         bus->clear();
@@ -115,9 +135,11 @@ void Engine::run() {
             bus->beginFrame();
         }
 
+        BeginEngineFrameAbility(registry);
         processInput();
         update(dt);
         render();
+        EndEngineFrameEffects(registry);
 
         FrameMark; // Tracy frame marker
     }
@@ -126,25 +148,29 @@ void Engine::run() {
 void Engine::processInput() {
     ZoneScopedN("Engine::processInput");
 
-    // Reset per-frame input state
-    if (auto* input = registry.ctx().find<FInputState>()) {
-        const ImGuiIO& io = ImGui::GetIO();
-        input->beginFrame(io.WantCaptureKeyboard, io.WantCaptureMouse);
-    }
+    const FEngineAbilityRequest inputRequest{
+        .ability = EEngineAbility::ProcessInput,
+        .frameIndex = CurrentEngineFrameIndex(registry)
+    };
+    FInputState* input = BeginEngineInputAbility(registry, inputRequest);
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         ImGui_ImplSDL3_ProcessEvent(&event);
 
         // Feed game input
-        if (auto* input = registry.ctx().find<FInputState>()) {
+        if (input) {
             input->processEvent(event);
         }
 
-        if (event.type == SDL_EVENT_QUIT) {
-            running = false;
-        }
+        const FEngineAbilityRequest windowRequest{
+            .ability = EEngineAbility::ApplyWindowEvent,
+            .frameIndex = inputRequest.frameIndex
+        };
+        ApplyEngineWindowEventAbility(registry, event, windowRequest, running);
     }
+
+    EndEngineInputAbility(registry, inputRequest, input != nullptr);
 }
 
 void Engine::update(float dt) {
@@ -166,12 +192,16 @@ void Engine::update(float dt) {
 void Engine::render() {
     ZoneScopedN("Engine::render");
 
-    ImGui_ImplSDLRenderer3_NewFrame();
-    ImGui_ImplSDL3_NewFrame();
-    ImGui::NewFrame();
+    const FEngineAbilityRequest renderRequest{
+        .ability = EEngineAbility::BeginRenderFrame,
+        .frameIndex = CurrentEngineFrameIndex(registry)
+    };
+    if (!BeginEngineRenderAbility(registry, renderRequest, renderer.get())) {
+        return;
+    }
 
-    SDL_SetRenderDrawColor(renderer.get(), 30, 30, 40, 255);
-    SDL_RenderClear(renderer.get());
+    (void)ApplyEngineBeginImGuiFrameEffect();
+    (void)ApplyEngineClearBackbufferEffect(renderer.get());
 
     // Game render systems draw after clear and before overlays/present.
     systemMgr.renderAll(registry);
@@ -181,10 +211,14 @@ void Engine::render() {
         overlayRenderer(registry, frameTime, systemMgr);
     }
 
-    ImGui::Render();
-    ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer.get());
+    (void)ApplyEngineRenderImGuiDrawDataEffect(renderer.get());
+    (void)ApplyEnginePresentBackbufferEffect(renderer.get());
 
-    SDL_RenderPresent(renderer.get());
+    const FEngineAbilityRequest presentRequest{
+        .ability = EEngineAbility::PresentRenderFrame,
+        .frameIndex = renderRequest.frameIndex
+    };
+    EndEngineRenderAbility(registry, presentRequest);
 }
 
 void Engine::shutdown() {
