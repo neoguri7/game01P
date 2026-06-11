@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <entt/entt.hpp>
+
 namespace game {
 
 /// Small shared vocabulary for engine ability guards.
@@ -65,5 +67,14 @@ struct FEngineRuntimeState {
     bool keyboardCapturedByUi{false};
     bool mouseCapturedByUi{false};
 };
+
+void SetEngineRunningState(entt::registry& registry, bool enabled);
+void SetEngineInputReadyState(entt::registry& registry, bool enabled);
+void SetEngineFrameActiveState(entt::registry& registry, bool enabled);
+void SetEngineInputFrameActiveState(entt::registry& registry, bool enabled);
+void SetEngineRenderFrameActiveState(entt::registry& registry, bool enabled);
+void SetEngineWindowOpenState(entt::registry& registry, bool enabled);
+void SetEngineWindowFocusedState(entt::registry& registry, bool enabled);
+void SetEngineWindowMinimizedState(entt::registry& registry, bool enabled);
 
 } // namespace game

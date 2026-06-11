@@ -95,18 +95,17 @@ void Engine::initializeContextServices() {
 
     auto& windowState = registry.ctx().emplace<FEngineWindowState>();
     SDL_GetWindowSize(window.get(), &windowState.width, &windowState.height);
-    windowState.windowOpen = window != nullptr;
-    windowState.focused = (SDL_GetWindowFlags(window.get()) & SDL_WINDOW_INPUT_FOCUS) != 0;
+    const bool windowOpen = window != nullptr;
+    const bool windowFocused = windowOpen && (SDL_GetWindowFlags(window.get()) & SDL_WINDOW_INPUT_FOCUS) != 0;
 
     registry.ctx().emplace<FEngineFrameState>();
 
     auto& runtimeState = registry.ctx().emplace<FEngineRuntimeState>();
     runtimeState.rendererReady = renderer != nullptr;
-    runtimeState.inputReady = registry.ctx().contains<FInputState>();
-    if (windowState.windowOpen) runtimeState.tags.add(EEngineTag::WindowOpen);
-    if (windowState.focused) runtimeState.tags.add(EEngineTag::WindowFocused);
     if (runtimeState.rendererReady) runtimeState.tags.add(EEngineTag::RendererReady);
-    if (runtimeState.inputReady) runtimeState.tags.add(EEngineTag::InputReady);
+    SetEngineWindowOpenState(registry, windowOpen);
+    SetEngineWindowFocusedState(registry, windowFocused);
+    SetEngineInputReadyState(registry, registry.ctx().contains<FInputState>());
 
     registry.ctx().emplace<SDL_Renderer*>(renderer.get());
 
@@ -174,14 +173,7 @@ bool Engine::applyEngineInitializeContextServicesEffect() {
 
 void Engine::applyEngineMarkRunningEffect(bool enabled) {
     running = enabled;
-    if (auto* runtimeState = registry.ctx().find<FEngineRuntimeState>()) {
-        runtimeState->running = enabled;
-        if (enabled) {
-            runtimeState->tags.add(EEngineTag::Running);
-        } else {
-            runtimeState->tags.remove(EEngineTag::Running);
-        }
-    }
+    SetEngineRunningState(registry, enabled);
 }
 
 void Engine::applyEngineShutdownEntitiesEffect() {
@@ -256,7 +248,11 @@ void Engine::run() {
             bus->beginFrame();
         }
 
-        BeginEngineFrameAbility(registry);
+        const FEngineAbilityRequest frameRequest{
+            .ability = EEngineAbility::BeginFrame,
+            .frameIndex = CurrentEngineFrameIndex(registry)
+        };
+        BeginEngineFrameAbility(registry, frameRequest);
         processInput();
         update(dt);
         render();
@@ -281,13 +277,17 @@ void Engine::processInput() {
     };
 
     SDL_Event event;
-    while (CanPollEngineInputAbility(registry, running) && SDL_PollEvent(&event)) {
+    while (CanPollEngineInputAbility(registry, pollRequest, running) && SDL_PollEvent(&event)) {
         (void)ApplyEngineImGuiInputEffect(event);
 
         // Feed game input through the named input-state translation effect.
         (void)ApplyEngineInputTranslateEffect(input, event);
 
-        const FEngineEffectResult quitResult = ApplyEngineQuitInputEffect(registry, event, pollRequest, running);
+        const FEngineAbilityRequest quitRequest{
+            .ability = EEngineAbility::RequestQuit,
+            .frameIndex = pollRequest.frameIndex
+        };
+        const FEngineEffectResult quitResult = ApplyEngineQuitInputEffect(registry, event, quitRequest, running);
         if (quitResult.applied) continue;
 
         const FEngineAbilityRequest windowRequest{
@@ -335,13 +335,13 @@ void Engine::render() {
     (void)ApplyEngineOverlayRenderEffect(registry, frameTime, systemMgr, overlayRenderer);
 
     (void)ApplyEngineRenderImGuiDrawDataEffect(renderer.get());
-    (void)ApplyEnginePresentBackbufferEffect(renderer.get());
+    const FEngineEffectResult presentResult = ApplyEnginePresentBackbufferEffect(renderer.get());
 
     const FEngineAbilityRequest presentRequest{
         .ability = EEngineAbility::PresentRenderFrame,
         .frameIndex = renderRequest.frameIndex
     };
-    EndEngineRenderAbility(registry, presentRequest);
+    EndEngineRenderAbility(registry, presentRequest, presentResult.applied);
 }
 
 void Engine::shutdown() {

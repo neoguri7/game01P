@@ -3,6 +3,7 @@
 #include "debug/DemoBootstrap.h"
 #include "ecs/systems/AnimationSystem.h"
 #include "ecs/systems/CollisionSystem.h"
+#include "ecs/systems/DebugPrimitiveRenderSystem.h"
 #include "ecs/systems/MoveSystem.h"
 #include "ecs/systems/SpriteRenderSystem.h"
 #include <cstdlib>
@@ -14,6 +15,7 @@ void RegisterCoreDemoSystems(game::SystemManager& systems)
     systems.addSystem<game::ecs::MoveSystem>();
     systems.addSystem<game::CollisionSystem>();
     systems.addSystem<game::ecs::AnimationSystem>();
+    systems.addSystem<game::ecs::DebugPrimitiveRenderSystem>();
     systems.addSystem<game::ecs::SpriteRenderSystem>();
 }
 

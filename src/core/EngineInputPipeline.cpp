@@ -10,29 +10,6 @@ namespace game {
 
 namespace {
 
-void SetEngineTag(entt::registry& registry, EEngineTag tag, bool enabled) {
-    auto* runtime = registry.ctx().find<FEngineRuntimeState>();
-    if (!runtime) return;
-
-    if (enabled) {
-        runtime->tags.add(tag);
-    } else {
-        runtime->tags.remove(tag);
-    }
-}
-
-void SetEngineRunningState(entt::registry& registry, bool enabled) {
-    auto* runtime = registry.ctx().find<FEngineRuntimeState>();
-    if (!runtime) return;
-
-    runtime->running = enabled;
-    if (enabled) {
-        runtime->tags.add(EEngineTag::Running);
-    } else {
-        runtime->tags.remove(EEngineTag::Running);
-    }
-}
-
 bool IsEngineQuitInputEvent(const SDL_Event& event) {
     return event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED;
 }
@@ -54,10 +31,8 @@ FEngineEffectResult ApplyEngineInputBeginFrameEffect(
         captureChanged = previousKeyboardCapturedByUi != keyboardCapturedByUi
             || previousMouseCapturedByUi != mouseCapturedByUi;
 
-        runtime->inputReady = true;
         runtime->keyboardCapturedByUi = keyboardCapturedByUi;
         runtime->mouseCapturedByUi = mouseCapturedByUi;
-        runtime->tags.add(EEngineTag::InputReady);
 
         if (keyboardCapturedByUi || mouseCapturedByUi) {
             runtime->tags.add(EEngineTag::InputUiCaptured);
@@ -65,13 +40,11 @@ FEngineEffectResult ApplyEngineInputBeginFrameEffect(
             runtime->tags.remove(EEngineTag::InputUiCaptured);
         }
     }
+    SetEngineInputReadyState(registry, true);
 
     input.beginFrame(keyboardCapturedByUi, mouseCapturedByUi);
 
-    if (auto* frame = registry.ctx().find<FEngineFrameState>()) {
-        frame->inputFrameActive = true;
-        SetEngineTag(registry, EEngineTag::InputFrameActive, true);
-    }
+    SetEngineInputFrameActiveState(registry, true);
 
     PublishAndQueueFrameEvent(registry, FEngineInputFrameBeganEvent{
         .frameIndex = request.frameIndex,
@@ -95,13 +68,15 @@ FEngineEffectResult ApplyEngineInputBeginFrameEffect(
 } // namespace
 
 FInputState* BeginEngineInputFrameAbility(entt::registry& registry, const FEngineAbilityRequest& request) {
+    if (request.ability != EEngineAbility::BeginInputFrame) return nullptr;
+
     auto* input = registry.ctx().find<FInputState>();
     if (!input) {
         PublishAndQueueFrameEvent(registry, FEngineInputSkippedEvent{
             .frameIndex = request.frameIndex,
             .reason = EEngineSkipReason::InputNotReady
         });
-        SetEngineTag(registry, EEngineTag::InputReady, false);
+        SetEngineInputReadyState(registry, false);
         return nullptr;
     }
 
@@ -121,7 +96,8 @@ FInputState* BeginEngineInputAbility(entt::registry& registry, const FEngineAbil
     return BeginEngineInputFrameAbility(registry, request);
 }
 
-bool CanPollEngineInputAbility(entt::registry& registry, bool running) {
+bool CanPollEngineInputAbility(entt::registry& registry, const FEngineAbilityRequest& request, bool running) {
+    if (request.ability != EEngineAbility::PollInputEvents) return false;
     if (!running) return false;
 
     if (auto* windowState = registry.ctx().find<FEngineWindowState>()) {
@@ -153,26 +129,26 @@ FEngineEffectResult ApplyEngineQuitInputEffect(
     const FEngineAbilityRequest& request,
     bool& running
 ) {
+    if (request.ability != EEngineAbility::RequestQuit) {
+        return { .effect = EEngineEffect::RequestQuit, .applied = false };
+    }
+
     if (!IsEngineQuitInputEvent(event)) {
         return { .effect = EEngineEffect::RequestQuit, .applied = false };
     }
 
     running = false;
     SetEngineRunningState(registry, false);
-    if (auto* windowState = registry.ctx().find<FEngineWindowState>()) {
-        windowState->windowOpen = false;
-    }
-    SetEngineTag(registry, EEngineTag::WindowOpen, false);
+    SetEngineWindowOpenState(registry, false);
 
     PublishAndQueueFrameEvent(registry, FEngineQuitRequestedEvent{ .frameIndex = request.frameIndex });
     return { .effect = EEngineEffect::RequestQuit, .applied = true };
 }
 
 void EndEngineInputAbility(entt::registry& registry, const FEngineAbilityRequest& request, bool inputWasActive) {
-    if (auto* frame = registry.ctx().find<FEngineFrameState>()) {
-        frame->inputFrameActive = false;
-        SetEngineTag(registry, EEngineTag::InputFrameActive, false);
-    }
+    if (request.ability != EEngineAbility::BeginInputFrame) return;
+
+    SetEngineInputFrameActiveState(registry, false);
 
     if (!inputWasActive) return;
 

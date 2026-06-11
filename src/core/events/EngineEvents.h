@@ -78,7 +78,7 @@ struct FEngineRenderFrameBeganEvent {
     int           height{0};
 };
 
-/// PresentBackbuffer effect was applied for the frame.
+/// Successful PresentBackbuffer effect was applied for the frame.
 struct FEngineRenderFramePresentedEvent {
     std::uint64_t frameIndex{0};
 };

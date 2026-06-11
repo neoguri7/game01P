@@ -14,7 +14,7 @@ namespace game {
 
 namespace {
 
-void SetEngineTag(entt::registry& registry, EEngineTag tag, bool enabled) {
+void SetEngineRuntimeTag(entt::registry& registry, EEngineTag tag, bool enabled) {
     auto* runtime = registry.ctx().find<FEngineRuntimeState>();
     if (!runtime) return;
 
@@ -50,6 +50,70 @@ FEngineAbilityCheck CanBeginEngineRenderFrame(entt::registry& registry, SDL_Rend
 
 } // namespace
 
+void SetEngineRunningState(entt::registry& registry, bool enabled) {
+    auto* runtime = registry.ctx().find<FEngineRuntimeState>();
+    if (!runtime) return;
+
+    runtime->running = enabled;
+    SetEngineRuntimeTag(registry, EEngineTag::Running, enabled);
+}
+
+void SetEngineInputReadyState(entt::registry& registry, bool enabled) {
+    auto* runtime = registry.ctx().find<FEngineRuntimeState>();
+    if (!runtime) return;
+
+    runtime->inputReady = enabled;
+    SetEngineRuntimeTag(registry, EEngineTag::InputReady, enabled);
+}
+
+void SetEngineFrameActiveState(entt::registry& registry, bool enabled) {
+    auto* frame = registry.ctx().find<FEngineFrameState>();
+    if (!frame) return;
+
+    frame->frameActive = enabled;
+    SetEngineRuntimeTag(registry, EEngineTag::FrameActive, enabled);
+}
+
+void SetEngineInputFrameActiveState(entt::registry& registry, bool enabled) {
+    auto* frame = registry.ctx().find<FEngineFrameState>();
+    if (!frame) return;
+
+    frame->inputFrameActive = enabled;
+    SetEngineRuntimeTag(registry, EEngineTag::InputFrameActive, enabled);
+}
+
+void SetEngineRenderFrameActiveState(entt::registry& registry, bool enabled) {
+    auto* frame = registry.ctx().find<FEngineFrameState>();
+    if (!frame) return;
+
+    frame->renderFrameActive = enabled;
+    SetEngineRuntimeTag(registry, EEngineTag::RenderFrameActive, enabled);
+}
+
+void SetEngineWindowOpenState(entt::registry& registry, bool enabled) {
+    auto* windowState = registry.ctx().find<FEngineWindowState>();
+    if (!windowState) return;
+
+    windowState->windowOpen = enabled;
+    SetEngineRuntimeTag(registry, EEngineTag::WindowOpen, enabled);
+}
+
+void SetEngineWindowFocusedState(entt::registry& registry, bool enabled) {
+    auto* windowState = registry.ctx().find<FEngineWindowState>();
+    if (!windowState) return;
+
+    windowState->focused = enabled;
+    SetEngineRuntimeTag(registry, EEngineTag::WindowFocused, enabled);
+}
+
+void SetEngineWindowMinimizedState(entt::registry& registry, bool enabled) {
+    auto* windowState = registry.ctx().find<FEngineWindowState>();
+    if (!windowState) return;
+
+    windowState->minimized = enabled;
+    SetEngineRuntimeTag(registry, EEngineTag::WindowMinimized, enabled);
+}
+
 std::uint64_t CurrentEngineFrameIndex(entt::registry& registry) {
     if (auto* frame = registry.ctx().find<FEngineFrameState>()) {
         return frame->frameIndex;
@@ -57,22 +121,19 @@ std::uint64_t CurrentEngineFrameIndex(entt::registry& registry) {
     return 0;
 }
 
-void BeginEngineFrameAbility(entt::registry& registry) {
+void BeginEngineFrameAbility(entt::registry& registry, const FEngineAbilityRequest& request) {
+    if (request.ability != EEngineAbility::BeginFrame) return;
+
     auto* frame = registry.ctx().find<FEngineFrameState>();
     if (!frame) return;
 
     // GAS shape: BeginFrame ability applies the frame-state effect.
     ++frame->frameIndex;
-    frame->frameActive = true;
-    SetEngineTag(registry, EEngineTag::FrameActive, true);
+    SetEngineFrameActiveState(registry, true);
 }
 
 void EndEngineFrameEffects(entt::registry& registry) {
-    auto* frame = registry.ctx().find<FEngineFrameState>();
-    if (!frame) return;
-
-    frame->frameActive = false;
-    SetEngineTag(registry, EEngineTag::FrameActive, false);
+    SetEngineFrameActiveState(registry, false);
 }
 
 void ApplyEngineWindowEventAbility(
@@ -82,6 +143,8 @@ void ApplyEngineWindowEventAbility(
     bool& running
 ) {
     (void)running;
+    if (request.ability != EEngineAbility::ApplyWindowEvent) return;
+
     auto* windowState = registry.ctx().find<FEngineWindowState>();
 
     switch (event.type) {
@@ -97,30 +160,26 @@ void ApplyEngineWindowEventAbility(
         });
         return;
     case SDL_EVENT_WINDOW_MINIMIZED:
-        if (windowState) windowState->minimized = true;
-        SetEngineTag(registry, EEngineTag::WindowMinimized, true);
+        SetEngineWindowMinimizedState(registry, true);
         PublishAndQueueFrameEvent(registry, FEngineWindowMinimizedEvent{
             .frameIndex = request.frameIndex
         });
         return;
     case SDL_EVENT_WINDOW_RESTORED:
-        if (windowState) windowState->minimized = false;
-        SetEngineTag(registry, EEngineTag::WindowMinimized, false);
+        SetEngineWindowMinimizedState(registry, false);
         PublishAndQueueFrameEvent(registry, FEngineWindowRestoredEvent{
             .frameIndex = request.frameIndex
         });
         return;
     case SDL_EVENT_WINDOW_FOCUS_GAINED:
-        if (windowState) windowState->focused = true;
-        SetEngineTag(registry, EEngineTag::WindowFocused, true);
+        SetEngineWindowFocusedState(registry, true);
         PublishAndQueueFrameEvent(registry, FEngineWindowFocusChangedEvent{
             .frameIndex = request.frameIndex,
             .focused = true
         });
         return;
     case SDL_EVENT_WINDOW_FOCUS_LOST:
-        if (windowState) windowState->focused = false;
-        SetEngineTag(registry, EEngineTag::WindowFocused, false);
+        SetEngineWindowFocusedState(registry, false);
         PublishAndQueueFrameEvent(registry, FEngineWindowFocusChangedEvent{
             .frameIndex = request.frameIndex,
             .focused = false
@@ -132,6 +191,8 @@ void ApplyEngineWindowEventAbility(
 }
 
 bool BeginEngineRenderAbility(entt::registry& registry, const FEngineAbilityRequest& request, SDL_Renderer* renderer) {
+    if (request.ability != EEngineAbility::BeginRenderFrame) return false;
+
     const FEngineAbilityCheck check = CanBeginEngineRenderFrame(registry, renderer);
     if (!check.canActivate) {
         PublishAndQueueFrameEvent(registry, FEngineRenderSkippedEvent{
@@ -141,10 +202,7 @@ bool BeginEngineRenderAbility(entt::registry& registry, const FEngineAbilityRequ
         return false;
     }
 
-    if (auto* frame = registry.ctx().find<FEngineFrameState>()) {
-        frame->renderFrameActive = true;
-        SetEngineTag(registry, EEngineTag::RenderFrameActive, true);
-    }
+    SetEngineRenderFrameActiveState(registry, true);
 
     const auto* windowState = registry.ctx().find<FEngineWindowState>();
     PublishAndQueueFrameEvent(registry, FEngineRenderFrameBeganEvent{
@@ -156,15 +214,16 @@ bool BeginEngineRenderAbility(entt::registry& registry, const FEngineAbilityRequ
     return true;
 }
 
-void EndEngineRenderAbility(entt::registry& registry, const FEngineAbilityRequest& request) {
-    if (auto* frame = registry.ctx().find<FEngineFrameState>()) {
-        frame->renderFrameActive = false;
-        SetEngineTag(registry, EEngineTag::RenderFrameActive, false);
-    }
+void EndEngineRenderAbility(entt::registry& registry, const FEngineAbilityRequest& request, bool presented) {
+    if (request.ability != EEngineAbility::PresentRenderFrame) return;
 
-    PublishAndQueueFrameEvent(registry, FEngineRenderFramePresentedEvent{
-        .frameIndex = request.frameIndex
-    });
+    SetEngineRenderFrameActiveState(registry, false);
+
+    if (presented) {
+        PublishAndQueueFrameEvent(registry, FEngineRenderFramePresentedEvent{
+            .frameIndex = request.frameIndex
+        });
+    }
 }
 
 FEngineEffectResult ApplyEngineBeginImGuiFrameEffect() {
@@ -224,9 +283,9 @@ FEngineEffectResult ApplyEnginePresentBackbufferEffect(SDL_Renderer* renderer) {
         return { .effect = EEngineEffect::PresentBackbuffer, .applied = false };
     }
 
-    SDL_RenderPresent(renderer);
+    const bool presented = SDL_RenderPresent(renderer);
 
-    return { .effect = EEngineEffect::PresentBackbuffer, .applied = true };
+    return { .effect = EEngineEffect::PresentBackbuffer, .applied = presented };
 }
 
 } // namespace game

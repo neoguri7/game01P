@@ -16,7 +16,7 @@ class Time;
 
 [[nodiscard]] std::uint64_t CurrentEngineFrameIndex(entt::registry& registry);
 
-void BeginEngineFrameAbility(entt::registry& registry);
+void BeginEngineFrameAbility(entt::registry& registry, const FEngineAbilityRequest& request);
 void EndEngineFrameEffects(entt::registry& registry);
 
 [[nodiscard]] FInputState* BeginEngineInputFrameAbility(
@@ -24,7 +24,11 @@ void EndEngineFrameEffects(entt::registry& registry);
     const FEngineAbilityRequest& request
 );
 [[nodiscard]] FInputState* BeginEngineInputAbility(entt::registry& registry, const FEngineAbilityRequest& request);
-[[nodiscard]] bool CanPollEngineInputAbility(entt::registry& registry, bool running);
+[[nodiscard]] bool CanPollEngineInputAbility(
+    entt::registry& registry,
+    const FEngineAbilityRequest& request,
+    bool running
+);
 FEngineEffectResult ApplyEngineImGuiInputEffect(const SDL_Event& event);
 FEngineEffectResult ApplyEngineInputTranslateEffect(FInputState* input, const SDL_Event& event);
 FEngineEffectResult ApplyEngineQuitInputEffect(
@@ -47,7 +51,7 @@ void ApplyEngineWindowEventAbility(
     const FEngineAbilityRequest& request,
     SDL_Renderer* renderer
 );
-void EndEngineRenderAbility(entt::registry& registry, const FEngineAbilityRequest& request);
+void EndEngineRenderAbility(entt::registry& registry, const FEngineAbilityRequest& request, bool presented);
 
 FEngineEffectResult ApplyEngineBeginImGuiFrameEffect();
 FEngineEffectResult ApplyEngineClearBackbufferEffect(SDL_Renderer* renderer);

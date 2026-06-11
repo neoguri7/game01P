@@ -6,5 +6,6 @@ namespace game {
 
 void BootstrapDemoScene(entt::registry& registry);
 entt::entity CreateDebugDemoEntity(entt::registry& registry);
+void ResetDemoScene(entt::registry& registry);
 
 } // namespace game

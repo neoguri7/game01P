@@ -1,39 +1,26 @@
-#include "core/factories/FDemoEntityFactory.h"
+#include "core/factories/FDemoObstacleFactory.h"
 
-#include "ecs/components/FAbilityScores.h"
 #include "ecs/components/FCollider.h"
-#include "ecs/components/FCommandToken.h"
 #include "ecs/components/FDebugPrimitive.h"
 #include "ecs/components/FDemoShowcaseEntity.h"
 #include "ecs/components/FGridPosition.h"
 #include "ecs/components/FLayer.h"
 #include "ecs/components/FPosition.h"
-#include "ecs/components/FSpeed.h"
 #include "ecs/components/FTag.h"
-#include "ecs/components/FUnitStateDefeated.h"
-#include "ecs/components/FVelocity.h"
 
 namespace game {
 
-entt::entity FDemoEntityFactory::create(entt::registry& registry) {
-    return create(registry, FDemoEntityDesc{});
+entt::entity FDemoObstacleFactory::create(entt::registry& registry) {
+    return create(registry, FDemoObstacleDesc{});
 }
 
-entt::entity FDemoEntityFactory::create(entt::registry& registry, const FDemoEntityDesc& desc) {
+entt::entity FDemoObstacleFactory::create(entt::registry& registry, const FDemoObstacleDesc& desc) {
     auto entity = registry.create();
     registry.emplace<FPosition>(entity, desc.x, desc.y);
     registry.emplace<FDemoShowcaseEntity>(entity);
-    registry.emplace<FVelocity>(entity, desc.vx, desc.vy);
     registry.emplace<FTag>(entity, desc.tag);
     registry.emplace<FLayer>(entity, desc.layer);
     registry.emplace<FGridPosition>(entity, desc.gridX, desc.gridY);
-    registry.emplace<FSpeed>(entity, desc.speedFeet);
-    registry.emplace<FCommandToken>(entity, desc.commandId, desc.commandName);
-
-    auto& abilities = registry.emplace<FAbilityScores>(entity);
-    abilities.strength = desc.strength;
-    abilities.dexterity = desc.dexterity;
-    abilities.constitution = desc.constitution;
 
     auto& primitive = registry.emplace<FDebugPrimitive>(entity);
     primitive.width = desc.width;
@@ -42,6 +29,9 @@ entt::entity FDemoEntityFactory::create(entt::registry& registry, const FDemoEnt
     primitive.fillG = desc.fillG;
     primitive.fillB = desc.fillB;
     primitive.fillA = desc.fillA;
+    primitive.outlineR = 210;
+    primitive.outlineG = 210;
+    primitive.outlineB = 230;
 
     auto& collider = registry.emplace<FCollider>(entity);
     collider.type = EColliderType::AABB;
@@ -49,10 +39,6 @@ entt::entity FDemoEntityFactory::create(entt::registry& registry, const FDemoEnt
     collider.halfWidth = desc.width * 0.5f;
     collider.halfHeight = desc.height * 0.5f;
     collider.collisionTag = desc.tag;
-
-    if (desc.defeated) {
-        registry.emplace<FUnitStateDefeated>(entity);
-    }
 
     return entity;
 }
