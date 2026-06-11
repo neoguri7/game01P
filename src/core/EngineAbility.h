@@ -10,6 +10,8 @@ namespace game {
 /// These are not gameplay abilities; they name engine phase capabilities.
 enum class EEngineAbility {
     BeginFrame,
+    BeginInputFrame,
+    PollInputEvents,
     ProcessInput,
     ApplyWindowEvent,
     RequestQuit,
@@ -22,8 +24,12 @@ enum class EEngineAbility {
 /// clear piece of engine state or perform one low-level operation.
 enum class EEngineEffect {
     UpdateFrameState,
+    BeginInputFrame,
+    ForwardInputToImGui,
+    TranslateInputState,
     UpdateInputState,
     UpdateWindowState,
+    RequestQuit,
     StopRunLoop,
     BeginImGuiFrame,
     ClearBackbuffer,

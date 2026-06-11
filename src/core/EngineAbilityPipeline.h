@@ -15,7 +15,20 @@ namespace game {
 void BeginEngineFrameAbility(entt::registry& registry);
 void EndEngineFrameEffects(entt::registry& registry);
 
+[[nodiscard]] FInputState* BeginEngineInputFrameAbility(
+    entt::registry& registry,
+    const FEngineAbilityRequest& request
+);
 [[nodiscard]] FInputState* BeginEngineInputAbility(entt::registry& registry, const FEngineAbilityRequest& request);
+[[nodiscard]] bool CanPollEngineInputAbility(entt::registry& registry, bool running);
+FEngineEffectResult ApplyEngineImGuiInputEffect(const SDL_Event& event);
+FEngineEffectResult ApplyEngineInputTranslateEffect(FInputState* input, const SDL_Event& event);
+FEngineEffectResult ApplyEngineQuitInputEffect(
+    entt::registry& registry,
+    const SDL_Event& event,
+    const FEngineAbilityRequest& request,
+    bool& running
+);
 void EndEngineInputAbility(entt::registry& registry, const FEngineAbilityRequest& request, bool inputWasActive);
 
 void ApplyEngineWindowEventAbility(

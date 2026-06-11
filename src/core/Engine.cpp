@@ -153,23 +153,29 @@ void Engine::processInput() {
     ZoneScopedN("Engine::processInput");
 
     const FEngineAbilityRequest inputRequest{
-        .ability = EEngineAbility::ProcessInput,
+        .ability = EEngineAbility::BeginInputFrame,
         .frameIndex = CurrentEngineFrameIndex(registry)
     };
-    FInputState* input = BeginEngineInputAbility(registry, inputRequest);
+    FInputState* input = BeginEngineInputFrameAbility(registry, inputRequest);
+
+    const FEngineAbilityRequest pollRequest{
+        .ability = EEngineAbility::PollInputEvents,
+        .frameIndex = inputRequest.frameIndex
+    };
 
     SDL_Event event;
-    while (SDL_PollEvent(&event)) {
-        ImGui_ImplSDL3_ProcessEvent(&event);
+    while (CanPollEngineInputAbility(registry, running) && SDL_PollEvent(&event)) {
+        (void)ApplyEngineImGuiInputEffect(event);
 
-        // Feed game input
-        if (input) {
-            input->processEvent(event);
-        }
+        // Feed game input through the named input-state translation effect.
+        (void)ApplyEngineInputTranslateEffect(input, event);
+
+        const FEngineEffectResult quitResult = ApplyEngineQuitInputEffect(registry, event, pollRequest, running);
+        if (quitResult.applied) continue;
 
         const FEngineAbilityRequest windowRequest{
             .ability = EEngineAbility::ApplyWindowEvent,
-            .frameIndex = inputRequest.frameIndex
+            .frameIndex = pollRequest.frameIndex
         };
         ApplyEngineWindowEventAbility(registry, event, windowRequest, running);
     }

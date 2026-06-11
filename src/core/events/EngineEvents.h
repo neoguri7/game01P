@@ -36,6 +36,15 @@ struct FEngineInputFrameBeganEvent {
     bool          mouseCapturedByUi{false};
 };
 
+/// UI input capture changed since the previous input frame.
+struct FEngineInputCaptureChangedEvent {
+    std::uint64_t frameIndex{0};
+    bool          previousKeyboardCapturedByUi{false};
+    bool          previousMouseCapturedByUi{false};
+    bool          keyboardCapturedByUi{false};
+    bool          mouseCapturedByUi{false};
+};
+
 /// SDL input polling finished for this frame.
 struct FEngineInputFrameEndedEvent {
     std::uint64_t frameIndex{0};
