@@ -1,6 +1,8 @@
 * text=auto
 
 # Keep source and build metadata stable across Windows/macOS/Linux checkouts.
+.gitattributes text eol=lf
+.gitignore text eol=lf
 *.c text eol=lf
 *.cc text eol=lf
 *.cpp text eol=lf
@@ -10,6 +12,10 @@
 *.hpp text eol=lf
 *.hxx text eol=lf
 *.cmake text eol=lf
+*.ps1 text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
 CMakeLists.txt text eol=lf
 CMakePresets.json text eol=lf
 CMakeUserPresets.json text eol=lf

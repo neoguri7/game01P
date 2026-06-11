@@ -20,8 +20,11 @@ Testing/
 opencode.json
 AGENTS.md
 .clinerules/
-.github/
-docs/
+.github/agents/
+.github/instructions/
+.github/copilot-instructions.md
+
+.mcp.json
 .kilo/
 package-lock.json
 # ============================================

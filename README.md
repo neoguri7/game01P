@@ -3,13 +3,15 @@
 ## 개발 워크플로우
 
 macOS/WSL은 코드 작성과 가벼운 점검에 사용하고, native Windows를 빌드와 실행 검증의 기준 환경으로 사용합니다.
+`main`은 항상 빌드 가능한 기준선으로 유지하고, 작업은 짧은 feature/fix/chore 브랜치에서 진행합니다.
 
 자세한 내용은 [DEV_WORKFLOW.md](DEV_WORKFLOW.md)를 참고하세요.
 
 Windows 원격 빌드 리모컨:
 
 ```bash
-GAME01P_WIN_HOST="your-windows-host" ./scripts/remote-win-build.sh
+GAME01P_WIN_HOST="your-windows-host" ./scripts/remote-windows-check.sh
+GAME01P_WIN_BRANCH="feature/input-actions" GAME01P_WIN_HOST="your-windows-host" ./scripts/remote-windows-check.sh
 ```
 
 ## Checkout 동기화 규칙
@@ -24,7 +26,7 @@ macOS/Linux checkout과 Windows checkout은 서로 다른 작업 폴더입니다
 ```
 
 동시에 양쪽 checkout에서 같은 파일을 수정하지 마세요. Windows Remote SSH는 주로
-`git pull`, configure, build, test, 로그 확인 용도로 사용합니다.
+작업 브랜치의 `git pull`, configure, build, test, 로그 확인 용도로 사용합니다.
 
 ## Windows 빌드 다운로드 방법
 
