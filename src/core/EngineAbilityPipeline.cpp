@@ -22,14 +22,34 @@ void SetEngineTag(entt::registry& registry, EEngineTag tag, bool enabled) {
     }
 }
 
+void SetEngineRunningState(entt::registry& registry, bool enabled) {
+    auto* runtime = registry.ctx().find<FEngineRuntimeState>();
+    if (!runtime) return;
+
+    runtime->running = enabled;
+    if (enabled) {
+        runtime->tags.add(EEngineTag::Running);
+    } else {
+        runtime->tags.remove(EEngineTag::Running);
+    }
+}
+
 FEngineAbilityCheck CanBeginEngineRenderFrame(entt::registry& registry, SDL_Renderer* renderer) {
     if (!renderer) {
-        return { .canActivate = false, .blockedReason = EEngineSkipReason::RendererNotReady };
+        return {
+            .canActivate = false,
+            .blockedReason = EEngineSkipReason::RendererNotReady,
+            .failedCondition = EEngineCondition::RendererReady
+        };
     }
 
     if (auto* runtime = registry.ctx().find<FEngineRuntimeState>();
         runtime && !runtime->rendererReady) {
-        return { .canActivate = false, .blockedReason = EEngineSkipReason::RendererNotReady };
+        return {
+            .canActivate = false,
+            .blockedReason = EEngineSkipReason::RendererNotReady,
+            .failedCondition = EEngineCondition::RendererReady
+        };
     }
 
     // Hint: window-minimized can become a blocking tag later. Leaving it
@@ -131,6 +151,7 @@ void ApplyEngineWindowEventAbility(
     case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
         // GAS shape: RequestQuit applies StopRunLoop before the cue is emitted.
         running = false;
+        SetEngineRunningState(registry, false);
         PublishAndQueueFrameEvent(registry, FEngineQuitRequestedEvent{ .frameIndex = request.frameIndex });
         return;
     case SDL_EVENT_WINDOW_RESIZED:

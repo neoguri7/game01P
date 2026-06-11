@@ -65,6 +65,10 @@ bool Engine::initialize(const std::string& title, int w, int h) {
     initializeContextServices();
 
     running = true;
+    if (auto* runtimeState = registry.ctx().find<FEngineRuntimeState>()) {
+        runtimeState->running = true;
+        runtimeState->tags.add(EEngineTag::Running);
+    }
     return true;
 }
 
@@ -226,6 +230,10 @@ void Engine::shutdown() {
 
     LOG_INFO("Engine shutting down...");
     running = false;
+    if (auto* runtimeState = registry.ctx().find<FEngineRuntimeState>()) {
+        runtimeState->running = false;
+        runtimeState->tags.remove(EEngineTag::Running);
+    }
 
     registry.clear(); // destroys all entities + components
 

@@ -11,6 +11,7 @@ namespace game {
 enum class EEngineTag {
     WindowOpen,
     RendererReady,
+    Running,
     FrameActive,
     InputReady,
     InputFrameActive,
@@ -56,6 +57,7 @@ struct FEngineFrameState {
 struct FEngineRuntimeState {
     FEngineTagSet tags{};
 
+    bool running{false};
     bool rendererReady{false};
     bool inputReady{false};
     bool keyboardCapturedByUi{false};

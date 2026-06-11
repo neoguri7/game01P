@@ -31,18 +31,36 @@ enum class EEngineEffect {
     PresentBackbuffer
 };
 
-/// A request to activate one engine ability during the current frame.
+/// Engine-level translation of GAS "condition" concepts.
+/// Conditions are guard facts checked before activating an ability or applying
+/// an effect. Keep this list finite and engine-owned; gameplay requirements do
+/// not belong here.
+enum class EEngineCondition {
+    None,
+    WindowOpen,
+    RendererReady,
+    InputReady,
+    FrameActive,
+    WindowNotMinimized,
+    InputNotUiCaptured
+};
+
+/// EngineAction: a request to activate one engine ability during the current
+/// frame. The compatibility alias below keeps the older request naming usable.
 /// Hint: add required/blocked tag fields here only when a phase needs them.
-struct FEngineAbilityRequest {
+struct FEngineAction {
     EEngineAbility ability{EEngineAbility::BeginFrame};
     std::uint64_t  frameIndex{0};
 };
 
+using FEngineAbilityRequest = FEngineAction;
+
 /// Result of the GAS-style CanActivate step.
 /// Hint: keep failed guards explicit; they become useful debug overlay data.
 struct FEngineAbilityCheck {
-    bool              canActivate{true};
-    EEngineSkipReason blockedReason{EEngineSkipReason::None};
+    bool                 canActivate{true};
+    EEngineSkipReason    blockedReason{EEngineSkipReason::None};
+    EEngineCondition     failedCondition{EEngineCondition::None};
 };
 
 /// Result of applying one engine effect.
