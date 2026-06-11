@@ -18,6 +18,7 @@ enum class EEngineTag {
     RenderFrameActive,
     InputUiCaptured,
     WindowMinimized,
+    WindowFocused,
     Count
 };
 
@@ -43,6 +44,7 @@ struct FEngineWindowState {
     int  height{0};
     bool windowOpen{false};
     bool minimized{false};
+    bool focused{true};
 };
 
 /// Durable frame facts that later input/render effects can update once per tick.

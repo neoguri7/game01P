@@ -29,6 +29,21 @@ struct FEngineWindowResizedEvent {
     int           height{0};
 };
 
+/// SDL window minimize/restore translated into coarse engine window cues.
+struct FEngineWindowMinimizedEvent {
+    std::uint64_t frameIndex{0};
+};
+
+struct FEngineWindowRestoredEvent {
+    std::uint64_t frameIndex{0};
+};
+
+/// SDL focus transitions translated into coarse engine window cues.
+struct FEngineWindowFocusChangedEvent {
+    std::uint64_t frameIndex{0};
+    bool          focused{false};
+};
+
 /// FInputState::beginFrame and UI capture facts were set.
 struct FEngineInputFrameBeganEvent {
     std::uint64_t frameIndex{0};

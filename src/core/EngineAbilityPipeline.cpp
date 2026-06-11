@@ -96,10 +96,32 @@ void ApplyEngineWindowEventAbility(
     case SDL_EVENT_WINDOW_MINIMIZED:
         if (windowState) windowState->minimized = true;
         SetEngineTag(registry, EEngineTag::WindowMinimized, true);
+        PublishAndQueueFrameEvent(registry, FEngineWindowMinimizedEvent{
+            .frameIndex = request.frameIndex
+        });
         return;
     case SDL_EVENT_WINDOW_RESTORED:
         if (windowState) windowState->minimized = false;
         SetEngineTag(registry, EEngineTag::WindowMinimized, false);
+        PublishAndQueueFrameEvent(registry, FEngineWindowRestoredEvent{
+            .frameIndex = request.frameIndex
+        });
+        return;
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
+        if (windowState) windowState->focused = true;
+        SetEngineTag(registry, EEngineTag::WindowFocused, true);
+        PublishAndQueueFrameEvent(registry, FEngineWindowFocusChangedEvent{
+            .frameIndex = request.frameIndex,
+            .focused = true
+        });
+        return;
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
+        if (windowState) windowState->focused = false;
+        SetEngineTag(registry, EEngineTag::WindowFocused, false);
+        PublishAndQueueFrameEvent(registry, FEngineWindowFocusChangedEvent{
+            .frameIndex = request.frameIndex,
+            .focused = false
+        });
         return;
     default:
         return;

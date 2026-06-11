@@ -26,34 +26,40 @@ Engine::~Engine() {
 
 bool Engine::initialize(const std::string& title, int w, int h) {
     ZoneScopedN("Engine::initialize");
+    const FEngineAbilityRequest initializeRequest{
+        .ability = EEngineAbility::Initialize,
+        .frameIndex = 0
+    };
 
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
-        SDL_Log("SDL_Init Error: %s", SDL_GetError());
+    return applyEngineInitializeAbility(initializeRequest, title, w, h);
+}
+
+bool Engine::applyEngineInitializeAbility(const FEngineAbilityRequest& request, const std::string& title, int w, int h) {
+    if (request.ability != EEngineAbility::Initialize) {
         return false;
     }
 
-    SDL_Window* rawWin = SDL_CreateWindow(title.c_str(), w, h, SDL_WINDOW_HIGH_PIXEL_DENSITY);
-    if (!rawWin) {
-        SDL_Log("Window create failed: %s", SDL_GetError());
+    if (!applyEngineInitializeSdlEffect()) {
         return false;
     }
-    window = FWindowPtr(rawWin);
 
-    SDL_Renderer* rawRend = SDL_CreateRenderer(window.get(), nullptr);
-    if (!rawRend) {
-        SDL_Log("Renderer create failed: %s", SDL_GetError());
+    if (!applyEngineCreateWindowEffect(title, w, h)) {
+        applyEngineShutdownSdlEffect();
         return false;
     }
-    renderer = FRendererPtr(rawRend);
 
-    // Setup ImGui
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    if (!applyEngineCreateRendererEffect()) {
+        applyEngineDestroyWindowEffect();
+        applyEngineShutdownSdlEffect();
+        return false;
+    }
 
-    ImGui_ImplSDL3_InitForSDLRenderer(window.get(), renderer.get());
-    ImGui_ImplSDLRenderer3_Init(renderer.get());
+    if (!applyEngineInitializeImGuiEffect()) {
+        applyEngineDestroyRendererEffect();
+        applyEngineDestroyWindowEffect();
+        applyEngineShutdownSdlEffect();
+        return false;
+    }
 
     // Logger (will expose through ctx)
     FLogger::Initialize(registry);
@@ -62,13 +68,15 @@ bool Engine::initialize(const std::string& title, int w, int h) {
     }
     LOG_INFO("Engine initialized.");
 
-    initializeContextServices();
-
-    running = true;
-    if (auto* runtimeState = registry.ctx().find<FEngineRuntimeState>()) {
-        runtimeState->running = true;
-        runtimeState->tags.add(EEngineTag::Running);
+    if (!applyEngineInitializeContextServicesEffect()) {
+        applyEngineShutdownImGuiEffect();
+        applyEngineDestroyRendererEffect();
+        applyEngineDestroyWindowEffect();
+        applyEngineShutdownSdlEffect();
+        return false;
     }
+
+    applyEngineMarkRunningEffect(true);
     return true;
 }
 
@@ -88,6 +96,7 @@ void Engine::initializeContextServices() {
     auto& windowState = registry.ctx().emplace<FEngineWindowState>();
     SDL_GetWindowSize(window.get(), &windowState.width, &windowState.height);
     windowState.windowOpen = window != nullptr;
+    windowState.focused = (SDL_GetWindowFlags(window.get()) & SDL_WINDOW_INPUT_FOCUS) != 0;
 
     registry.ctx().emplace<FEngineFrameState>();
 
@@ -95,6 +104,7 @@ void Engine::initializeContextServices() {
     runtimeState.rendererReady = renderer != nullptr;
     runtimeState.inputReady = registry.ctx().contains<FInputState>();
     if (windowState.windowOpen) runtimeState.tags.add(EEngineTag::WindowOpen);
+    if (windowState.focused) runtimeState.tags.add(EEngineTag::WindowFocused);
     if (runtimeState.rendererReady) runtimeState.tags.add(EEngineTag::RendererReady);
     if (runtimeState.inputReady) runtimeState.tags.add(EEngineTag::InputReady);
 
@@ -103,6 +113,113 @@ void Engine::initializeContextServices() {
     auto& rm = registry.ctx().emplace<FResourceManager>();
     rm.init(renderer.get());
     LOG_DEBUG("ResourceManager registered in context");
+}
+
+bool Engine::applyEngineInitializeSdlEffect() {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
+        SDL_Log("SDL_Init Error: %s", SDL_GetError());
+        return false;
+    }
+    return true;
+}
+
+bool Engine::applyEngineCreateWindowEffect(const std::string& title, int w, int h) {
+    SDL_Window* rawWin = SDL_CreateWindow(title.c_str(), w, h, SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    if (!rawWin) {
+        SDL_Log("Window create failed: %s", SDL_GetError());
+        return false;
+    }
+
+    window = FWindowPtr(rawWin);
+    return true;
+}
+
+bool Engine::applyEngineCreateRendererEffect() {
+    SDL_Renderer* rawRend = SDL_CreateRenderer(window.get(), nullptr);
+    if (!rawRend) {
+        SDL_Log("Renderer create failed: %s", SDL_GetError());
+        return false;
+    }
+
+    renderer = FRendererPtr(rawRend);
+    return true;
+}
+
+bool Engine::applyEngineInitializeImGuiEffect() {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    imguiContextInitialized = true;
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+    imguiSdlBackendInitialized = ImGui_ImplSDL3_InitForSDLRenderer(window.get(), renderer.get());
+    if (!imguiSdlBackendInitialized) {
+        applyEngineShutdownImGuiEffect();
+        return false;
+    }
+
+    imguiRendererBackendInitialized = ImGui_ImplSDLRenderer3_Init(renderer.get());
+    if (!imguiRendererBackendInitialized) {
+        applyEngineShutdownImGuiEffect();
+        return false;
+    }
+
+    return true;
+}
+
+bool Engine::applyEngineInitializeContextServicesEffect() {
+    initializeContextServices();
+    return true;
+}
+
+void Engine::applyEngineMarkRunningEffect(bool enabled) {
+    running = enabled;
+    if (auto* runtimeState = registry.ctx().find<FEngineRuntimeState>()) {
+        runtimeState->running = enabled;
+        if (enabled) {
+            runtimeState->tags.add(EEngineTag::Running);
+        } else {
+            runtimeState->tags.remove(EEngineTag::Running);
+        }
+    }
+}
+
+void Engine::applyEngineShutdownEntitiesEffect() {
+    registry.clear();
+}
+
+void Engine::applyEngineShutdownContextServicesEffect() {
+    shutdownContextServices();
+    FLogger::Shutdown(registry);
+}
+
+void Engine::applyEngineShutdownImGuiEffect() {
+    if (imguiRendererBackendInitialized) {
+        ImGui_ImplSDLRenderer3_Shutdown();
+        imguiRendererBackendInitialized = false;
+    }
+
+    if (imguiSdlBackendInitialized) {
+        ImGui_ImplSDL3_Shutdown();
+        imguiSdlBackendInitialized = false;
+    }
+
+    if (imguiContextInitialized) {
+        ImGui::DestroyContext();
+        imguiContextInitialized = false;
+    }
+}
+
+void Engine::applyEngineDestroyRendererEffect() {
+    renderer.reset();
+}
+
+void Engine::applyEngineDestroyWindowEffect() {
+    window.reset();
+}
+
+void Engine::applyEngineShutdownSdlEffect() {
+    SDL_Quit();
 }
 
 void Engine::shutdownContextServices() {
@@ -234,30 +351,32 @@ void Engine::render() {
 void Engine::shutdown() {
     if (!running && !renderer && !window) return;
 
+    const FEngineAbilityRequest shutdownRequest{
+        .ability = EEngineAbility::Shutdown,
+        .frameIndex = CurrentEngineFrameIndex(registry)
+    };
+
+    applyEngineShutdownAbility(shutdownRequest);
+}
+
+void Engine::applyEngineShutdownAbility(const FEngineAbilityRequest& request) {
+    if (request.ability != EEngineAbility::Shutdown) {
+        return;
+    }
+
     LOG_INFO("Engine shutting down...");
-    running = false;
-    if (auto* runtimeState = registry.ctx().find<FEngineRuntimeState>()) {
-        runtimeState->running = false;
-        runtimeState->tags.remove(EEngineTag::Running);
-    }
+    applyEngineMarkRunningEffect(false);
 
-    registry.clear(); // destroys all entities + components
+    applyEngineShutdownEntitiesEffect();
 
-    shutdownContextServices();
-    FLogger::Shutdown(registry);
+    applyEngineShutdownContextServicesEffect();
 
-    if (renderer) {
-        ImGui_ImplSDLRenderer3_Shutdown();
-        ImGui_ImplSDL3_Shutdown();
-        ImGui::DestroyContext();
-        renderer.reset();
-    }
+    applyEngineShutdownImGuiEffect();
+    applyEngineDestroyRendererEffect();
 
-    if (window) {
-        window.reset();
-    }
+    applyEngineDestroyWindowEffect();
 
-    SDL_Quit();
+    applyEngineShutdownSdlEffect();
     // LOG might already be gone
 }
 

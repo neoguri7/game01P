@@ -7,6 +7,7 @@
 #include <string>
 
 #include "core/SDLDeleter.h"
+#include "core/EngineAbility.h"
 #include "core/Time.h"
 #include "core/SystemManager.h"
 
@@ -43,12 +44,32 @@ private:
     void update(float dt);
     void render();
 
+    bool applyEngineInitializeAbility(const FEngineAbilityRequest& request, const std::string& title, int w, int h);
+    void applyEngineShutdownAbility(const FEngineAbilityRequest& request);
+
+    // Engine lifecycle effects preserve the current startup/shutdown order.
+    bool applyEngineInitializeSdlEffect();
+    bool applyEngineCreateWindowEffect(const std::string& title, int w, int h);
+    bool applyEngineCreateRendererEffect();
+    bool applyEngineInitializeImGuiEffect();
+    bool applyEngineInitializeContextServicesEffect();
+    void applyEngineMarkRunningEffect(bool enabled);
+    void applyEngineShutdownEntitiesEffect();
+    void applyEngineShutdownContextServicesEffect();
+    void applyEngineShutdownImGuiEffect();
+    void applyEngineDestroyRendererEffect();
+    void applyEngineDestroyWindowEffect();
+    void applyEngineShutdownSdlEffect();
+
     // Registry ctx service lifecycle order is owned by Engine.
     void initializeContextServices();
     void shutdownContextServices();
 
     FWindowPtr   window{nullptr};
     FRendererPtr renderer{nullptr};
+    bool         imguiContextInitialized{false};
+    bool         imguiSdlBackendInitialized{false};
+    bool         imguiRendererBackendInitialized{false};
 
     entt::registry registry;
     Time           frameTime;

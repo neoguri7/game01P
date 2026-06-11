@@ -9,6 +9,8 @@ namespace game {
 /// Engine-level translation of GAS "ability" concepts.
 /// These are not gameplay abilities; they name engine phase capabilities.
 enum class EEngineAbility {
+    Initialize,
+    Shutdown,
     BeginFrame,
     BeginInputFrame,
     PollInputEvents,
@@ -24,6 +26,12 @@ enum class EEngineAbility {
 /// clear piece of engine state or perform one low-level operation.
 enum class EEngineEffect {
     UpdateFrameState,
+    InitializeSdl,
+    CreateWindow,
+    CreateRenderer,
+    InitializeImGui,
+    InitializeContextServices,
+    MarkRunning,
     BeginInputFrame,
     ForwardInputToImGui,
     TranslateInputState,
@@ -31,6 +39,12 @@ enum class EEngineEffect {
     UpdateWindowState,
     RequestQuit,
     StopRunLoop,
+    ShutdownEntities,
+    ShutdownContextServices,
+    ShutdownImGui,
+    DestroyRenderer,
+    DestroyWindow,
+    ShutdownSdl,
     BeginImGuiFrame,
     ClearBackbuffer,
     RenderImGuiDrawData,
