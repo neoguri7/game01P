@@ -47,6 +47,8 @@ enum class EEngineEffect {
     ShutdownSdl,
     BeginImGuiFrame,
     ClearBackbuffer,
+    RenderWorldSystems,
+    RenderOverlay,
     RenderImGuiDrawData,
     PresentBackbuffer
 };
