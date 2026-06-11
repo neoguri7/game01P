@@ -1,11 +1,14 @@
 #include "core/EngineAbilityPipeline.h"
 
 #include "core/EngineState.h"
+#include "core/SystemManager.h"
+#include "core/Time.h"
 #include "core/events/FEventPublishing.h"
 
 #include <imgui.h>
 #include "imgui/backends/imgui_impl_sdlrenderer3.h"
 #include "imgui/backends/imgui_impl_sdl3.h"
+#include <tracy/Tracy.hpp>
 
 namespace game {
 
@@ -181,6 +184,28 @@ FEngineEffectResult ApplyEngineClearBackbufferEffect(SDL_Renderer* renderer) {
     SDL_RenderClear(renderer);
 
     return { .effect = EEngineEffect::ClearBackbuffer, .applied = true };
+}
+
+FEngineEffectResult ApplyEngineWorldRenderEffect(entt::registry& registry, SystemManager& systemManager) {
+    systemManager.renderAll(registry);
+
+    return { .effect = EEngineEffect::RenderWorldSystems, .applied = true };
+}
+
+FEngineEffectResult ApplyEngineOverlayRenderEffect(
+    entt::registry& registry,
+    const Time& time,
+    const SystemManager& systemManager,
+    const std::function<void(entt::registry&, const Time&, const SystemManager&)>& overlayRenderer
+) {
+    if (!overlayRenderer) {
+        return { .effect = EEngineEffect::RenderOverlay, .applied = false };
+    }
+
+    ZoneScopedN("Engine::debugOverlayRender");
+    overlayRenderer(registry, time, systemManager);
+
+    return { .effect = EEngineEffect::RenderOverlay, .applied = true };
 }
 
 FEngineEffectResult ApplyEngineRenderImGuiDrawDataEffect(SDL_Renderer* renderer) {

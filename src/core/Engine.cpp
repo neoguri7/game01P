@@ -330,13 +330,9 @@ void Engine::render() {
     (void)ApplyEngineBeginImGuiFrameEffect();
     (void)ApplyEngineClearBackbufferEffect(renderer.get());
 
-    // Game render systems draw after clear and before overlays/present.
-    systemMgr.renderAll(registry);
+    (void)ApplyEngineWorldRenderEffect(registry, systemMgr);
 
-    if (overlayRenderer) {
-        ZoneScopedN("Engine::debugOverlayRender");
-        overlayRenderer(registry, frameTime, systemMgr);
-    }
+    (void)ApplyEngineOverlayRenderEffect(registry, frameTime, systemMgr, overlayRenderer);
 
     (void)ApplyEngineRenderImGuiDrawDataEffect(renderer.get());
     (void)ApplyEnginePresentBackbufferEffect(renderer.get());

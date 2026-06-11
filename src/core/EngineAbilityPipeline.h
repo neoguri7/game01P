@@ -7,8 +7,12 @@
 #include <entt/entt.hpp>
 
 #include <cstdint>
+#include <functional>
 
 namespace game {
+
+class SystemManager;
+class Time;
 
 [[nodiscard]] std::uint64_t CurrentEngineFrameIndex(entt::registry& registry);
 
@@ -47,6 +51,13 @@ void EndEngineRenderAbility(entt::registry& registry, const FEngineAbilityReques
 
 FEngineEffectResult ApplyEngineBeginImGuiFrameEffect();
 FEngineEffectResult ApplyEngineClearBackbufferEffect(SDL_Renderer* renderer);
+FEngineEffectResult ApplyEngineWorldRenderEffect(entt::registry& registry, SystemManager& systemManager);
+FEngineEffectResult ApplyEngineOverlayRenderEffect(
+    entt::registry& registry,
+    const Time& time,
+    const SystemManager& systemManager,
+    const std::function<void(entt::registry&, const Time&, const SystemManager&)>& overlayRenderer
+);
 FEngineEffectResult ApplyEngineRenderImGuiDrawDataEffect(SDL_Renderer* renderer);
 FEngineEffectResult ApplyEnginePresentBackbufferEffect(SDL_Renderer* renderer);
 
