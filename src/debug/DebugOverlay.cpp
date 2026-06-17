@@ -12,23 +12,15 @@
 #include "core/events/FEventBus.h"
 #include "core/SystemManager.h"
 #include "core/Time.h"
-#include "core/Logger.h"
-#include "debug/DemoBootstrap.h"
-#include "ecs/components/FAbilityScores.h"
 #include "ecs/components/FAnimation.h"
 #include "ecs/components/FCamera.h"
 #include "ecs/components/FCollider.h"
-#include "ecs/components/FCommandToken.h"
 #include "ecs/components/FDebugPrimitive.h"
-#include "ecs/components/FDemoShowcaseEntity.h"
-#include "ecs/components/FGridPosition.h"
 #include "ecs/components/FLayer.h"
 #include "ecs/components/FPosition.h"
-#include "ecs/components/FSpeed.h"
 #include "ecs/components/FSprite.h"
 #include "ecs/components/FTag.h"
 #include "ecs/components/FText.h"
-#include "ecs/components/FUnitStateDefeated.h"
 #include "ecs/components/FVelocity.h"
 
 #include <tracy/Tracy.hpp>
@@ -67,30 +59,6 @@ void RenderEntityComponents(entt::registry& registry, entt::entity entity) {
         ImGui::DragFloat2("  ", &vel.vx, 1.f);
     }
 
-    if (registry.all_of<FDemoShowcaseEntity>(entity)) {
-        ImGui::Text("    Demo Showcase: yes");
-    }
-
-    if (registry.all_of<FGridPosition>(entity)) {
-        auto& grid = registry.get<FGridPosition>(entity);
-        ImGui::Text("    Grid: %d, %d", grid.x, grid.y);
-    }
-
-    if (registry.all_of<FSpeed>(entity)) {
-        auto& speed = registry.get<FSpeed>(entity);
-        ImGui::Text("    Speed: %d ft", speed.feet);
-    }
-
-    if (registry.all_of<FAbilityScores>(entity)) {
-        auto& scores = registry.get<FAbilityScores>(entity);
-        ImGui::Text("    Ability Scores: STR %d DEX %d CON %d", scores.strength, scores.dexterity, scores.constitution);
-    }
-
-    if (registry.all_of<FCommandToken>(entity)) {
-        auto& command = registry.get<FCommandToken>(entity);
-        ImGui::Text("    Command: %s (%s)", command.displayName.c_str(), command.id.c_str());
-    }
-
     if (registry.all_of<FDebugPrimitive>(entity)) {
         auto& primitive = registry.get<FDebugPrimitive>(entity);
         ImGui::Text("    Debug Primitive: %.0fx%.0f rgba(%u,%u,%u,%u)",
@@ -100,10 +68,6 @@ void RenderEntityComponents(entt::registry& registry, entt::entity entity) {
                     primitive.fillG,
                     primitive.fillB,
                     primitive.fillA);
-    }
-
-    if (registry.all_of<FUnitStateDefeated>(entity)) {
-        ImGui::Text("    State Tag: Defeated");
     }
 
     if (registry.all_of<FSprite>(entity)) {
@@ -148,7 +112,6 @@ void RenderEngineStats(entt::registry& registry, const Time& frameTime, const Sy
     ImGui::Text("FPS: %d", frameTime.getFps());
     ImGui::Text("Entity count: %zu", registry.storage<entt::entity>().size());
     ImGui::Text("Systems: %zu", systemManager.getRegisteredCount());
-    ImGui::Text("Showcase entities: %zu", CountView<FDemoShowcaseEntity>(registry));
     ImGui::Text("Debug primitives: %zu", CountView<FDebugPrimitive>(registry));
     ImGui::Text("Movers: %zu", CountView<FVelocity>(registry));
     ImGui::Text("Colliders: %zu", CountView<FCollider>(registry));
@@ -165,8 +128,7 @@ void RenderEngineStats(entt::registry& registry, const Time& frameTime, const Sy
     }
 
     ImGui::Separator();
-    ImGui::TextWrapped("Demo proof: factory-created ECS data, ctx services, event bus collisions, render layers, and debug tooling are visible without external assets.");
-    ImGui::TextDisabled("Pending: external data/config loading and full tactical combat runtime.");
+    ImGui::TextDisabled("No gameplay scene is bootstrapped. Engine services and ECS systems are available for the next prototype.");
     ImGui::End();
 }
 
@@ -193,16 +155,6 @@ void RenderEntityInspector(entt::registry& registry) {
     }
 
     ImGui::Separator();
-    if (ImGui::Button("Add Demo Entity")) {
-        auto entity = CreateDebugDemoEntity(registry);
-        LOG_INFO("Created demo entity {}", static_cast<uint32_t>(entity));
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Reset Showcase")) {
-        ResetDemoScene(registry);
-        LOG_INFO("Reset demo showcase");
-    }
-    ImGui::SameLine();
     if (ImGui::Button("Clear All Entities")) {
         registry.clear();
     }

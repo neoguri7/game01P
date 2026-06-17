@@ -2,6 +2,6 @@
 
 EStateTransition FTitleState::Update(float DeltaTime)
 {
-    // TODO: Handle input to transition to Hub
+    // TODO: Handle input to transition to the next app-flow state.
     return EStateTransition::None;
 }

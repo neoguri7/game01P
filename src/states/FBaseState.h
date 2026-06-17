@@ -8,8 +8,7 @@ enum class EStateTransition
     None,
     ToTitle,
     ToHub,
-    ToDungeon,
-    ToBossFloor,
+    ToPrototype,
     ToGameOver,
     Quit
 };

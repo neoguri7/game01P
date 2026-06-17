@@ -2,16 +2,16 @@
 
 void FHubState::OnEnter()
 {
-    // Initialize Hub state
+    // Initialize this app-flow state.
 }
 
 void FHubState::OnExit()
 {
-    // Cleanup Hub state
+    // Cleanup this app-flow state.
 }
 
 EStateTransition FHubState::Update(float DeltaTime)
 {
-    // TODO: Handle input to transition to Dungeon
+    // TODO: Handle input to transition to the next app-flow state.
     return EStateTransition::None;
 }

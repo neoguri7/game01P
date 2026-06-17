@@ -35,7 +35,7 @@
 | `src/core/events/FEventBus.h` | `FEventBus` | Existing event bus can carry EngineCue/EngineEvent notifications. | Lines 23-87 |
 | `src/core/events/FEventPublishing.h` | typed helpers | Preferred event helper layer for new code. | Lines 11-46 |
 | `src/ecs/systems/SpriteRenderSystem.h` | renderer ctx usage | Rendering systems currently pull `SDL_Renderer*` from registry ctx. | Lines 21-58 |
-| `src/main.cpp` | startup order | Systems and demo scene are registered after `Engine::initialize`. | Lines 9-21 |
+| `src/main.cpp` | startup order | Core ECS systems are registered after `Engine::initialize`; no gameplay scene is bootstrapped by default. | Lines 9-20 |
 
 ### Current Behavior
 
@@ -49,7 +49,7 @@
 
 - Existing checks: preferred focused build is `cmake --build out/build/mac-debug`.
 - Missing checks: no `tests/` directory was present during planning; manual launch/quit/render checks will be needed after implementation.
-- Current risk: `src/gameplay` is empty while `main.cpp` and debug files include gameplay headers. Confirm local generated/untracked files or expected build state before using build failures as refactor evidence.
+- Current risk: `src/gameplay` is empty by design. Confirm local generated/untracked files or expected build state before using build failures as refactor evidence.
 
 ### Constraints
 
