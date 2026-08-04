@@ -1,5 +1,7 @@
 # game01P
 
+Documentation (architecture, conventions, subsystem guides) lives in [`docs/`](docs/README.md).
+
 ## 개발 워크플로우
 
 macOS/WSL은 코드 작성과 가벼운 점검에 사용하고, native Windows를 빌드와 실행 검증의 기준 환경으로 사용합니다.
