@@ -20,6 +20,7 @@ Testing/
 opencode.json
 AGENTS.md
 .clinerules/
+.pi/
 .github/agents/
 .github/instructions/
 .github/copilot-instructions.md
