@@ -26,6 +26,33 @@ slice over a layer-only mega branch: design/spec, data/config, components,
 systems, debug UI, and verification should land together only when they are
 small and coherent.
 
+## Review-Cycle Branch Flow
+
+When work runs the 3-pillar review loop (correctness & exceptions -> structure
+-> optimization), keep the loop inside **one** `feature/<area>-<slug>` branch.
+Do not branch for code vs feedback: rework lands as follow-up commits on the
+same branch, and the review record is committed as docs, not a parallel branch.
+
+Per slice (small enough to review in one sitting):
+
+1. `git switch -c feature/<area>-<slug> main`
+2. Commit `docs/reviews/<slug>/contract.md` first as the Pass 0 oracle: what
+   changes, what must not change (existing behavior, dependency direction
+   `core/ <- ecs/ <- gameplay/`), and explicit non-goals.
+3. Implement in commits; keep checkpoints small enough to re-review.
+4. Apply each review pass (P1 correctness & exceptions, P2 structure, P3
+   optimization) as its own rework commit, or note in the review record why a
+   finding was skipped.
+5. When the loop is `GROWING` (teach-back passes), record the verdict in
+   `docs/reviews/<slug>/verdict.md` and squash-merge to `main`.
+
+Review record lives in `docs/reviews/<slug>/`: `contract.md`, per-pass findings
+(`pass-1.md`, `pass-2.md`, `pass-3.md`), and the final `verdict.md`. These are
+committed so the loop is auditable and the teach-back can be replayed.
+
+`spike/<question>` stays the place for throwaway experiments; merge nothing from
+a spike directly (turn useful findings into a fresh feature branch).
+
 ## Windows And macOS
 
 Home Windows is the authoritative build and run environment. macOS is fine for
