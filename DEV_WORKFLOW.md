@@ -88,14 +88,14 @@ Run the focused local check for the platform you are on:
 ```
 
 ```bash
-bash scripts/check-macos.sh Debug
+bash scripts/check.sh Debug        # macOS or Linux/WSL
 ```
 
 Before merging meaningful runtime changes, verify on native Windows. From
 macOS, use the remote Windows helper:
 
 ```bash
-GAME01P_WIN_BRANCH="<branch>" GAME01P_WIN_HOST="<windows-host>" ./scripts/remote-windows-check.sh
+GAME01P_WIN_BRANCH="<branch>" GAME01P_WIN_HOST="<windows-host>" ./scripts/remote-windows.sh
 ```
 
 Use Release checks before playtest builds, performance-sensitive changes, or

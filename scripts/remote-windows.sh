@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
+# SSH into a native Windows build machine, sync the repo, and run a Windows
+# build (and run the binary if requested). Configuration comes from
+# scripts/remote-windows.env (or GAME01P_* environment variables).
 set -euo pipefail
 
-config_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/remote-windows-check.env"
+config_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/remote-windows.env"
 if [[ -f "$config_file" ]]; then
   # shellcheck disable=SC1090
   source "$config_file"
@@ -25,6 +28,7 @@ if [[ -n "$GAME01P_WIN_USER" ]]; then
 fi
 ssh_options=(-p "$GAME01P_WIN_PORT")
 
+# Optional Wake-on-LAN to power on a sleeping build box.
 if [[ -n "${GAME01P_WOL_MAC:-}" ]]; then
   if command -v wakeonlan >/dev/null 2>&1; then
     wakeonlan "$GAME01P_WOL_MAC" >/dev/null
@@ -35,6 +39,7 @@ if [[ -n "${GAME01P_WOL_MAC:-}" ]]; then
   fi
 fi
 
+# Wait until SSH is reachable (useful right after a wake).
 deadline=$((SECONDS + GAME01P_SSH_WAIT_SECONDS))
 until ssh "${ssh_options[@]}" -o BatchMode=yes -o ConnectTimeout=5 "$ssh_target" "echo ready" >/dev/null 2>&1; do
   if (( SECONDS >= deadline )); then
@@ -44,7 +49,9 @@ until ssh "${ssh_options[@]}" -o BatchMode=yes -o ConnectTimeout=5 "$ssh_target"
   sleep 5
 done
 
-remote_commands="\$ErrorActionPreference = 'Stop'; function Invoke-Native { param([string]\$FilePath, [string[]]\$Arguments = @()); & \$FilePath @Arguments; if (\$LASTEXITCODE -ne 0) { throw \"\$FilePath failed with exit code \$LASTEXITCODE\" } }; Set-Location '$GAME01P_WIN_REPO';"
+remote_commands="\$ErrorActionPreference = 'Stop';"
+remote_commands+=" function Invoke-Native { param([string]\$FilePath, [string[]]\$Arguments = @()); & \$FilePath @Arguments; if (\$LASTEXITCODE -ne 0) { throw \"\$FilePath failed with exit code \$LASTEXITCODE\" } };"
+remote_commands+=" Set-Location '$GAME01P_WIN_REPO';"
 
 if [[ -n "$GAME01P_WIN_BRANCH" ]]; then
   remote_commands+=" Invoke-Native 'git' @('fetch', '--all', '--prune'); Invoke-Native 'git' @('checkout', '$GAME01P_WIN_BRANCH');"
@@ -54,6 +61,7 @@ if [[ "$GAME01P_REMOTE_PULL" == "1" ]]; then
   remote_commands+=" Invoke-Native 'git' @('pull', '--ff-only');"
 fi
 
+# Run the native Windows build/test entry point.
 if [[ -n "$GAME01P_CMAKE_GENERATOR" ]]; then
   remote_commands+=" & .\\scripts\\check-windows.ps1 -Configuration '$GAME01P_WIN_CONFIG' -Generator '$GAME01P_CMAKE_GENERATOR';"
 else

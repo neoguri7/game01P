@@ -7,20 +7,22 @@ macOS/Linux는 코드 작성과 가벼운 점검에 사용하고, native Windows
 
 자세한 내용은 [DEV_WORKFLOW.md](DEV_WORKFLOW.md)를 참고하세요.
 
-## Native Linux 빌드
+## macOS / Linux (WSL) 빌드
 
-Linux에서 `linux-clang-*` 프리셋으로 configure + build + ctest를 한 번에
-수행합니다 (Clang/Ninja 필요).
+`scripts/check.sh`가 현재 host(macOS 또는 Linux/WSL)를 감지해 해당 플랫폼
+프리셋(`macos-clang-*` / `linux-clang-*`)으로 configure + build + ctest를
+한 번에 수행합니다 (Clang/Ninja 필요).
 
 ```bash
-bash scripts/check-linux.sh Debug      # configure+build+ctest
+bash scripts/check.sh Debug        # configure+build+ctest
+bash scripts/check.sh Release
 ```
 
 Windows 원격 빌드 리모컨:
 
 ```bash
-GAME01P_WIN_HOST="your-windows-host" ./scripts/remote-windows-check.sh
-GAME01P_WIN_BRANCH="feature/input-actions" GAME01P_WIN_HOST="your-windows-host" ./scripts/remote-windows-check.sh
+GAME01P_WIN_HOST="your-windows-host" ./scripts/remote-windows.sh
+GAME01P_WIN_BRANCH="feature/input-actions" GAME01P_WIN_HOST="your-windows-host" ./scripts/remote-windows.sh
 ```
 
 ## Checkout 동기화 규칙

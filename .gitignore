@@ -65,7 +65,7 @@ DerivedData/
 # ============================================
 *.log
 *.tmp
-scripts/remote-windows-check.env
+scripts/remote-windows.env
 *~
 *.orig
 *.rej

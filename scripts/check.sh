@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
+# Configure, build and test the project on the current host (macOS, or Linux/WSL)
+# using the platform's canonical preset (macos-clang-* / linux-clang-*).
+# On Windows use scripts/check-windows.ps1 instead.
 set -euo pipefail
 
 configuration="${1:-Debug}"
-
 case "$configuration" in
-  Debug|Release)
-    ;;
+  Debug|Release) ;;
   *)
     echo "usage: $0 [Debug|Release]" >&2
     exit 2
@@ -14,12 +15,17 @@ esac
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 configuration_lower="$(printf '%s' "$configuration" | tr '[:upper:]' '[:lower:]')"
-preset="macos-clang-${configuration_lower}"
 
-if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "warning: check-macos.sh is intended for macOS hosts." >&2
-fi
+case "$(uname -s)" in
+  Darwin) preset="macos-clang-${configuration_lower}" ;;
+  Linux)  preset="linux-clang-${configuration_lower}" ;;
+  *)
+    echo "error: unsupported host $(uname -s); use check-windows.ps1 on Windows." >&2
+    exit 2
+    ;;
+esac
 
+# Resolve vcpkg: VCPKG_ROOT, then a sibling checkout, then a local one.
 if [[ -z "${VCPKG_ROOT:-}" ]]; then
   if [[ -d "$repo_root/../vcpkg" ]]; then
     export VCPKG_ROOT="$(cd "$repo_root/../vcpkg" && pwd)"
