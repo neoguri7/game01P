@@ -2,10 +2,19 @@
 
 ## 개발 워크플로우
 
-macOS/WSL은 코드 작성과 가벼운 점검에 사용하고, native Windows를 빌드와 실행 검증의 기준 환경으로 사용합니다.
+macOS/Linux는 코드 작성과 가벼운 점검에 사용하고, native Windows를 빌드와 실행 검증의 기준 환경으로 사용합니다.
 `main`은 항상 빌드 가능한 기준선으로 유지하고, 작업은 짧은 feature/fix/chore 브랜치에서 진행합니다.
 
 자세한 내용은 [DEV_WORKFLOW.md](DEV_WORKFLOW.md)를 참고하세요.
+
+## Native Linux 빌드
+
+Linux에서 `linux-clang-*` 프리셋으로 configure + build + ctest를 한 번에
+수행합니다 (Clang/Ninja 필요).
+
+```bash
+bash scripts/check-linux.sh Debug      # configure+build+ctest
+```
 
 Windows 원격 빌드 리모컨:
 

@@ -40,6 +40,8 @@ CMakeFiles/
 cmake_install.cmake
 compile_commands.json
 CTestTestfile.cmake
+# Per-machine user preset (machine-specific tools/triplets); keep portable presets in CMakePresets.json
+CMakeUserPresets.json
 # ============================================
 # IDE & Editor
 # ============================================

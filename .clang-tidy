@@ -1,0 +1,149 @@
+# game01P clang-tidy configuration.
+#
+# Goals: correctness, portability, performance, modernization, bug detection.
+# Tuned for game development — raw pointers and SDL/EnTT idioms are expected,
+# so ownership-pedantic rules are disabled to avoid hundreds of low-value
+# warnings. Naming checks enforce the project convention (see CheckOptions).
+#
+# Run:  clang-tidy -p out/build/<preset> src/main.cpp
+# or via clangd (see .clangd) / IDE on save.
+
+---
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  cppcoreguidelines-pro-type-cstyle-cast,
+  cppcoreguidelines-pro-type-static-cast-downcast,
+  cppcoreguidelines-pro-type-reinterpret-cast,
+  cppcoreguidelines-pro-type-const-cast,
+  cppcoreguidelines-slicing,
+  cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  misc-*,
+  modernize-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-reserved-identifier,
+  -bugprone-branch-clone,
+  -bugprone-narrowing-conversions,
+  -cert-err58-cpp,
+  -clang-analyzer-alpha.*,
+  -cppcoreguidelines-pro-type-const-cast,
+  -misc-include-cleaner,
+  -misc-non-private-member-variables-in-classes,
+  -misc-no-recursion,
+  -misc-use-anonymous-namespace,
+  -modernize-use-trailing-return-type,
+  -modernize-use-nodiscard,
+  -modernize-use-transparent-functors,
+  -modernize-avoid-bind,
+  -modernize-use-default-member-init,
+  -modernize-loop-convert,
+  -modernize-use-using,
+  -modernize-deprecated-headers,
+  -performance-noexcept-move-construction,
+  -readability-magic-numbers,
+  -readability-identifier-length,
+  -readability-function-cognitive-complexity,
+  -readability-braces-around-statements,
+  -readability-implicit-bool-conversion,
+  -readability-named-parameter,
+  -readability-redundant-access-specifiers,
+  -readability-else-after-return,
+  -readability-make-member-function-const,
+  -readability-qualified-auto,
+  -readability-simplify-boolean-returns
+
+# Why each disabled rule is disabled:
+#   bugprone-easily-swappable-parameters      game APIs legitimately repeat int/float/bool params (coords, flags).
+#   bugprone-reserved-identifier              flags legitimate _-prefixed implementation helpers; noise.
+#   bugprone-branch-clone                     tactical combat switches legitimately repeat shape.
+#   bugprone-narrowing-conversions            SDL/GLM float<->int casts are pervasive; enable once cleaned.
+#   cert-err58-cpp                            static-init ordering warnings rarely actionable here.
+#   clang-analyzer-alpha.*                    unstable alpha checkers; high false-positive rate.
+#   cppcoreguidelines-pro-type-const-cast    duplicates cert; EnTT type-erasure needs it.
+#   misc-include-cleaner                     noisy against SDL/vcpkg transitive includes; revisit later.
+#   misc-non-private-member-variables-in-classes  components are public data structs by design (ECS).
+#   misc-no-recursion                        game state / traversal recurses legitimately.
+#   misc-use-anonymous-namespace             internal-linkage via `static`/unnamed ns both used; not enforced.
+#   modernize-use-trailing-return-type       style preference not adopted; would churn every signature.
+#   modernize-use-nodiscard                   aggressive; bulk-enable would flood. Add [[nodiscard]] by hand.
+#   modernize-use-transparent-functors        STL allocator corner cases; low value for this codebase.
+#   modernize-avoid-bind                      no std::bind in use; rule is moot/noisy on edge cases.
+#   modernize-use-default-member-init         existing in-class initializers already idiomatic; rule conflicts.
+#   modernize-loop-convert                    sometimes rewrites range loops less readably; manual review preferred.
+#   modernize-use-using                       typedef vs using churn with no behavior change.
+#   modernize-deprecated-headers             C headers pulled by SDL/vcpkg; not ours to fix.
+#   performance-noexcept-move-construction    move ctors rare in this layer; revisit if added.
+#   readability-magic-numbers                 game tuning is full of magic numbers; belongs in config, not lint.
+#   readability-identifier-length            short loop vars (i, e, dt) are idiomatic.
+#   readability-function-cognitive-complexity complex game systems hit thresholds; manual refactor preferred.
+#   readability-braces-around-statements      Allman project does not mandate braces; not enforced by format.
+#   readability-implicit-bool-conversion      SDL pointer/null checks are idiomatic (`if (ptr)`).
+#   readability-named-parameter              `/*name*/` style not adopted project-wide.
+#   readability-redundant-access-specifiers   grouping public/private is fine in classes.
+#   readability-else-after-return             early-return + else reads clearer in some game flows.
+#   readability-make-member-function-const    floods getters that are intentionally non-const; revisit.
+#   readability-qualified-auto                `auto` over `auto*` is acceptable; rule churns SDL usage.
+#   readability-simplify-boolean-returns      sometimes the explicit form is clearer.
+
+WarningsAsErrors: ''
+HeaderFilterRegex: '^src/.*\.(h|hpp)$'
+
+CheckOptions:
+  # ---- Naming convention (enforces the project's F / E / I scheme) --------
+  # Types:     F-prefix concrete structs/classes  (FPosition, FEngine)
+  #            I-prefix interfaces                (ISystem)
+  # Enums:     E-prefix                           (EStateTransition)
+  #            enum constants PascalCase          (ToTitle, Move)
+  # Functions: lowerCamelCase                      (getRegistry, update)
+  # Members:   lowerCamelCase + trailing _          (callbacks_, frameEvents_)
+  #            (public struct fields keep plain lowerCamelCase, no underscore)
+  # Constants: UPPER_CASE                          (LOGGER_NAME)
+  # Namespaces: lower_case                         (game, game::ecs)
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+  - key: readability-identifier-naming.StructPrefix
+    value: F
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.ClassPrefix
+    value: F
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumPrefix
+    value: E
+  - key: readability-identifier-naming.EnumConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.FunctionCase
+    value: lowerCamelCase
+  - key: readability-identifier-naming.MethodCase
+    value: lowerCamelCase
+  - key: readability-identifier-naming.ParameterCase
+    value: lowerCamelCase
+  - key: readability-identifier-naming.VariableCase
+    value: lowerCamelCase
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: _
+  - key: readability-identifier-naming.ConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.ConstantPrefix
+    value: k
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: UPPER_CASE
+  # ---- modernize / readability tuning --------------------------------------
+  - key: modernize-use-override.IgnoreDestructors
+    value: true
+  - key: modernize-use-default-member-init.UseAssignment
+    value: true
+  - key: performance-unnecessary-value-param.AllowedTypes
+    value: 'std::string_view;std::span'
+  - key: bugprone-assert-side-effects.CheckFunctionCalls
+    value: true
+  - key: misc-throw-by-value-catch-by-alias.CheckNonTrivialTypedefs
+    value: true
