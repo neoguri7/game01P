@@ -23,8 +23,12 @@ Important technical priorities:
 
 ## Genre Status
 
-No active genre is committed in this file. Add a new design spec before adding
-new gameplay-specific runtime code.
+Active direction: Roguelike ARPG Card-Stacker. Features card stacking
+(crafting, combining, upgrading, socketing) and Diablo-style item farming
+(randomized loot drops, rarity tiers, prefix/suffix affixes).
+Design spec is under active development.
+
+(Previous "Grid Card Siege" prototype has been superseded and archived).
 
 ## Non-Goals
 
