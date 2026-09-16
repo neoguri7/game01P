@@ -29,6 +29,8 @@
   .body.split.wide{grid-template-columns:1.8fr 1fr}
   .body.three{grid-template-columns:repeat(3,1fr);align-items:stretch}
   .body.full{grid-template-columns:1fr}
+  /* a lone panel (table / log slide) fills the slide instead of floating in dead space */
+  .body.full>.panel{align-self:stretch;display:flex;flex-direction:column;justify-content:flex-start}
   .foot{flex:0 0 auto;display:flex;gap:8px;align-items:center;color:var(--muted);font-size:12.5px}
 
   h1{font-size:clamp(28px,3.2vw,46px);line-height:1.14;margin:0 0 6px;letter-spacing:-.02em}
@@ -54,9 +56,14 @@
 
   /* --- diagram container: one shape for every diagram --- */
   .diagram{background:transparent;border:0;display:flex;align-items:center;justify-content:center;
-    min-width:0;min-height:0;overflow:hidden;padding:0}
+    min-width:0;min-height:0;overflow:hidden;padding:0;visibility:hidden}
+  html[data-rendered] .diagram{visibility:visible}
   .diagram svg{max-width:100%!important;max-height:min(54vh,470px);height:auto;width:auto}
-  pre.mermaid{display:none}   /* mermaid replaces the <pre> with <svg> */
+  /* the raw mermaid source is replaced by an <svg> before paint — see the render script at the bottom */
+  pre.mermaid{display:none}
+  .diagram.failed{display:block;overflow:auto;visibility:visible}
+  .diagram.failed pre.mermaid{display:block;color:var(--bad);font-size:12px;white-space:pre-wrap;
+    background:#1a1013;border:1px solid rgba(255,123,114,.4);border-radius:8px;padding:10px 12px;margin:0}
 
   table{border-collapse:collapse;width:100%}
   th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
@@ -106,7 +113,7 @@
     <div class="diagram">
       <pre class="mermaid">
 flowchart LR
-  A["1. 엔진 구조"] --&gt; B["2. 기획 + 검증"] --&gt; C["3. 다음 단계"]
+  A["① 엔진 구조"] --&gt; B["② 기획 + 검증"] --&gt; C["③ 다음 단계"]
   classDef done fill:#12241a,stroke:#7ee787,color:#e6edf3;
   classDef next fill:#241f12,stroke:#f2cc60,color:#e6edf3;
   class A,B done
@@ -719,7 +726,7 @@ flowchart LR
 
 <script>
   mermaid.initialize({
-    startOnLoad: true,
+    startOnLoad: false,
     theme: 'base',
     themeVariables: {
       darkMode: true,
@@ -733,10 +740,43 @@ flowchart LR
       fontFamily: 'Pretendard, Segoe UI, system-ui, sans-serif',
       fontSize: '13px'
     },
-    flowchart: { curve: 'linear', nodeSpacing: 26, rankSpacing: 42, useMaxWidth: true, padding: 6 },
+    flowchart: { curve: 'linear', nodeSpacing: 30, rankSpacing: 48, useMaxWidth: true, padding: 14 },
     sequence: { useMaxWidth: true, wrap: true, boxMargin: 6, mirrorActors: false },
     state: { useMaxWidth: true, nodeSpacing: 26, rankSpacing: 42 }
   });
+
+  /*
+   * Diagrams are rendered with mermaid.render() and injected, NOT with mermaid.run().
+   * run() measures the diagram inside its own <pre>, and any target that is hidden
+   * (display:none here, or visibility:hidden on an inactive slide) measures as 0x0 —
+   * mermaid then emits its 16x16 fallback blob, i.e. an invisible diagram.
+   */
+  (async () => {
+    const blocks = Array.from(document.querySelectorAll('pre.mermaid'));
+    for (const [n, el] of blocks.entries()) {
+      const source = el.textContent.trim();
+      try {
+        const { svg } = await mermaid.render('deck-' + (n + 1), source);
+        // parse instead of assigning innerHTML: the markup is mermaid's own, but this keeps
+        // the "avoid innerHTML" rule honest and fails loudly if the svg is malformed
+        const parsed = new DOMParser().parseFromString(svg, 'image/svg+xml');
+        if (!parsed.documentElement || parsed.querySelector('parsererror')) {
+          throw new Error('mermaid produced an svg that does not parse');
+        }
+        el.closest('.diagram').replaceChildren(document.importNode(parsed.documentElement, true));
+      } catch (err) {
+        // never fail silently: show the source and the parser message where the diagram was
+        el.closest('.diagram').classList.add('failed');
+        el.textContent = 'diagram ' + (n + 1) + ' failed: ' + (err && err.message ? err.message : err)
+          + '\n\n' + source;
+        console.error('mermaid diagram ' + (n + 1) + ' failed', err);
+      }
+    }
+    document.documentElement.dataset.diagrams = blocks.length;
+    document.documentElement.dataset.rendered = String(
+      document.querySelectorAll('.diagram svg').length,
+    );
+  })();
 
   const slides = Array.from(document.querySelectorAll('.slide'));
   const cur = document.getElementById('cur');
