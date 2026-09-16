@@ -48,7 +48,7 @@ FBattleVictory,FBattleDefeat}.h`; `src/gameplay/events/FBattleEvents.h`;
 `src/gameplay/view/FBattleTextView.{h,cpp}`;
 `src/gameplay/systems/{FInitiativeSystem,FTurnStartSystem,FGridMoveSystem,
 FPlayerCommandSystem,FEnemyTurnSystem,FSkillResolveSystem,FDamageSystem,
-FBattleOutcomeSystem,FBattleLogSystem}.h`; `docs/design/battle-state-transitions.md`;
+FBattleOutcomeSystem,FTurnEndSystem,FBattleLogSystem}.h`; `docs/design/battle-state-transitions.md`;
 `docs/reviews/gameplay-combat/*`; `tests/changeability/fixtures/gameplay/**`.
 
 Note (naming): the phase tag is `FBattleOngoing`, not `FBattlePlayerPhase` — the acting side is already

@@ -33,7 +33,7 @@ Rules that follow from the table:
 | From | To | Trigger | Decision (writer of the entity change) |
 | --- | --- | --- | --- |
 | (none) | `FTurnActive` | `FTurnStartSystem` walks `FBattleState::order` and refills AP from content | `FBattleFactory::openTurn` |
-| `FTurnActive` | (none) | `FTurnEndRequestedEvent` consumed at the start of the next `FTurnStartSystem` pass (player Esc / enemy finished) | `FBattleFactory::closeTurn` |
+| `FTurnActive` | (none) | `FTurnEndRequestedEvent` consumed by `FTurnEndSystem` later in the same frame (player Esc / enemy finished) | `FBattleFactory::closeTurn` |
 | `FTurnActive` | (none) | the active unit reaches HP 0 and is marked `FDowned` | `FBattleFactory::markDowned` |
 | (none) | `FDowned` | `FHealth::current` reaches 0 (`FDamageSystem`) | `FBattleFactory::markDowned` |
 | `FDowned` | — | not reachable in this slice: design §4 확정 — 캐릭터 부상·사망 없음, and a battle never returns a downed unit to play | — |

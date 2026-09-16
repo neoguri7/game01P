@@ -24,8 +24,9 @@
 
 namespace game::gameplay {
 
-/// Opens the next turn: closes a requested turn, then walks the predicted order until a unit that can act is
-/// found and gives it its AP (design §4 확정: 턴 자원 = 이동 AP + 스킬 AP, 서로 전환 불가).
+/// Opens the next turn: walks the predicted order until a unit that can act is found and gives it its AP
+/// (design §4 확정: 턴 자원 = 이동 AP + 스킬 AP, 서로 전환 불가). A turn that was requested closed is closed by
+/// FTurnEndSystem, later in the same frame — this system only *opens*.
 /// why this system owns the FTurnActive tag: one writer for "whose turn it is" keeps the acting systems free of
 /// turn bookkeeping, and a unit that goes down simply stops matching the tag (R11/R12).
 struct FTurnStartSystem final : public ecs::ISystem {
@@ -41,19 +42,6 @@ struct FTurnStartSystem final : public ecs::ISystem {
         }
 
         FEventBus* bus = registry.ctx().find<FEventBus>();
-
-        // Close a turn that was requested in the previous frame (player pressed Esc, or an enemy acted). why
-        // here and not in the requester: clearing the tag and opening the next turn are one transition, and a
-        // requester that cleared the tag itself could leave the battle without an active unit for a frame.
-        if (bus != nullptr) {
-            for (const FTurnEndRequestedEvent& request : bus->frameEvents<FTurnEndRequestedEvent>()) {
-                if (request.unit == entt::null || !registry.valid(request.unit)) {
-                    continue;
-                }
-                FBattleFactory::closeTurn(registry, request.unit);
-                bus->queueFrame<FTurnEndedEvent>(FTurnEndedEvent{request.unit});
-            }
-        }
 
         if (activeUnit(registry) != entt::null) {
             return;

@@ -61,6 +61,58 @@ path_filter() { rg -v '[\\/](factories|imgui|vendor|third_party)[\\/]'; }
 # with a `// boundary:` marker on the offending line, mirroring the `// fallback:` convention of R4.
 asset_boundary_filter() { rg -v '[\\/]core[\\/](AssetManager|ResourceManager)\.[ch]' | rg -v '//[[:space:]]*boundary:'; }
 
+# R3 event delivery order (D14): a `queueFrame<T>` producer and a `frameEvents<T>()` consumer of the SAME type
+# must be registered so the consumer runs at or after the producer. A consumer registered *before* the producer
+# never sees the event: FEventBus::beginFrame() clears the frame queues at the start of every frame, so the
+# request is silently deleted instead of applied. This is the one event bug no include/lint rule can see, because
+# both files are individually correct.
+# One system's own declaration body: from `struct <name>` to its closing `};`. Needed becauseR1 wants one ISystem
+# per file but the detector must stay correct when a header holds helpers or two fixture structs — searching the
+# whole file would attribute one system's queueFrame<> to its neighbour (a false positive, D14 calibration).
+system_body() { # system_body <header> <name>
+  # NB: gawk/mawk read `\b` in a dynamic regex as a literal backspace, so the boundary is spelled as a
+  # negated character class here -- `\b` silently matched nothing and hid the positive control.
+  awk -v name="$2" '
+    $0 ~ ("struct[[:space:]]+" name "([^A-Za-z0-9_]|$)") { inside = 1 }
+    inside { print }
+    inside && /^};/ { exit }
+  ' "$1"
+}
+
+event_order_report() {
+  local srcroot="$1" reg name file c p type
+  local -a order headers
+  for reg in $(rg -l --no-heading 'addSystem<[A-Za-z_]+>' "$srcroot" 2>/dev/null | path_filter); do
+    # full-line comments are stripped first, so the fixture's "// systems.addSystem<...>" annotation lines are
+    # not counted as registrations and the reported index is the real walk order. (-H is required: with a single
+    # file argument rg omits the `path:line:` prefix that strip_comments matches on.)
+    mapfile -t order < <(rg -n -H --no-heading 'addSystem<([A-Za-z_]+)>' "$reg" 2>/dev/null | strip_comments | rg -o --no-heading 'addSystem<([A-Za-z_]+)>' -r '$1')
+    [ "${#order[@]}" -eq 0 ] && continue
+    headers=()
+    for name in "${order[@]}"; do
+      headers+=("$(rg -l --no-heading "struct[[:space:]]+${name}\\b" "$srcroot" 2>/dev/null | head -1)")
+    done
+    # The violation is a *consumer* whose index is lower than a producer of the same type: the consumer runs,
+    # sees nothing, and the producer fills the queue afterwards -- which beginFrame() then clears unread.
+    for ((c = 0; c < ${#order[@]}; c++)); do
+      file=${headers[c]}
+      [ -z "$file" ] && continue
+      body=$(system_body "$file" "${order[c]}")
+      [ -z "$body" ] && continue
+      while IFS= read -r type; do
+        [ -z "$type" ] && continue
+        for ((p = c + 1; p < ${#order[@]}; p++)); do
+          [ -z "${headers[p]}" ] && continue
+          if printf '%s\n' "$(system_body "${headers[p]}" "${order[p]}")" | rg -q --no-heading "queueFrame<$type>" 2>/dev/null; then
+            printf '%s: %s (index %d) reads %s, queued later by %s (index %d)\n' \
+              "$reg" "${order[c]}" "$c" "$type" "${order[p]}" "$p"
+          fi
+        done
+      done < <(printf '%s\n' "$body" | rg -o --no-heading "frameEvents<([A-Za-z_:]+)>" -r '$1' | sort -u)
+    done
+  done
+}
+
 # R30 fork-by-copy detector (DOOM 3 d3xp shape): duplicate basenames are flagged only when BOTH files are
 # >=40 lines and >=60% of the shorter file's lines also occur in the longer one. A 3-line forwarding shim
 # (src/core/Logger.h vs src/debug/Logger.h) is therefore NOT a copied layer.
@@ -240,6 +292,13 @@ if [ "$MODE" = repo ]; then
   [ -z "$r3$r3g" ] && ok "R3 clean" || {
     printf '%s\n%s\n' "$r3" "$r3g"
     bad "R3 system includes another concrete system"
+  }
+
+  note "== R3 event delivery order: frame consumer registered after its producer (0 expected) =="
+  r3o=$(event_order_report "$SRC" | bl R3 || true)
+  [ -z "$r3o" ] && ok "R3 event order clean" || {
+    printf '%s\n' "$r3o"
+    bad "R3 a frame event is consumed by a system registered before its producer (beginFrame drops it)"
   }
 
   note "== R4 gameplay tuning literals (0 expected in systems/states/gameplay) =="
@@ -527,6 +586,16 @@ else
   assert_hits R3 ecs/systems/ZzComboSystem.h 2 '#include "ecs/systems/[A-Za-z]+System\.h"' # raw: self-contract + real violation
   r3f=$(fc_nocontract '#include "ecs/systems/[A-Za-z]+System\.h"' "$SRC/ecs/systems/ZzComboSystem.h")
   [ "$r3f" = 1 ] && ok "R3 after ISystem.h exclusion = 1 (D2 fix holds)" || bad "R3 after exclusion = $r3f (want 1)"
+  # D14: the event-order detector must flag consumer-before-producer, and must NOT flag the three legal shapes
+  # (producer first, a consumer of a type nobody queues, and a system reading back its own frame event).
+  r3o=$(event_order_report "$SRC")
+  r3o_n=$(printf '%s\n' "$r3o" | rg -c 'ZzEarlyConsumerSystem' || true)
+  r3o_n=$(printf '%s' "$r3o_n" | tr -d ' \r')
+  if [ "$r3o_n" = 1 ] && ! printf '%s\n' "$r3o" | rg -q 'ZzBeatConsumerSystem|ZzSelfReadSystem|ZzOrphanConsumerSystem'; then
+    ok "R3 event order flags the early consumer only (D14 holds)"
+  else
+    bad "R3 event order detector = '$r3o' (want exactly the ZzEarlyConsumerSystem hit)"
+  fi
   assert_hits R4 ecs/systems/ZzComboSystem.h 4 '[-+]?[0-9]+\.[0-9]+f|"[a-z0-9_/]+\.(png|wav|json)"'
   r4f=$(fc_fallback '[-+]?[0-9]+\.[0-9]+f' "$SRC/core/ZzLeak.h")
   [ "$r4f" = 2 ] && ok "R4 core/ZzLeak.h after //fallback: exclusion = 2 (D1 fix holds)" || bad "R4 after fallback exclusion = $r4f (want 2)"

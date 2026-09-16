@@ -17,6 +17,7 @@
 #include "gameplay/systems/FInitiativeSystem.h"
 #include "gameplay/systems/FPlayerCommandSystem.h"
 #include "gameplay/systems/FSkillResolveSystem.h"
+#include "gameplay/systems/FTurnEndSystem.h"
 #include "gameplay/systems/FTurnStartSystem.h"
 
 #include <tracy/Tracy.hpp>
@@ -72,15 +73,19 @@ void FGameplayServices::RegisterSystems(game::SystemManager& systems) {
     // The turn loop, in the order a single frame walks it. why this order: every arrow below is a queueFrame event
     // consumed by a later system of the *same* frame — Initiative decides the order, TurnStart opens a turn,
     // GridMove/PlayerCommand/EnemyTurn produce actions, Resolve checks legality, Damage applies it, Outcome judges
-    // the battle, and Log narrates whatever happened (R3: no system calls another directly).
+    // the battle, TurnEnd closes a requested turn, and Log narrates whatever happened (R3: no system calls another
+    // directly). This order IS the contract (see FBattleEvents.h): a queueFrame event consumed before its producer
+    // would be silently dropped by the next beginFrame(), so a request consumer must be registered after every
+    // producer — that is the only reason FTurnEnd sits at the end instead of inside FTurnStartSystem.
     systems.addSystem<FInitiativeSystem>();  // order + round header
-    systems.addSystem<FTurnStartSystem>();   // closes a requested turn, opens the next one
+    systems.addSystem<FTurnStartSystem>();   // opens the next turn (AP refill + FTurnActive)
     systems.addSystem<FGridMoveSystem>();    // player movement (이동 AP)
     systems.addSystem<FPlayerCommandSystem>(); // player skill/target selection (스킬 AP)
     systems.addSystem<FEnemyTurnSystem>();   // 미결(design §4) 몬스터 AI 자리
     systems.addSystem<FSkillResolveSystem>(); // legality: turn, skill list, range, AP
     systems.addSystem<FDamageSystem>();      // 피해 공식 (미결(design §4)) + 쓰러짐
     systems.addSystem<FBattleOutcomeSystem>(); // 승리/패배 판정
+    systems.addSystem<FTurnEndSystem>();     // closes a turn requested above (Esc / enemy finished)
     systems.addSystem<FBattleLogSystem>();   // narration last, so one frame is narrated in one place
 }
 

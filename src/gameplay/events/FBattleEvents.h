@@ -13,6 +13,11 @@ namespace game::gameplay {
 /// Delivery rule: the producers and consumers of one chain all run inside a single frame (registration order
 /// in FGameplayServices::RegisterSystems), so every event here travels through `queueFrame` and is read via
 /// `frameEvents<T>()`. Nothing subscribes, so no callback can outlive its system (R15).
+///
+/// Ordering contract (the reason FTurnEndSystem exists): a consumer is always registered *after* the producers
+/// of the events it reads, because `beginFrame()` clears the frame queues at the start of every frame. A
+/// request event read at the start of the next frame is a request that was silently deleted — the event has to
+/// be consumed in the same frame it is queued, or it must become state with a durable owner (R11).
 /// `invariant:` every event here has exactly one narration consumer (FBattleLogSystem) plus, for the request
 /// events, the one system that acts on them — an event nobody reads would be dead vocabulary (R9).
 
@@ -22,13 +27,14 @@ struct FTurnStartedEvent {
 };
 
 /// Published when a unit closes its turn: the player pressed Esc, or an enemy finished acting.
-/// why a *request* and not a state change: only FTurnStartSystem owns the FTurnActive tag, so the "whose turn"
-/// answer has one writer (R12) and the acting systems stay free of turn bookkeeping.
+/// why a *request* and not a state change: only FBattleFactory owns the FTurnActive tag, so the "whose turn"
+/// answer has one writer (R12) and the acting systems stay free of turn bookkeeping. Consumed by
+/// FTurnEndSystem, which is registered after every producer of this event in the same frame.
 struct FTurnEndRequestedEvent {
     entt::entity unit{entt::null};
 };
 
-/// Published by FTurnStartSystem when FTurnActive was cleared, for narration.
+/// Published by FTurnEndSystem when FTurnActive was cleared, for narration.
 struct FTurnEndedEvent {
     entt::entity unit{entt::null};
 };

@@ -1,0 +1,14 @@
+// Calibration fixture for R3's event-delivery-order detector (D14). A registration list in walk order; the
+// detector pairs each system with the header that declares it and compares indices. Read by the harness only.
+// systems.addSystem<ZzEarlyConsumerSystem>();  // reads ZzPingEvent, producer below -> must be flagged
+// systems.addSystem<ZzLateProducerSystem>();   // queues ZzPingEvent
+// systems.addSystem<ZzBeatProducerSystem>();   // queues ZzBeatEvent
+// systems.addSystem<ZzBeatConsumerSystem>();   // reads ZzBeatEvent -> legal
+// systems.addSystem<ZzSelfReadSystem>();       // queues + reads ZzSelfEvent -> legal
+// systems.addSystem<ZzOrphanConsumerSystem>(); // reads ZzNobodyEvent -> not an ordering bug
+systems.addSystem<ZzEarlyConsumerSystem>();
+systems.addSystem<ZzLateProducerSystem>();
+systems.addSystem<ZzBeatProducerSystem>();
+systems.addSystem<ZzBeatConsumerSystem>();
+systems.addSystem<ZzSelfReadSystem>();
+systems.addSystem<ZzOrphanConsumerSystem>();
