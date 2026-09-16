@@ -159,12 +159,15 @@ std::optional<std::vector<FContentRow>> FContentLoader::load(const FAssetManager
 
     std::size_t idFieldIndex = schema.fields.size();
     for (std::size_t index = 0; index < schema.fields.size(); ++index) {
-        if (schema.fields[index].key == schema.idField && schema.fields[index].type == EContentFieldType::Text) {
+        // `Id` is accepted for the identity field: it is the declaration that says "this value names a row",
+        // so refusing it here would make the type unusable for the one field it describes (R20).
+        if (schema.fields[index].key == schema.idField
+            && (schema.fields[index].type == EContentFieldType::Text || schema.fields[index].type == EContentFieldType::Id)) {
             idFieldIndex = index;
         }
     }
     if (idFieldIndex == schema.fields.size()) {
-        LOG_ERROR("content asset '{}': id field '{}' is not a declared text field", schema.assetId, schema.idField);
+        LOG_ERROR("content asset '{}': id field '{}' is not a declared text or id field", schema.assetId, schema.idField);
         return std::nullopt;
     }
 

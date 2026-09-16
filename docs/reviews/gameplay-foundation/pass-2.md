@@ -102,7 +102,22 @@ judgement items. No `OK (repo)` line is used as PASS evidence for these.
   reason. → reverted: the finding is the documented pi-lens `.h`-as-C engine
   limit, already recorded in the guideline, so suppressing it repo-wide was wrong.
 - [Low] `src/core/AssetManager.h` defined two types → `FAssetDigest` moved to
-  `src/core/FAssetDigest.h` (also removes nlohmann from every includer).
+  `src/core/FAssetDigest.h`. **Correction (round-2 finding):** this does *not*
+  "remove nlohmann from every includer" — `src/core/FAssetDigest.h:3` includes
+  `<nlohmann/json.hpp>` and `src/core/AssetManager.h:3` includes `FAssetDigest.h`,
+  so every includer still pulls nlohmann. The split buys one-type-per-file (R1),
+  not dependency narrowing.
+- [Low, round 2] `src/core/data/EContentFieldType.h` said `Id` is "validated as a
+  cross-table reference", which the loader never does (it treats `Id` as `Text`
+  storage); the real check is the consumer loop at
+  `src/gameplay/data/FContentRegistry.cpp:49-54` → comment corrected (R33).
+- [Low, round 2] a schema declaring its identity field as `Id` was rejected by the
+  id-field probe in `src/core/data/FContentLoader.cpp` → the probe now accepts
+  `Text` or `Id`, so the type is usable for the field it describes (R20).
+- [Low, round 2] `evidence/compiler-syntax-check.txt` lists TU filenames only
+  (no command, no exit code) → provenance rewritten in that file; the syntax
+  check is recorded as implementer-reported and `UNVERIFIED`, not as clean
+  evidence.
 - [Low] `integer()` truncation → documented in `src/core/data/FContentRow.h`.
 
 ## Change-cost answers (numbers)

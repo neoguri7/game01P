@@ -1,0 +1,303 @@
+# Independent Changeability Review — Round 2
+
+```text
+repo:    D:/repos/game01P
+branch:  feature/gameplay
+head:    a88fcea  feat(gameplay): content data layer (slice 1) + review records
+base:    main @ 9dc4208
+scope:   slice 1 content data layer
+reviewer: independent changeability-reviewer session (round 2)
+implements: no        <- this session authored none of the change under review
+read-only: no file in the repo was modified; R9 revert done in a /tmp git-archive copy
+verdict: all 9 round-1 findings FIXED; no new Blocker/High; but status stays REWORK
+         because the owner-run build gate is UNVERIFIED and R19③ test seam is open
+```
+
+This review re-verified every round-1 finding from the committed source myself. It
+does **not** trust `pass-1/2/3.md`, `verdict.md`, or
+`evidence/independent-review-round1.txt` — every claim below carries a `file:line`
+I read.
+
+---
+
+## 0. Calibration evidence (raw, verbatim)
+
+### `bash scripts/verify-changeability.sh --calibrate`
+
+Final two lines:
+```text
+ok    R33 negative control: FZzGood.h comment is not a restatement (0 hits)
+
+changeability bundle: OK (calibrate)
+```
+`EXIT=0`. 43 `ok` lines, 0 FAIL. `ok R20` fixture set still detects a first-party
+`gameplay/` include; `ok R23`, `ok R30`, `ok R33` calibration intact.
+
+### `bash scripts/verify-changeability.sh`
+
+Final two lines:
+```text
+PRE-EXISTING (baselined, not blocking): 27 hit line(s) from tests/changeability/baseline.txt
+
+changeability bundle: OK (repo)
+```
+`EXIT=0`. The `NOT CHECKED (manual)` line explicitly lists R16-iter, R1-judgement,
+R9 revert-diff, R10, R12 out-of-contract, R13, R14 sites, R19 seam, R21 site,
+R24 site, R28, R29, R30-composition, R31 incremental, R32 view, R33-why. No
+`ok R… clean` line is used below as PASS evidence for a manual rule.
+
+---
+
+## 1. Round-1 findings — closure re-verified
+
+### 1. [Blocker, R20] undefined `Id`/`IdArray` — **FIXED**
+`src/core/data/EContentFieldType.h:11` declares `Id`, `:14` declares `IdArray`.
+The three type-exhaustive switches in `src/core/data/FContentLoader.cpp` cover both
+variants: `defaultOf` (`:24,:33`), `typeName` (`:47,:53`), `readValue`
+(`:67,:88`). Every `Id`/`IdArray` use now resolves: `src/gameplay/data/FUnitContent.h:35`,
+`src/gameplay/data/FSkillContent.h:31`. No `-Wswitch` hole. Blocker closed.
+
+### 2. [High, R19/R22] unguarded `schema_version` read — **FIXED**
+`src/core/data/FContentLoader.cpp:136` `if (!document.is_object())` guards the
+non-object case, logs, returns `nullopt`; `:143` reads via
+`document.find("schema_version")`; `:144` requires `is_number_integer()`; `:145`
+logs and returns `nullopt`. No `document.value(...)` remains on this path. The
+uncaught-`nlohmann::json::type_error` failure mode is gone. Confirmed by reading
+the whole `load()` body.
+
+### 3. [High, R22] silent duplicate `id` — **FIXED**
+`src/core/data/FContentLoader.cpp:175` `std::unordered_set<std::string> seenIds;`
+and `:192` `if (!seenIds.insert(rowId).second) { LOG_ERROR(...duplicate id...); return std::nullopt; }`.
+Insert-only, never iterated, so R16 is not broken (hash order cannot reach a
+result). `FContentTable::find` first-match shadowing can no longer happen
+silently. Closed.
+
+### 4. [Medium] non-compiling `items()` loop — **FIXED (by inspection)**
+`src/core/data/FContentLoader.cpp:200` is now
+`for (const auto& entry : element.items()) { // boundary: asset key`, with
+`entry.key()` used at `:203/:209`. The deduced loop variable removes the
+`const_iterator`-over-`iteration_proxy_value` mismatch. `field.key` is
+`std::string_view` (`src/core/data/FContentField.h:11`) and `entry.key()` yields
+`json::string_t`; `string_view == std::string` is well-formed. **Compile itself is
+UNVERIFIED** (no compiler in this environment; the owner-run gate is separate).
+
+### 5. [Medium, R23] contract wording vs implementation — **FIXED**
+`docs/reviews/gameplay-foundation/contract.md` §Boundary now says string-key JSON
+reads happen only inside `src/core/data/FContentLoader.cpp`, each line carrying
+`// boundary:` (the round-0 "in `src/gameplay/data/`" sentence is gone). The
+markers exist at `src/core/data/FContentLoader.cpp:143,154,183,200,217` plus the
+schema-key arrays `src/gameplay/data/FUnitContent.h:29-36`,
+`src/gameplay/data/FSkillContent.h:27-31`. Contract and code now agree.
+
+### 6. [Medium] provisional values indistinguishable — **FIXED**
+`assets/data/units.json:2` and `assets/data/skills.json:2` carry a top-level
+`"_comment"` naming the rows 프로토타입/잠정값 and design §4/§5 미결 status. The
+loader only reads `schema_version` + the row array, and rejects unknown keys only
+**inside rows** (`FContentLoader.cpp:200-213`), so the top-level `_comment` is
+accepted by design. Confirmed the two mechanisms do not conflict.
+
+### 7. [Medium] repo-wide `no-bit-fields` disable — **FIXED**
+`.pi-lens.json` now contains only `ignore` (`tests/changeability/fixtures/**`,
+`assets/data/zz_*.json`). `git diff main...HEAD -- .pi-lens.json` → **empty**, and
+`git show main:.pi-lens.json` is identical. The disable was reverted, not merely
+scoped. No suppression remains.
+
+### 8. [Low, R1] two types in `src/core/AssetManager.h` — **FIXED**
+`src/core/FAssetDigest.h:14` now defines `class FAssetDigest` alone;
+`src/core/AssetManager.h:22` `struct FAssetManager` alone; `AssetManager.h:3`
+includes the split header. One type per file achieved.
+
+### 9. [Low] `integer()` truncation — **FIXED (documented)**
+`src/core/data/FContentRow.h:32-36` documents that a fractional `Number` is
+truncated and why the loader cannot reject it (int and double fields both declare
+`Number`). Behaviour unchanged by design; the round-1 ask was documentation.
+
+---
+
+## 2. New findings introduced by the fixes
+
+- **[Low, R33] `src/core/data/EContentFieldType.h:11` claims a guarantee the code
+  does not implement.** The comment says `Id` is *"validated as a cross-table
+  reference"*, but `FContentLoader::readValue` (`src/core/data/FContentLoader.cpp:67`)
+  treats `Id` byte-for-byte like `Text`; no cross-table check exists in the loader.
+  The only cross-table validation in the repo is the hand-written skill loop at
+  `src/gameplay/data/FContentRegistry.cpp:49-54`. The enum comment overstates the
+  mechanism (R33: comment must not lie).
+- **[Low, R20/R1] `Id` is unreachable for the id field and unused elsewhere.**
+  The id-field probe requires `schema.fields[i].type == EContentFieldType::Text`
+  (`src/core/data/FContentLoader.cpp:161`), so a schema that declares its identity
+  field as the newly added `Id` type is rejected with "id field … is not a
+  declared text field" (`:166-168`). Also `EContentFieldType::Id` (singular) has
+  zero uses; only `IdArray` is used (`FUnitContent.h:35`, `FSkillContent.h:31`).
+  A type added for row identity that cannot be used for row identity is a trap.
+- **[Low, record honesty] `pass-2.md:101-102` overstates the `FAssetDigest` split.**
+  It claims moving `FAssetDigest` to its own header "also removes nlohmann from
+  every includer". False: `src/core/AssetManager.h:3` includes
+  `src/core/FAssetDigest.h:3` `#include <nlohmann/json.hpp>`, so every includer of
+  `AssetManager.h` (e.g. `src/core/data/FContentLoader.h:3`,
+  `src/gameplay/data/FContentRegistry.h:3`) still pulls nlohmann. Functionally
+  harmless, factually wrong in the record.
+- **[Low, evidence quality] `docs/reviews/gameplay-foundation/evidence/compiler-syntax-check.txt`
+  is 7 lines of TU filenames only** — no compiler command, no exit code, no
+  output. `pass-1.md`/`pass-2.md` cite it as proof the `cl /Zs` check was clean,
+  but the file cannot substantiate that. Record needs the actual command + result,
+  or the citation weakened.
+
+None of the four is a Blocker/High; all are documentation/record precision, not
+runtime correctness.
+
+---
+
+## 3. Rule-delta table (vs `docs/reviews/gameplay-foundation/pass-2.md`)
+
+Only rows whose verdict differs, plus explicit `UNVERIFIED` rows in this review.
+
+| Rule | pass-2.md | round-2 verdict | Evidence |
+| ---- | --------- | --------------- | -------- |
+| R9 | UNVERIFIED | **PASS (caveat)** — revert executed in `/tmp` copy: 20 files delete, `src/main.cpp` needs 3 edits (include `:8` + `Initialize :37` + `Shutdown :44`), `src/core/AssetManager.h` restored from `main`; only broken symbol after revert is `gameplay::FGameplayServices` | see §4 |
+| R20 | `FAIL → fixed` | **PASS** — `EContentFieldType.h:11,14` present; all `Id`/`IdArray` uses resolve | §1.1 |
+| R23 | `FAIL → fixed` | **PASS** — contract corrected; markers at `FContentLoader.cpp:143,154,183,200,217` | §1.5 |
+| R13 | N-A | **N-A** (UNVERIFIED, debt) — no measured hot path; `pass-3.md` has no before/after numbers | `pass-3.md` |
+| R18 | N-A | **N-A** — no `std::thread`/`std::async`/`detach` in slice | harness `R18` |
+| R28 | N-A | **N-A** — no save/snapshot layer | harness `R28` |
+| R29 | N-A | **N-A** — single static binary, no boundary struct | harness `R29` |
+| R10 | PASS (manual) | **PASS (manual, UNVERIFIED by tool)** — `FContentTable` 2 instantiations `FContentRegistry.h:16-17`; `FContentLoader::load` 2 call sites `FContentRegistry.cpp:28,37` | read both |
+| R16 | PASS (manual) | **PASS (manual, UNVERIFIED by tool)** — `cache_` only `find`/`emplace` (`AssetManager.cpp:36,59`), `seenIds` insert-only (`FContentLoader.cpp:175,192`); neither iterated | read both |
+| R19③ | PASS (one debt) | **PASS with open debt** — test seam still absent (`tests/` fixture does not exercise `FContentLoader::load`) | `rg` tests/ |
+| build gate | `PENDING (owner-run)` | **UNVERIFIED** — `scripts/check-windows.ps1 -Configuration Debug` not run (needs MSVC + vcpkg; not available here) | see §6 |
+
+All other rules (R1,R2,R3,R4,R5,R6,R7,R8,R11,R12,R14,R15,R17,R21,R22,R24,R25,
+R26,R27,R30,R31,R32,R33) keep the pass-2.md verdict; I re-read the relevant
+source and did not find a differing symptom. Harness `OK (repo)` on all automated
+rules. Note: no `ok R… line` is used as PASS evidence for the four manual rows
+above.
+
+---
+
+## 4. R9 deletability — actual revert test
+
+Method: `git archive HEAD | tar -x -C /tmp/g01p_revert_1204` (clean tracked tree at
+a88fcea; repo untouched), then per the task spec:
+
+```bash
+rm -rf src/gameplay src/core/data assets/data
+rm -f  src/core/AssetManager.cpp src/core/FAssetDigest.h
+git show main:src/core/AssetManager.h > src/core/AssetManager.h
+```
+
+Result:
+
+- **Deleted 20 files**: `src/gameplay/**` 8 (`GameplayServices.{h,cpp}`,
+  `data/FContentRegistry.{h,cpp}`, `data/FUnitContent.{h,cpp}`,
+  `data/FSkillContent.{h,cpp}`), `src/core/data/**` 8, `assets/data/*` 2,
+  `src/core/AssetManager.cpp`, `src/core/FAssetDigest.h`.
+- **Modified**: `src/core/AssetManager.h` restored to main's 15-line placeholder
+  (slice rewrote it to 52 changed lines — **not** a registration line).
+- **Reference break surface after deletion** (`rg 'gameplay/|core/data/|FAssetDigest' src/`):
+  exactly **one** hit, `src/main.cpp:8` `#include "gameplay/GameplayServices.h"`.
+  No `core/`/`ecs/` file references gameplay → **R7 dependency direction holds and
+  deletability is contained to the composition root**.
+- **`src/main.cpp` edit points: 3, not 1** — include `:8`, `Initialize` call `:37`,
+  `Shutdown` call `:44`. Task said "around lines 36-40"; there is a second call at
+  `:44` (Shutdown) that must also go, plus the include.
+- **Also required for a true revert** (not in the task's list): `CMakeLists.txt`
+  (`+2`, nlohmann link) and `vcpkg.json` (`+1`, `nlohmann-json`).
+
+R9 verdict: **PASS with caveat**. No dead `#ifdef`/commented-out code outside the
+feature files (harness `ok R9 clean`), feature files delete cleanly. But the
+"feature files + ≤1 registration line" expectation is exceeded: a **pre-existing
+core boundary file** (`AssetManager.h`) must be restored, and the composition root
+needs 3 edits. This matches round-1's caveat; it is a real (Low) deletability cost.
+
+---
+
+## 5. pi-lens false-positive claim — VERIFIED
+
+Claim under test: the `no-bit-fields` hits on `src/core/data/FContentValue.h`
+(lines 14,15,17) and the `file not found` include chains are pi-lens engine false
+positives (`.h` dispatched as C), not real defects.
+
+Evidence:
+
+1. **Mechanism reproduced from the analyzer source**, pi-lens `4.1.6`
+   (`C:/Users/marti/.pi/agent/npm/node_modules/pi-lens/dist/index.js:48221-48222`):
+   ```text
+   c: [".c", ".h"],
+   cpp: [".cpp", ".hpp", ".cc", ".hh"],
+   ```
+   `.h` is mapped to **C**, `no-bit-fields` is a `language: c` rule. Confirmed.
+2. **No bit-field syntax exists at the cited lines.** `src/core/data/FContentValue.h:14`
+   is `EContentFieldType type = EContentFieldType::Text;`,
+   `:15` is `std::variant<...> value{std::string{}};` (brace-init of a member, not
+   `name : width`), `:17` is `asText()`. A C parser reading `enum class`/`std::variant`
+   brace-init produces exactly this kind of spurious `no-bit-fields` hit. **0 real
+   bit-fields** in the file.
+3. Same signature explains the `pp_file_not_found` chains: C-dispatching a C++
+   header whose includes (`<string>`, `<variant>`, `"core/data/..."`) are not on
+   the C include path yields `pp_file_not_found` + `unknown_typename`. The
+   guideline now records this at
+   `docs/guidelines/game-code-changeability.md:698-706` (engine-limit section,
+   explicitly cites `FContentValue.h` 14·15·17 and "실제 비트필드 0건").
+4. **Refutation attempt:** the earlier guideline claim that these hits appear
+   *only in fixtures* is false; the corrected text (verified at `:703-705`) admits
+   they appear on `src/` too. So the "false positive" ruling stands, but the
+   earlier "fixtures-only" wording was itself wrong and has been corrected — good.
+
+Claim **VERIFIED**. Caveat: because `.h`→C dispatch masks real C++ type errors
+(this is exactly how round-1's Blocker slipped past `ok R20 clean`), pi-lens hit
+counts must never be used as a PASS count for `src/`. My item-1 verification was
+done by source comparison, not by the analyzer.
+
+---
+
+## 6. Build gate
+
+```text
+build gate: UNVERIFIED (owner-run, not run by this session)
+command:    scripts/check-windows.ps1 -Configuration Debug
+```
+
+No MSVC / vcpkg on this machine (no `cl`, `clang++`, `g++`), and the gate is
+owner-run per `DEV_WORKFLOW.md`. The slice is **not** cleared to merge on build
+evidence. Item 4's compile-closure is by inspection only. I also note
+`evidence/compiler-syntax-check.txt` is only a filename list (see §2), so it does
+not substitute for the gate.
+
+---
+
+## 7. Verdict
+
+- Findings closed: **9 / 9** (item 4 and item 9 close by inspection/documentation
+  rather than by a build).
+- New findings: **0 Blocker, 0 High, 0 Medium, 4 Low** (2 doc/code-comment, 2
+  record-honesty), listed in §2.
+- Deletability: PASS with caveat — 20 files delete, 1 include + 2 call edits in
+  `src/main.cpp`, restore `src/core/AssetManager.h`, plus `CMakeLists.txt`/`vcpkg.json`.
+- **Formal status: REWORK**, by the §4 judgement function, *not* because of a
+  Blocker/High (there are none) but because `UNVERIFIED > 0`:
+  - owner-run **build gate UNVERIFIED**;
+  - **R19③ test seam** for the loader failure paths still open
+    (`tests/changeability/fixtures/` has no case exercising
+    `FContentLoader::load`: missing/unknown/wrong-type/duplicate/`schema_version`);
+  - R10/R16 remain manual.
+  If the guideline is applied literally, "no High/Blocker + build gate PASS +
+  test seam closed" is the condition for `GROWING`; round 2 cannot supply the
+  build gate.
+- Change-cost answers (re-measured, numbers):
+  - **add** a content table → 2 files (`src/gameplay/data/FXContent.{h,cpp}`) +
+    edits to `FContentRegistry.{h,cpp}` `:18-19,:28-42` + `assets/data/x.json`
+    → ≈3 code files, 0 pre-existing behaviour edited;
+  - **delete** the slice → 20 files + `src/main.cpp` (3 edits) + restore
+    `AssetManager.h` + revert `CMakeLists.txt`/`vcpkg.json`;
+  - **tune** → `assets/data/*.json` only, no recompile (fallbacks same-line
+    `// fallback:` at `FUnitContent.cpp:9,10,13,16`, `FSkillContent.cpp:9,12`);
+  - **understand** → 5 files (`FContentSchema.h`, `FContentLoader.cpp`,
+    `AssetManager.h`/`FAssetDigest.h`, `FUnitContent.h`, `FContentRegistry.cpp`).
+- Teach-back: (1) The Blocker and both Highs are genuinely fixed — the enum now
+  declares every used variant, the `schema_version` path is guarded and throws
+  nothing, and duplicate ids are rejected with a log. (2) The fixes introduced no
+  structural regression; the only new issues are a comment in
+  `EContentFieldType.h:11` promising validation the loader never performs, an
+  id-field/`Id` usability trap, and two inaccurate review-record/evidence claims.
+  (3) The slice is still not merge-ready solely because the owner-run build gate
+  has not been executed and the loader has no executable failure-path test.

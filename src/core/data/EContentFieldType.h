@@ -8,7 +8,7 @@ namespace game {
 /// another table is declared as such instead of being re-derived by every decoder.
 enum class EContentFieldType {
     Text,
-    Id, // same storage as Text, but the value names another row (validated as a cross-table reference)
+    Id, // same storage as Text; the value names another row, and the *consumer* resolves it (the loader only checks storage, see FContentRegistry)
     Number,
     Boolean,
     IdArray, // same storage as TextArray, but every element names another row
