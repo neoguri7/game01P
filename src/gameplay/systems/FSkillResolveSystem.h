@@ -13,6 +13,7 @@
 #include "gameplay/data/FSkillContent.h"
 #include "gameplay/events/FBattleEvents.h"
 #include "gameplay/rules/FGridDistance.h"
+#include "gameplay/rules/FTargetSelection.h"
 #include "gameplay/rules/FTurnActor.h"
 
 #include <entt/entt.hpp>
@@ -96,8 +97,10 @@ private:
             return;
         }
 
-        const int distance = gridDistance(*actorCell, *targetCell);
-        if (distance > skill->range) {
+        // why the shared predicate and not `distance > range` here: the AI's `opponent_in_skill_range` rule must
+        // ask the exact same question, or a rule could pick a target this check then rejects (R12).
+        if (!withinSkillRange(*actorCell, *targetCell, skill->range)) {
+            const int distance = gridDistance(*actorCell, *targetCell);
             reject(bus, request, fmt::format("사거리 밖 (거리 {}, 사거리 {})", distance, skill->range));
             return;
         }

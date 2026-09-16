@@ -2,6 +2,8 @@
 
 #include "core/AssetManager.h"
 #include "core/data/FContentTable.h"
+#include "gameplay/data/FBehaviorContent.h"
+#include "gameplay/data/FDungeonContent.h"
 #include "gameplay/data/FEncounterContent.h"
 #include "gameplay/data/FSkillContent.h"
 #include "gameplay/data/FUnitContent.h"
@@ -16,6 +18,8 @@ struct FContentRegistry {
     FContentTable<FUnitContent> units;
     FContentTable<FSkillContent> skills;
     FContentTable<FEncounterContent> encounters;
+    FContentTable<FBehaviorContent> behaviors;
+    FContentTable<FDungeonContent> dungeons;
 
     /// Loads and validates every gameplay asset. Nullopt means "content is unusable" and the reason is
     /// already logged — a broken asset must stop the boot, not surface as a missing skill mid-fight

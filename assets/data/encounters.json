@@ -1,5 +1,5 @@
 {
-  "_comment": "프로토타입 행: 파티/적 구성·칸 좌표·그리드 크기는 슬라이스 2 전투를 돌리기 위한 잠정값이며 design §4 확정 수치가 아니다(미결: 이동 거리·사거리 최종 수치, 몬스터 AI). 좌표는 정수 칸이며 [x, y, x, y, ...] 순서다. 확정 수치는 이 파일만 고쳐 정한다.",
+  "_comment": "프로토타입 행: 파티/적 구성·칸 좌표·그리드 크기는 전투를 돌리기 위한 잠정값이며 design §4 확정 수치가 아니다(미결: 이동 거리·사거리 최종 수치, 몬스터 AI). 좌표는 정수 칸이며 [x, y, x, y, ...] 순서다. 던전 룸은 이 encounter id를 참조한다. 확정 수치는 이 파일만 고쳐 정한다.",
   "schema_version": 1,
   "encounters": [
     {
@@ -9,6 +9,26 @@
       "party_cells": [0, 2, 0, 5],
       "enemies": ["proto_grunt", "proto_brute"],
       "enemy_cells": [5, 3, 6, 4],
+      "grid_width": 8,
+      "grid_height": 8
+    },
+    {
+      "id": "proto_ambush",
+      "display_name": "Proto Ambush",
+      "party": ["proto_melee", "proto_ranged"],
+      "party_cells": [1, 1, 1, 6],
+      "enemies": ["proto_grunt"],
+      "enemy_cells": [4, 3],
+      "grid_width": 8,
+      "grid_height": 8
+    },
+    {
+      "id": "proto_standoff",
+      "display_name": "Proto Standoff",
+      "party": ["proto_melee", "proto_ranged"],
+      "party_cells": [0, 0, 0, 7],
+      "enemies": ["proto_grunt", "proto_brute"],
+      "enemy_cells": [7, 0, 7, 7],
       "grid_width": 8,
       "grid_height": 8
     }

@@ -1,5 +1,5 @@
 {
-  "_comment": "프로토타입 행: id·수치(max_health, speed, ap_cost, range)는 스키마 검증용 잠정값이며 design §4 확정 수치가 아니다(미결). 확정 수치는 밸런싱 단계에서 이 파일만 고쳐 정한다.",
+  "_comment": "프로토타입 행: id·수치(max_health, speed, ap_cost, range)와 적의 behavior 규칙 목록은 스키마 검증용 잠정값이며 design §2/§4 확정 수치·확정 트리가 아니다(미결). behavior는 적 유닛만 저작하며(FBehaviorTree가 첫 일치 규칙 1개를 실행), 목록 순서가 우선순위다. 확정 수치는 밸런싱 단계에서 이 파일만 고쳐 정한다.",
   "schema_version": 1,
   "units": [
     {
@@ -28,7 +28,8 @@
       "speed": 5,
       "move_ap": 1,
       "skill_ap": 2,
-      "skills": ["proto_bite"]
+      "skills": ["proto_bite"],
+      "behavior": ["proto_grunt_panic", "proto_grunt_engage", "proto_grunt_advance"]
     },
     {
       "id": "proto_brute",
@@ -37,7 +38,8 @@
       "speed": 3,
       "move_ap": 1,
       "skill_ap": 2,
-      "skills": ["proto_slam"]
+      "skills": ["proto_slam"],
+      "behavior": ["proto_brute_avenge", "proto_brute_engage", "proto_brute_advance"]
     }
   ]
 }

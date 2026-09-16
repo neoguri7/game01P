@@ -1,0 +1,49 @@
+{
+  "_comment": "프로토타입 행: 규칙 어휘(when/then)와 threshold는 design §2 확정 어휘를 모두 한 번씩 덮는 잠정값이며, 규칙별 수치와 우선순위는 design §4 확정 수치가 아니다(미결). threshold는 self_hp_at_or_below(비율 0~1)와 opponent_count_at_or_above(마리 수)에서만 쓰고 나머지 조건은 값을 무시한다. 확정 수치는 밸런싱 단계에서 이 파일만 고쳐 정한다.",
+  "schema_version": 1,
+  "behaviors": [
+    {
+      "id": "proto_grunt_panic",
+      "when": "self_hp_at_or_below",
+      "threshold": 0.3,
+      "then": "use_first_skill"
+    },
+    {
+      "id": "proto_grunt_engage",
+      "when": "opponent_in_skill_range",
+      "then": "use_first_skill"
+    },
+    {
+      "id": "proto_grunt_advance",
+      "when": "always",
+      "then": "move_toward_nearest_opponent"
+    },
+    {
+      "id": "proto_brute_avenge",
+      "when": "ally_downed",
+      "then": "use_first_skill"
+    },
+    {
+      "id": "proto_brute_engage",
+      "when": "opponent_in_skill_range",
+      "then": "use_first_skill"
+    },
+    {
+      "id": "proto_brute_advance",
+      "when": "always",
+      "then": "move_toward_nearest_opponent"
+    },
+    {
+      "id": "proto_retreat",
+      "when": "self_hp_at_or_below",
+      "threshold": 0.25,
+      "then": "move_away_from_nearest_opponent"
+    },
+    {
+      "id": "proto_wait_outnumbered",
+      "when": "opponent_count_at_or_above",
+      "threshold": 3,
+      "then": "wait"
+    }
+  ]
+}

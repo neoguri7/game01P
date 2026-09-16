@@ -5,6 +5,7 @@
 #include "core/Logger.h"
 #include "core/events/FEventBus.h"
 #include "gameplay/components/FDisplayName.h"
+#include "gameplay/data/FBehaviorContent.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/data/FSkillContent.h"
 #include "gameplay/events/FBattleEvents.h"
@@ -42,6 +43,18 @@ struct FBattleLogSystem final : public ecs::ISystem {
         for (const FTurnStartedEvent& event : bus->frameEvents<FTurnStartedEvent>()) {
             log->push(fmt::format("{} 의 턴", unitName(registry, event.unit)));
             log->push(fmt::format("  턴 순서: {}", orderText(registry)));
+        }
+        // why before the move/skill loops: the enemy queues the decision before its action, and the player must
+        // read "decided → did" to follow a monster's turn (design dungeon-run.md §2, R31).
+        for (const FBehaviorDecidedEvent& event : bus->frameEvents<FBehaviorDecidedEvent>()) {
+            if (event.ruleId.empty()) {
+                log->push(fmt::format("  {} 행동: 규칙 없음 → 대기", unitName(registry, event.unit)));
+            } else {
+                log->push(fmt::format("  {} 행동: '{}' → {}",
+                                      unitName(registry, event.unit),
+                                      event.ruleId,
+                                      behaviorActionText(event.action)));
+            }
         }
         for (const FTurnEndedEvent& event : bus->frameEvents<FTurnEndedEvent>()) {
             log->push(fmt::format("{} 턴 종료", unitName(registry, event.unit)));
@@ -96,6 +109,22 @@ private:
         const FContentRegistry* content = registry.ctx().find<FContentRegistry>();
         const FSkillContent* skill = content != nullptr ? content->skills.find(skillId) : nullptr;
         return skill != nullptr ? skill->displayName : skillId;
+    }
+
+    /// The typed action vocabulary rendered as the words the player reads. why a switch here and not a string in
+    /// the event: the event carries data, the narrator owns the phrasing (R27/R12).
+    [[nodiscard]] static std::string behaviorActionText(EBehaviorAction action) {
+        switch (action) {
+        case EBehaviorAction::UseFirstSkill:
+            return "첫 스킬";
+        case EBehaviorAction::MoveTowardNearestOpponent:
+            return "가장 가까운 상대에게 접근";
+        case EBehaviorAction::MoveAwayFromNearestOpponent:
+            return "가장 가까운 상대에게서 후퇴";
+        case EBehaviorAction::Wait:
+            return "대기";
+        }
+        return "대기";
     }
 
     /// The predicted order as one line — design §4 확정 requires 순서 예측 표시, and the log is where a player

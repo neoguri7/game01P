@@ -4,11 +4,10 @@
 #include "core/Logger.h"
 #include "core/SystemManager.h"
 #include "gameplay/data/FContentRegistry.h"
-#include "gameplay/data/FEncounterContent.h"
-#include "gameplay/factories/FBattleFactory.h"
 #include "gameplay/run/FBattleLog.h"
 #include "gameplay/run/FBattleState.h"
 #include "gameplay/run/FCommandSelection.h"
+#include "gameplay/run/FRunState.h"
 #include "gameplay/systems/FBattleLogSystem.h"
 #include "gameplay/systems/FBattleOutcomeSystem.h"
 #include "gameplay/systems/FDamageSystem.h"
@@ -17,6 +16,7 @@
 #include "gameplay/systems/FInitiativeSystem.h"
 #include "gameplay/systems/FPlayerCommandSystem.h"
 #include "gameplay/systems/FSkillResolveSystem.h"
+#include "gameplay/systems/FRunProgressionSystem.h"
 #include "gameplay/systems/FTurnEndSystem.h"
 #include "gameplay/systems/FTurnStartSystem.h"
 
@@ -53,18 +53,20 @@ bool FGameplayServices::Initialize(entt::registry& registry) {
     registry.ctx().emplace<FCommandSelection>();
 
     const FContentRegistry& tables = registry.ctx().get<FContentRegistry>();
-    if (tables.encounters.rows.empty()) {
-        LOG_ERROR("gameplay needs at least one encounter row to bootstrap a battle (design §3: 룸/던전 모델 미결).");
+    // Boot no longer spawns a battle: the player starts in the hub and enters a dungeon with Confirm (design §1).
+    // why the guard is on dungeons rather than encounters: entering a dungeon is now the only way to reach a battle,
+    // so a content set with no dungeon row cannot produce a run — as unusable as no encounter was when the boot
+    // still spawned one (R19/R22).
+    if (tables.dungeons.rows.empty()) {
+        LOG_ERROR("gameplay needs at least one dungeon row to enter (design §1).");
         return false;
     }
 
-    // which battle boots: the first authored encounter. why not an id literal in code: the starting encounter is
-    // content, and 미결(design §2/§3) 거점/던전 흐름이 정해지기 전까지 "첫 행"이 결정론적인 기본값이다.
-    FBattleState& state = registry.ctx().get<FBattleState>();
-    if (!FBattleFactory::buildBattle(registry, tables, tables.encounters.rows.front().id, state)) {
-        LOG_ERROR("gameplay battle could not be spawned; boot stopped (see the battle error above).");
-        return false;
-    }
+    // Run-scope service (R6). why the seed is written here and not left to the default: design §1 확정 — the run seed
+    // is fixed at 0 so the same inputs replay the same run (R19).
+    FRunState& run = registry.ctx().emplace<FRunState>();
+    run.seed = 0;
+    run.phase = ERunPhase::Hub;
 
     return true;
 }
@@ -87,9 +89,16 @@ void FGameplayServices::RegisterSystems(game::SystemManager& systems) {
     systems.addSystem<FBattleOutcomeSystem>(); // 승리/패배 판정
     systems.addSystem<FTurnEndSystem>();     // closes a turn requested above (Esc / enemy finished)
     systems.addSystem<FBattleLogSystem>();   // narration last, so one frame is narrated in one place
+    // why last, after the narration: this is the only system that acts on the battle's terminal STATE, so it must
+    // read the outcome FBattleOutcomeSystem produced earlier in this frame, and it spawns/destroys battles — every
+    // other system must have seen the finished battle, not a half-built next room (R21/R3).
+    systems.addSystem<FRunProgressionSystem>(); // 허브 입장 / 룸 진행 / 던전 클리어 / 전멸
 }
 
 void FGameplayServices::Shutdown(entt::registry& registry) {
+    if (registry.ctx().contains<FRunState>()) {
+        registry.ctx().erase<FRunState>();
+    }
     if (registry.ctx().contains<FCommandSelection>()) {
         registry.ctx().erase<FCommandSelection>();
     }

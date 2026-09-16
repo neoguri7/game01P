@@ -154,6 +154,22 @@ bool FBattleFactory::buildBattle(entt::registry& registry,
     return true;
 }
 
+void FBattleFactory::destroyBattle(entt::registry& registry, FBattleState& state) {
+    releaseTurnHolder(registry);
+    if (state.battle != entt::null && registry.valid(state.battle)) {
+        registry.destroy(state.battle);
+    }
+    // why a separate unit sweep and not "destroy the battle and let the units follow": units carry no back-reference
+    // to the battle entity, so the link only exists in `state` and must be torn down by hand (the same shape as the
+    // buildBattle rollback).
+    for (const auto entity : registry.view<FUnitRef>()) {
+        registry.destroy(entity);
+    }
+    state.battle = entt::null;
+    state.order.clear();
+    state.cursor = 0;
+}
+
 void FBattleFactory::openTurn(entt::registry& registry, entt::entity unit) {
     if (unit == entt::null || !registry.valid(unit) || registry.all_of<FTurnActive>(unit)) {
         return;

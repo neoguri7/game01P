@@ -14,6 +14,7 @@
 #include "gameplay/components/FTeamEnemy.h"
 #include "gameplay/components/FTeamPlayer.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/data/FDungeonContent.h"
 #include "gameplay/data/FSkillContent.h"
 #include "gameplay/rules/FGridDistance.h"
 #include "gameplay/rules/FTargetSelection.h"
@@ -21,6 +22,7 @@
 #include "gameplay/run/FBattleLog.h"
 #include "gameplay/run/FBattleState.h"
 #include "gameplay/run/FCommandSelection.h"
+#include "gameplay/run/FRunState.h"
 
 #include <entt/entt.hpp>
 #include <fmt/format.h>
@@ -100,6 +102,41 @@ struct FBattleHeader {
         result.phase = "진행 중";
     }
     return result;
+}
+
+/// The run header drawn above the battle: 허브(클리어 수 + 다음 던전), InDungeon(던전 이름 + 룸 n/N + 시드),
+/// RunOver(전멸 + 복귀 안내). why it is separate from the battle header: the run outlives every battle (the hub has
+/// no battle entity at all), so its display cannot hang off `FBattleState` (R12/R26).
+void appendRunHeader(std::vector<std::string>& lines, entt::registry& registry) {
+    const FRunState* run = registry.ctx().find<FRunState>();
+    if (run == nullptr) {
+        return;
+    }
+    const FContentRegistry* content = registry.ctx().find<FContentRegistry>();
+
+    switch (run->phase) {
+    case ERunPhase::Hub: {
+        std::string next = "(던전 없음)";
+        if (content != nullptr && !content->dungeons.rows.empty()) {
+            const std::size_t index = static_cast<std::size_t>(run->clearedDungeons) % content->dungeons.rows.size();
+            next = content->dungeons.rows[index].displayName;
+        }
+        lines.push_back(fmt::format("=== 허브 — 클리어한 던전 {}개 / 다음 던전: {} ===", run->clearedDungeons, next));
+        lines.push_back("Enter = 던전 입장");
+        break;
+    }
+    case ERunPhase::InDungeon: {
+        const FDungeonContent* dungeon = content != nullptr ? content->dungeons.find(run->dungeonId) : nullptr;
+        const std::string name = dungeon != nullptr ? dungeon->displayName : run->dungeonId;
+        const std::size_t rooms = dungeon != nullptr ? dungeon->roomCount() : 0;
+        lines.push_back(fmt::format("=== 던전: {} — 룸 {}/{} (시드 {}) ===", name, run->roomIndex + 1, rooms, run->seed));
+        break;
+    }
+    case ERunPhase::RunOver:
+        lines.push_back(fmt::format("=== 런 종료 — 전멸 (클리어한 던전 {}개) ===", run->clearedDungeons));
+        lines.push_back("Enter = 허브 복귀");
+        break;
+    }
 }
 
 void appendGrid(std::vector<std::string>& lines, entt::registry& registry, const FBattleState& state) {
@@ -225,9 +262,15 @@ void appendLog(std::vector<std::string>& lines, entt::registry& registry) {
 std::vector<std::string> FBattleTextView::snapshot(entt::registry& registry) {
     std::vector<std::string> lines;
 
+    appendRunHeader(lines, registry);
+
     const FBattleState* state = registry.ctx().find<FBattleState>();
     if (state == nullptr || state->battle == entt::null || !registry.valid(state->battle)) {
-        lines.push_back("전투 없음 — 다음 슬라인스에서 거점/던전 흐름이 붙는다 (design §2/§3 미구현)");
+        // why no placeholder line: the run header above already says 허브 / 런 종료, and this path must not touch
+        // battle state — the hub has no battle entity to read (the view must not crash there).
+        // why the log is drawn even here: 던전 클리어 / 전멸 문장은 전투가 이미 사라진 프레임에 남는 서술이라,
+        // 허브 화면에서 빠지면 플레이어는 방금 무엇이 끝났는지 읽을 곳을 잃는다 (R31).
+        appendLog(lines, registry);
         return lines;
     }
 

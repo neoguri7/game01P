@@ -14,12 +14,16 @@ namespace game::gameplay {
 namespace {
 
 // 미결(design §4): 이동/스킬 AP와 사거리·피해 최종 수치는 밸런싱 단계에서 정한다 — 지금은 잠정값을
-// data가 공급한다. 스키마는 확정된 항목만 담고, 미확정 항목(파벌, 장비, 룬, 이벤트 룸)은 필드로 만들지
-// 않는다.
+// data가 공급한다. 스키마는 확정된 항목만 담는다: 던전 룸(§1)과 몬스터 행동 규칙(§2)은 slice 3에서 필드가
+// 되었고, 파벌·장비·룬(§4)·이벤트 룸 내용은 여전히 필드로 만들지 않는다(slice 4).
 constexpr FContentSchema kUnitSchema{"data/units", "units", "id", 1, std::span<const FContentField>{kUnitFields}};
 constexpr FContentSchema kSkillSchema{"data/skills", "skills", "id", 1, std::span<const FContentField>{kSkillFields}};
 constexpr FContentSchema kEncounterSchema{
     "data/encounters", "encounters", "id", 1, std::span<const FContentField>{kEncounterFields}};
+constexpr FContentSchema kBehaviorSchema{
+    "data/behaviors", "behaviors", "id", 1, std::span<const FContentField>{kBehaviorFields}};
+constexpr FContentSchema kDungeonSchema{
+    "data/dungeons", "dungeons", "id", 1, std::span<const FContentField>{kDungeonFields}};
 
 /// `cells` is a flat [x, y, x, y, ...] list authored next to the unit list it belongs to.
 /// why the check exists here: a half-authored cell list would otherwise surface as a unit standing on
@@ -39,6 +43,61 @@ bool cellsMatchUnitList(const FEncounterContent& encounter, const std::vector<do
 
 bool containsUnit(const FContentRegistry& registry, std::string_view unitId) {
     return registry.units.find(unitId) != nullptr;
+}
+
+/// why re-parse the tokens instead of trusting decodeBehavior: the projection returns a safe enum for an
+/// unknown token (R22: decode cannot fail), so the registry is the only place that can turn "unknown
+/// vocabulary" into a boot failure (R19). One helper checks both tokens the same way (R12).
+bool behaviorVocabularyKnown(std::string_view behaviorId, std::string_view when, std::string_view then) {
+    if (!behaviorConditionFromText(when)) {
+        LOG_ERROR("content: behavior '{}' has unknown 'when' token '{}'.", behaviorId, when);
+        return false;
+    }
+    if (!behaviorActionFromText(then)) {
+        LOG_ERROR("content: behavior '{}' has unknown 'then' token '{}'.", behaviorId, then);
+        return false;
+    }
+    return true;
+}
+
+/// why the checks live together and at load time: the projected dungeon holds only enums, so the raw kind
+/// tokens are gone after decoding; and a rooms/room_kinds length mismatch, an unknown kind, and an unknown
+/// encounter are the three ways a room can be wrong, so one function keeps the room index in the message
+/// (R19/R22/R31).
+bool dungeonRowValid(const FContentRegistry& registry, const FDungeonContent& dungeon, const std::vector<std::string>& kindTokens) {
+    if (dungeon.roomEncounterIds.size() != kindTokens.size()) {
+        LOG_ERROR("content: dungeon '{}' lists {} room encounter(s) but {} room kind(s); expected one kind per room.",
+                  dungeon.id,
+                  dungeon.roomEncounterIds.size(),
+                  kindTokens.size());
+        return false;
+    }
+
+    for (std::size_t index = 0; index < dungeon.roomEncounterIds.size(); ++index) {
+        const std::optional<ERoomKind> kind = roomKindFromText(kindTokens[index]);
+        if (!kind) {
+            LOG_ERROR("content: dungeon '{}' room {} has unknown kind '{}'.", dungeon.id, index, kindTokens[index]);
+            return false;
+        }
+        // why the check exists: design §1 leaves event rooms unimplemented in this slice, so an authored
+        // 'event' room must stop the boot instead of becoming a room the run silently skips (R19/R22).
+        if (*kind != ERoomKind::Monster) {
+            LOG_ERROR("content: dungeon '{}' room {} has kind 'event'; event rooms are not implemented yet (design §1).",
+                      dungeon.id,
+                      index);
+            return false;
+        }
+        // why the check exists: a room names an encounter by id, so an id with no row would otherwise fail
+        // mid-run instead of at boot (R19/R22).
+        if (registry.encounters.find(dungeon.roomEncounterIds[index]) == nullptr) {
+            LOG_ERROR("content: dungeon '{}' room {} references unknown encounter '{}'.",
+                      dungeon.id,
+                      index,
+                      dungeon.roomEncounterIds[index]);
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -75,6 +134,35 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
         registry.encounters.rows.push_back(decodeEncounter(row));
     }
 
+    const std::optional<std::vector<FContentRow>> behaviorRows = FContentLoader::load(assets, kBehaviorSchema);
+    if (!behaviorRows) {
+        return std::nullopt;
+    }
+    registry.behaviors.rows.reserve(behaviorRows->size());
+    for (const FContentRow& row : *behaviorRows) {
+        // why the registry re-parses while it still has the raw row: an unknown `when`/`then` token projects to
+        // a safe enum (R22), so decode cannot report it (see behaviorVocabularyKnown).
+        if (!behaviorVocabularyKnown(row.text(kBehaviorFieldId), row.text(kBehaviorFieldWhen), row.text(kBehaviorFieldThen))) {
+            return std::nullopt;
+        }
+        registry.behaviors.rows.push_back(decodeBehavior(row));
+    }
+
+    const std::optional<std::vector<FContentRow>> dungeonRows = FContentLoader::load(assets, kDungeonSchema);
+    if (!dungeonRows) {
+        return std::nullopt;
+    }
+    registry.dungeons.rows.reserve(dungeonRows->size());
+    for (const FContentRow& row : *dungeonRows) {
+        const FDungeonContent dungeon = decodeDungeon(row);
+        // why the registry re-parses the raw kind tokens: the projection keeps only enums, so a kind outside the
+        // vocabulary would otherwise be lost (see dungeonRowValid).
+        if (!dungeonRowValid(registry, dungeon, row.textArray(kDungeonFieldRoomKinds))) {
+            return std::nullopt;
+        }
+        registry.dungeons.rows.push_back(dungeon);
+    }
+
     // why numeric range checks live here instead of in decode: a decode function is a straight projection that
     // cannot fail (R22), while "values are data" (R4/R22) means malformed data must fail the boot. Without these,
     // a negative apCost *refunded* AP in FSkillResolveSystem and maxHealth <= 0 spawned a unit that countLiving
@@ -102,12 +190,33 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
         }
     }
 
+    // why the threshold check exists: decodeBehavior projects a value (R22), so a negative threshold would
+    // silently invert a comparison — `self_hp_at_or_below` would never fire and `opponent_count_at_or_above`
+    // would always fire (F4/R19).
+    for (const FBehaviorContent& behavior : registry.behaviors.rows) {
+        if ((behavior.condition == EBehaviorCondition::SelfHpAtOrBelow
+                || behavior.condition == EBehaviorCondition::OpponentCountAtOrAbove)
+            && behavior.threshold < 0.0) {
+            LOG_ERROR("content: behavior '{}' has a negative threshold {}; expected >= 0.", behavior.id, behavior.threshold);
+            return std::nullopt;
+        }
+    }
+
     // Cross-table references are checked here, in the one place that owns every table (R22): a typo in a
     // data file must fail the boot instead of becoming a silent no-op the first time that row is used.
     for (const FUnitContent& unit : registry.units.rows) {
         for (const std::string& skillId : unit.skillIds) {
             if (registry.skills.find(skillId) == nullptr) {
                 LOG_ERROR("content: unit '{}' references unknown skill '{}'.", unit.id, skillId);
+                return std::nullopt;
+            }
+        }
+        for (const std::string& ruleId : unit.behaviorIds) {
+            // why the check exists: firstMatchingBehavior skips an unknown rule id with a warning, so a typo
+            // would silently shrink a monster's tree; the registry is the one place that fails the boot instead
+            // (R19/R22).
+            if (registry.behaviors.find(ruleId) == nullptr) {
+                LOG_ERROR("content: unit '{}' references unknown behavior '{}'.", unit.id, ruleId);
                 return std::nullopt;
             }
         }
@@ -151,10 +260,12 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
         }
     }
 
-    LOG_INFO("content ready: {} unit(s), {} skill(s), {} encounter(s).",
+    LOG_INFO("content ready: {} unit(s), {} skill(s), {} encounter(s), {} behavior(s), {} dungeon(s).",
              registry.units.rows.size(),
              registry.skills.rows.size(),
-             registry.encounters.rows.size());
+             registry.encounters.rows.size(),
+             registry.behaviors.rows.size(),
+             registry.dungeons.rows.size());
     return registry;
 }
 

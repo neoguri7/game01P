@@ -62,4 +62,38 @@ namespace game::gameplay {
     return best;
 }
 
+/// True when `to` is within `range` cells of `from` (Chebyshev via FGridDistance).
+/// why this exists: range is asked by the AI's `opponent_in_skill_range` fact AND validated by
+/// FSkillResolveSystem — a second comparison would eventually let a rule pick a target the resolver rejects
+/// (R12). The resolver calls this same predicate.
+[[nodiscard]] inline bool withinSkillRange(const FGridPosition& from, const FGridPosition& to, int range) {
+    return gridDistance(from, to) <= range;
+}
+
+/// Nearest living opponent *inside* `range` cells, or entt::null when none is in range. Same tie rule as
+/// `nearestLivingOpponent` (lower entity id wins), so a rule and the player's default target never disagree (R16).
+[[nodiscard]] inline entt::entity nearestLivingOpponentWithinRange(entt::registry& registry,
+                                                                   entt::entity self,
+                                                                   int range) {
+    const FGridPosition* selfPosition = registry.try_get<FGridPosition>(self);
+    if (selfPosition == nullptr) {
+        return entt::null;
+    }
+
+    entt::entity best = entt::null;
+    int bestDistance = 0;
+    for (const entt::entity candidate : livingOpponents(registry, self)) {
+        const FGridPosition* position = registry.try_get<FGridPosition>(candidate);
+        if (position == nullptr || !withinSkillRange(*selfPosition, *position, range)) {
+            continue;
+        }
+        const int distance = gridDistance(*selfPosition, *position);
+        if (best == entt::null || distance < bestDistance) {
+            best = candidate;
+            bestDistance = distance;
+        }
+    }
+    return best;
+}
+
 } // namespace game::gameplay

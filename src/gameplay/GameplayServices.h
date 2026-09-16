@@ -15,8 +15,8 @@ namespace game::gameplay {
 /// Content is loaded here so that a broken asset stops the boot instead of surfacing as a missing skill
 /// mid-fight (R19/R22). Systems read `FContentRegistry` from the context; they never see JSON.
 struct FGameplayServices {
-    /// False means "the gameplay layer cannot run" (content unusable, asset boundary missing, or the battle could
-    /// not be spawned). The reason is already logged.
+    /// False means "the gameplay layer cannot run" (content unusable, asset boundary missing, or the run could
+    /// not be bootstrapped). The reason is already logged.
     [[nodiscard]] static bool Initialize(entt::registry& registry);
 
     /// Registers the battle systems in pipeline order. why the order is explicit and commented: an event produced

@@ -21,6 +21,14 @@ struct FBattleFactory {
                                          std::string_view encounterId,
                                          FBattleState& state);
 
+    /// Tears the battle down again: destroys the battle entity and every unit, releases the turn holder, and
+    /// clears `state`. The counterpart of `buildBattle` and the only place a battle stops existing.
+    /// `invariant:` one battle at a time — the spawn-rollback in `buildBattle` already leans on it (it destroys
+    /// *every* `FUnitRef` on the way out), and the run cycle keeps the same assumption: the next room only spawns
+    /// after the finished battle was destroyed through this function. What reads like "destroy everything" is
+    /// that assumption made explicit instead of implied.
+    static void destroyBattle(entt::registry& registry, FBattleState& state);
+
     /// Structural changes on an already-spawned entity (R5: attaching or removing a component is an entity-structure
     /// change, not simulation logic). Keeping them here means "which components can a live entity gain or lose?" is
     /// answerable by reading this file instead of searching the systems — and a system that emplaced its own tag

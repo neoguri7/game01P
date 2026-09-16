@@ -17,6 +17,10 @@ FUnitContent decodeUnit(const FContentRow& row) {
 
     unit.skillIds = row.textArray(kUnitFieldSkills);
     unit.spriteId = row.text(kUnitFieldSprite);
+
+    // design §2: 몬스터 행동트리 규칙 id 목록 — 순서가 우선순위이며, 표에 없는 id는 FContentRegistry가 부팅
+    // 실패로 만든다(R19/R22).
+    unit.behaviorIds = row.textArray(kUnitFieldBehavior);
     return unit;
 }
 

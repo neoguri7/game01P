@@ -1,0 +1,18 @@
+{
+  "_comment": "프로토타입 행: 룸 수(3)와 encounter 순서는 design §3 '몬스터 3 + 이벤트 1~2'의 몬스터 부분만 담은 잠정값이며 design §4 확정 수치가 아니다(미결: 이벤트 룸 내용). room_kinds는 rooms와 길이가 같아야 하고, 이 슬라이스는 monster만 구현한다(이벤트 룸은 부팅 실패). 확정 배치는 밸런싱 단계에서 이 파일만 고쳐 정한다.",
+  "schema_version": 1,
+  "dungeons": [
+    {
+      "id": "proto_crypt",
+      "display_name": "Proto Crypt",
+      "rooms": ["proto_skirmish", "proto_ambush", "proto_standoff"],
+      "room_kinds": ["monster", "monster", "monster"]
+    },
+    {
+      "id": "proto_catacomb",
+      "display_name": "Proto Catacomb",
+      "rooms": ["proto_ambush", "proto_standoff", "proto_skirmish"],
+      "room_kinds": ["monster", "monster", "monster"]
+    }
+  ]
+}
