@@ -29,7 +29,7 @@
    mermaid는 `-->`를 그대로 받는다 — 소스에 raw `>`를 두면 린트가 "Special characters must be escaped"로
    막는다. `verify.js`는 같은 규칙으로 디코드한 뒤 파싱한다. `<br/>`도 같은 이유로 `&lt;br/&gt;`.
 9. 다이어그램 HTML 라벨(`"문자열"`) 안에 `(`, `"`를 쓰지 않는다 — 파서가 흔들린다. 괄호 설명은 패널로.
-10. **라벨에 `1. ` 같은 목록 표식을 쓰지 않는다** — mermaid는 라벨 텍스트를 markdown으로 렌더한다.
+10. **라벨에 `1.` 같은 목록 표식을 쓰지 않는다** — mermaid는 라벨 텍스트를 markdown으로 렌더한다.
     `"1. 엔진 구조"`는 ordered list로 바뀌고, mermaid는 그 조각을 파싱하지 못해 "Syntax error in text"
     에러 블록을 그린다. `"① 엔진 구조"`처럼 목록 기호가 아닌 문자를 쓴다. (`verify.js`가 검사한다.)
 

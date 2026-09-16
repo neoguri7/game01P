@@ -34,8 +34,13 @@ const dom = new JSDOM(
 );
 vm.runInContext(fs.readFileSync(MERMAID, "utf8"), dom.getInternalVMContext());
 const mermaid = dom.window.mermaid;
-if (!mermaid) throw new Error("the vendored bundle did not define window.mermaid");
-mermaid.initialize({ startOnLoad: false, securityLevel: "loose", theme: "base" });
+if (!mermaid)
+  throw new Error("the vendored bundle did not define window.mermaid");
+mermaid.initialize({
+  startOnLoad: false,
+  securityLevel: "loose",
+  theme: "base",
+});
 
 /// Mirrors what the HTML parser does to text nodes: mermaid reads `--&gt;` in the source as `-->`.
 /// (Arrows are escaped in the markup so the unescaped-`>` lint rule stays quiet.)
@@ -49,9 +54,9 @@ function unescapeHtml(text) {
     .replace(/&amp;/g, "&");
 }
 
-const sources = [...html.matchAll(/<pre class="mermaid">([\s\S]*?)<\/pre>/g)].map(
-  (m) => unescapeHtml(m[1]).trim(),
-);
+const sources = [
+  ...html.matchAll(/<pre class="mermaid">([\s\S]*?)<\/pre>/g),
+].map((m) => unescapeHtml(m[1]).trim());
 
 /// Labels: everything quoted in the diagram source is rendered through markdown by mermaid.
 function markdownLabelProblems() {
@@ -84,9 +89,13 @@ function findBrowser() {
   }
   for (const name of ["chrome", "chromium", "msedge"]) {
     try {
-      return execFileSync(process.platform === "win32" ? "where" : "which", [name], {
-        stdio: ["ignore", "pipe", "ignore"],
-      })
+      return execFileSync(
+        process.platform === "win32" ? "where" : "which",
+        [name],
+        {
+          stdio: ["ignore", "pipe", "ignore"],
+        },
+      )
         .toString()
         .split(/\r?\n/)[0]
         .trim();
@@ -100,7 +109,11 @@ function findBrowser() {
 /// Loads the deck in a real browser and reports how many diagrams produced a usable <svg>.
 function renderCheck() {
   const browser = findBrowser();
-  if (!browser) return { skipped: "no Chromium browser found (set DECK_BROWSER to check rendering)" };
+  if (!browser)
+    return {
+      skipped:
+        "no Chromium browser found (set DECK_BROWSER to check rendering)",
+    };
   const url = "file:///" + HTML.replace(/\\/g, "/");
   const profile = path.join(os.tmpdir(), "deck-verify-profile");
   let dumped;
@@ -117,10 +130,16 @@ function renderCheck() {
         "--dump-dom",
         url,
       ],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 },
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        maxBuffer: 64 * 1024 * 1024,
+      },
     );
   } catch (err) {
-    return { error: `browser run failed: ${String(err.message || err).split("\n")[0]}` };
+    return {
+      error: `browser run failed: ${String(err.message || err).split("\n")[0]}`,
+    };
   }
   const rendered = /data-rendered="(\d+)"/.exec(dumped);
   return {
@@ -137,7 +156,9 @@ function renderCheck() {
     const head = text.split("\n")[0];
     try {
       const r = await mermaid.parse(text);
-      console.log(`OK   #${n + 1} ${r && r.diagramType ? r.diagramType : "?"} — ${head}`);
+      console.log(
+        `OK   #${n + 1} ${r && r.diagramType ? r.diagramType : "?"} — ${head}`,
+      );
     } catch (e) {
       failed++;
       console.log(
@@ -173,7 +194,10 @@ function renderCheck() {
     "markdown labels:   ",
     labelProblems.length === 0 ? "ok" : `PROBLEM — ${labelProblems.join("; ")}`,
   );
-  console.log("render mode:       ", /\bmermaid\.render\(/.test(html) ? "render()" : "run()/startOnLoad");
+  console.log(
+    "render mode:       ",
+    /\bmermaid\.render\(/.test(html) ? "render()" : "run()/startOnLoad",
+  );
   console.log(
     "keyboard routing:  ",
     /ArrowRight/.test(html) && /ArrowLeft/.test(html) ? "yes" : "NO",
@@ -201,7 +225,8 @@ function renderCheck() {
     );
   }
 
-  process.exitCode = failed === 0 && balance.ok && labelProblems.length === 0 ? 0 : 1;
+  process.exitCode =
+    failed === 0 && balance.ok && labelProblems.length === 0 ? 0 : 1;
 })();
 
 /// Stack scan over real tags: the naive open/close count is fooled by tag-like text in CSS/JS.
@@ -211,7 +236,16 @@ function tagBalance(markup) {
     .replace(/<style>[\s\S]*?<\/style>/g, "<style></style>")
     .replace(/<script>[\s\S]*?<\/script>/g, "<script></script>");
   const voidTags = new Set([
-    "br", "meta", "link", "hr", "img", "input", "source", "col", "wbr", "!doctype",
+    "br",
+    "meta",
+    "link",
+    "hr",
+    "img",
+    "input",
+    "source",
+    "col",
+    "wbr",
+    "!doctype",
   ]);
   const re = /<(\/?)([a-zA-Z!][a-zA-Z0-9]*)[^>]*?(\/?)>/g;
   const stack = [];
@@ -230,6 +264,7 @@ function tagBalance(markup) {
       );
     }
   }
-  for (const open of stack) problems.push(`<${open.name}> at line ${open.line} never closed`);
+  for (const open of stack)
+    problems.push(`<${open.name}> at line ${open.line} never closed`);
   return { ok: problems.length === 0, problems };
 }
