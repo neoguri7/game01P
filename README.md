@@ -7,6 +7,13 @@ macOS/Linux는 코드 작성과 가벼운 점검에 사용하고, native Windows
 
 자세한 내용은 [DEV_WORKFLOW.md](DEV_WORKFLOW.md)를 참고하세요.
 
+## 코드 변경 용이성 지침
+
+기능을 추가/삭제/수정할 때 지켜야 하는 규칙(R1~R14)과 리뷰 판정 기준은
+[docs/guidelines/game-code-changeability.md](docs/guidelines/game-code-changeability.md)에,
+그 규칙으로 diff를 심사하는 리뷰어 정의는
+[docs/guidelines/agents/changeability-reviewer.md](docs/guidelines/agents/changeability-reviewer.md)에 있습니다.
+
 ## macOS / Linux (WSL) 빌드
 
 `scripts/check.sh`가 현재 host(macOS 또는 Linux/WSL)를 감지해 해당 플랫폼

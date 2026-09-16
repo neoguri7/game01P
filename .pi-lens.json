@@ -1,0 +1,6 @@
+{
+  "ignore": [
+    "tests/changeability/fixtures/**",
+    "assets/data/zz_*.json"
+  ]
+}
