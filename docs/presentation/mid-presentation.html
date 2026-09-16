@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>게임01P — 중간 발표</title>
+<script src="vendor/mermaid.min.js"></script>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111823; --line:#222e3d; --fg:#e6edf3; --muted:#8d9aa9;
+    --ok:#7ee787; --info:#79c0ff; --warn:#f2cc60; --bad:#ff7b72;
+    --pad:44px 56px 60px; --gap:18px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);
+    font-family:"Pretendard","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  code,.mono{font-family:"JetBrains Mono","Cascadia Mono",Consolas,monospace;font-size:.92em}
+
+  #deck{position:relative;height:100vh;overflow:hidden}
+  .slide{position:absolute;inset:0;padding:var(--pad);
+    display:flex;flex-direction:column;gap:var(--gap);
+    opacity:0;visibility:hidden;transition:opacity .16s ease}
+  .slide.active{opacity:1;visibility:visible}
+
+  /* --- slide skeleton: head / body / foot (same on every slide) --- */
+  .head{flex:0 0 auto}
+  .body{flex:1 1 auto;min-height:0;display:grid;gap:var(--gap);align-items:center}
+  .body.split{grid-template-columns:1.45fr 1fr}
+  .body.split.wide{grid-template-columns:1.8fr 1fr}
+  .body.three{grid-template-columns:repeat(3,1fr);align-items:stretch}
+  .body.full{grid-template-columns:1fr}
+  .foot{flex:0 0 auto;display:flex;gap:8px;align-items:center;color:var(--muted);font-size:12.5px}
+
+  h1{font-size:clamp(28px,3.2vw,46px);line-height:1.14;margin:0 0 6px;letter-spacing:-.02em}
+  h2{font-size:clamp(19px,2vw,28px);margin:0;letter-spacing:-.01em}
+  h2 .idx{color:var(--ok);font-weight:600;margin-right:9px}
+  .sub{color:var(--muted);font-size:clamp(13px,1.2vw,16px);margin:6px 0 0}
+  p,li,td,th{font-size:clamp(13px,1.15vw,16px);line-height:1.6}
+  .muted{color:var(--muted)}
+  .ok{color:var(--ok)} .info{color:var(--info)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  b{font-weight:650}
+
+  ul{margin:0;padding:0;list-style:none}
+  li{margin:0 0 9px;padding-left:16px;position:relative}
+  li:last-child{margin-bottom:0}
+  li::before{content:"";position:absolute;left:0;top:.62em;width:6px;height:1.5px;background:var(--ok)}
+  .bare li::before{display:none}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:16px 18px;min-width:0}
+  .panel h3{font-size:13px;margin:0 0 10px;color:var(--info);font-weight:650;letter-spacing:.02em;
+    text-transform:uppercase}
+  .panel .big{font-size:clamp(15px,1.4vw,19px);margin:0 0 4px;font-weight:650}
+
+  /* --- diagram container: one shape for every diagram --- */
+  .diagram{background:transparent;border:0;display:flex;align-items:center;justify-content:center;
+    min-width:0;min-height:0;overflow:hidden;padding:0}
+  .diagram svg{max-width:100%!important;max-height:min(54vh,470px);height:auto;width:auto}
+  pre.mermaid{display:none}   /* mermaid replaces the <pre> with <svg> */
+
+  table{border-collapse:collapse;width:100%}
+  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12.5px}
+  td code{color:var(--info)}
+  tr:last-child td{border-bottom:0}
+
+  .tag{display:inline-block;font-size:11.5px;padding:2px 8px;border:1px solid var(--line);
+    border-radius:999px;color:var(--muted)}
+  .tag.ok{color:var(--ok);border-color:rgba(126,231,135,.35)}
+  .tag.pend{color:var(--warn);border-color:rgba(242,204,96,.35)}
+
+  #bar{position:fixed;left:0;top:0;height:2px;background:var(--ok);width:0;z-index:10;
+    transition:width .16s ease}
+  #hud{position:fixed;right:14px;bottom:10px;font-size:12px;color:var(--muted);z-index:10}
+  #hud b{color:var(--fg)}
+  .hint{position:fixed;left:14px;bottom:10px;font-size:11.5px;color:#4d5866;z-index:10}
+
+  @media (max-width:900px){
+    :root{--pad:24px 22px 40px}
+    .body.split,.body.split.wide,.body.three{grid-template-columns:1fr}
+    .diagram svg{max-height:38vh}
+  }
+  @media print{
+    #deck{height:auto;overflow:visible}
+    .slide{position:static;opacity:1;visibility:visible;break-after:page;height:96vh}
+    .diagram svg{max-height:44vh}
+    #bar,#hud,.hint{display:none}
+  }
+</style>
+</head>
+<body>
+<div id="bar"></div>
+<div id="deck">
+
+<!-- 1 ─────────────────────────────────────────────── -->
+<section class="slide active">
+  <div class="head">
+    <h1>게임01P — 중간 발표</h1>
+    <p class="sub">턴제 그리드 전술 로그라이크 · 텍스트 프로토타입 (이미지 교체 예정)</p>
+  </div>
+  <div class="body split wide">
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart LR
+  P["파밍"] --> C["선택지"] --> B["빌드"] --> V["드롭 가치"] --> P
+  classDef c fill:#12241a,stroke:#7ee787,color:#e6edf3;
+  class P,B c
+      </pre>
+    </div>
+    <div class="panel bare">
+      <h3>두 축</h3>
+      <p class="big">파밍</p>
+      <p class="muted" style="margin:0 0 12px">분산과 분해 비용이 기대값보다 중요</p>
+      <p class="big">빌드</p>
+      <p class="muted" style="margin:0">시너지 발견이 선택지 수보다 중요</p>
+    </div>
+  </div>
+  <div class="foot">
+    <span class="tag">C++23 · SDL3 · EnTT</span>
+    <span class="tag ok">슬라이스 1–3 구현 완료</span>
+    <span class="tag pend">빌드 = 소유자 실행 대기</span>
+  </div>
+</section>
+
+<!-- 2 ─────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">01</span>재미 두 축의 연결</h2>
+    <p class="sub">파밍 = 빌드의 입력 · 빌드 = 파밍의 목적</p>
+  </div>
+  <div class="body split wide">
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart LR
+  F["파밍"] --> O["선택지 개방"] --> B["빌드"]
+  B --> V["무엇이 쓸모 있는가"] --> F
+  classDef c fill:#12241a,stroke:#7ee787,color:#e6edf3;
+  class F,B c
+      </pre>
+    </div>
+    <div class="panel bare">
+      <h3>드롭의 목적</h3>
+      <ul>
+        <li>파워 상승이 아니라 <b>선택지 개방</b></li>
+        <li>장비·룬이 빌드를 열고, 빌드가 드롭 가치를 바꾼다</li>
+      </ul>
+      <h3 style="margin-top:14px">경계할 실패</h3>
+      <ul>
+        <li><span class="warn">최적 빌드 수렴</span></li>
+        <li><span class="warn">그라인드화</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot">기획 §1–§2 확정</div>
+</section>
+
+<!-- 3 ─────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">02</span>확정된 게임 프레임</h2>
+  </div>
+  <div class="body three">
+    <div class="panel">
+      <h3>전투</h3>
+      <ul>
+        <li>턴제 · 그리드 <b>8×8</b> · 사거리 = 칸</li>
+        <li>파티 최대 4 · 전원 직접 조작</li>
+        <li>AP 2종 분리 — 이동 <b>1</b> / 스킬 <b>2</b></li>
+        <li>속도 기반 이니셔티브</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>런</h3>
+      <ul>
+        <li>단위 = <b>던전 1개</b> (테마 = 난이도 묶음)</li>
+        <li>던전 = 몬스터 룸 3 + 이벤트 룸 1–2</li>
+        <li>룸 시작 시 파티 온전</li>
+        <li>전멸 = <b>런 종료</b></li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>누적</h3>
+      <ul>
+        <li>영속: 명단 · 승격 · 풀 해금 · <b>장비 창고</b></li>
+        <li>런 한정: 수치노드 · 룬 · 파편</li>
+        <li>스탯 강화 = 장비 + 수치노드뿐</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot">기획 §3–§4 확정 · 수치는 전부 데이터</div>
+</section>
+
+<!-- 4 ─────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">03</span>엔진 (요약)</h2>
+    <p class="sub">엔진은 게임을 모른다 · 게임 계층이 위에 얹힌다</p>
+  </div>
+  <div class="body split wide">
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart TB
+  M["main.cpp — 조립 루트"] --> E["Engine<br/>입력 · 프레임 · 렌더"]
+  E --> SM["SystemManager"]
+  subgraph CTX["registry.ctx() — 싱글턴 없음"]
+    direction LR
+    C1["FInputState"]
+    C2["FContentRegistry"]
+    C3["FRunState"]
+  end
+  subgraph GP["gameplay/"]
+    direction LR
+    G1["data"] --> G2["rules"] --> G3["systems"] --> G4["view"]
+  end
+  SM --> GP
+  CTX --> GP
+      </pre>
+    </div>
+    <div class="panel bare">
+      <h3>규칙 3개</h3>
+      <ul>
+        <li><b>컴포넌트</b> = 데이터만 (POD, 로직 없음)</li>
+        <li><b>시스템</b> = 한 가지 일, 순서로만 연결</li>
+        <li><b>rules/</b> = 순수 함수, 상태를 만들지 않음</li>
+      </ul>
+      <h3 style="margin-top:14px">통신</h3>
+      <ul>
+        <li>시스템 간은 typed event만</li>
+        <li>엔티티 생성은 팩토리 한 곳</li>
+        <li>텍스트 표시는 <b>view 한 곳</b> → 스프라이트 교체 지점</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot">SDL3 · EnTT · glm · nlohmann-json · spdlog · Tracy · ImGui</div>
+</section>
+
+<!-- 5 ─────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">04</span>한 프레임의 턴 루프 — 11 시스템</h2>
+    <p class="sub">시스템은 서로를 호출하지 않는다 · 생산자가 소비자보다 먼저</p>
+  </div>
+  <div class="body full">
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart LR
+  subgraph A["판정"]
+    direction TB
+    A1["1 순서"]
+    A2["2 턴 시작 · AP"]
+    A3["3 이동 · 4 명령 · 5 적 턴"]
+  end
+  subgraph B["해소"]
+    direction TB
+    B1["6 합법성 — 턴 · 사거리 · AP"]
+    B2["7 피해"]
+    B3["8 승패"]
+  end
+  subgraph C["표시 · 진행"]
+    direction TB
+    C1["9 턴 종료"]
+    C2["10 로그"]
+    C3["11 룸 진행 — 맨 뒤"]
+  end
+  A --> B --> C
+  classDef last fill:#12241a,stroke:#7ee787,color:#e6edf3;
+  class C3 last
+      </pre>
+    </div>
+  </div>
+  <div class="foot">11번이 맨 뒤인 이유: 다음 룸을 생성하므로 다른 시스템이 반쯤 만들어진 룸을 보면 안 된다</div>
+</section>
+
+<!-- 6 ─────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">05</span>슬라이스 1 — 데이터가 코드를 대신한다</h2>
+  </div>
+  <div class="body split wide">
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart LR
+  J["JSON 5종"] --> L["스키마 검증"]
+  L -->|실패| F["부팅 실패"]
+  L -->|성공| R["레지스트리"] --> X["팩토리 · 시스템"]
+  classDef bad fill:#2a1416,stroke:#ff7b72,color:#e6edf3;
+  class F bad
+      </pre>
+    </div>
+    <div class="panel bare">
+      <h3>원칙</h3>
+      <ul>
+        <li>수치 · 아이템 · 스킬 · 룸 = 전부 데이터</li>
+        <li>검증 실패 = <b>부팅 실패</b>, 런타임 열화 아님</li>
+        <li>밸런스 하드코딩 금지</li>
+      </ul>
+      <h3 style="margin-top:14px">얻는 것</h3>
+      <ul>
+        <li>잘못된 콘텐츠를 플레이어가 아니라 <b>부팅이 먼저</b> 잡는다</li>
+        <li>재조정 비용이 코드에서 diff로 내려간다</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 7 ─────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">06</span>슬라이스 2 — 텍스트 전투 코어</h2>
+    <p class="sub">지금 플레이 가능한 범위</p>
+  </div>
+  <div class="body split wide">
+    <div class="diagram">
+      <pre class="mermaid">
+sequenceDiagram
+  participant P as 플레이어
+  participant T as 턴 루프
+  participant M as 몬스터
+  P->>T: 이동 / 스킬 선택
+  T->>T: 합법성 판정
+  T-->>P: 거부 시 사유 로그
+  T->>M: 피해 · 쓰러짐
+  M->>T: 행동 결정 → 실행
+  T-->>P: 결정 → 행동 서술
+      </pre>
+    </div>
+    <div class="panel">
+      <h3>조작</h3>
+      <table>
+        <tr><td><code>WASD</code></td><td>1칸 이동 (이동 AP)</td></tr>
+        <tr><td><code>Q</code> <code>E</code></td><td>스킬 이전 / 다음</td></tr>
+        <tr><td><code>Tab</code></td><td>타겟 순환</td></tr>
+        <tr><td><code>Enter</code></td><td>사용 · 입장 · 복귀</td></tr>
+        <tr><td><code>Esc</code></td><td>턴 종료</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="foot">모든 거부는 플레이어가 읽는 로그로 남는다 — 침묵 실패 없음</div>
+</section>
+
+<!-- 8 ─────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">07</span>슬라이스 3 — 던전 런 상태 기계</h2>
+  </div>
+  <div class="body split wide">
+    <div class="diagram">
+      <pre class="mermaid">
+stateDiagram-v2
+  [*] --> Hub
+  Hub --> InDungeon: 입장
+  InDungeon --> InDungeon: 룸 승리
+  InDungeon --> Hub: 던전 클리어
+  InDungeon --> RunOver: 파티 전멸
+  RunOver --> Hub: 복귀
+      </pre>
+    </div>
+    <div class="panel bare">
+      <h3>규칙</h3>
+      <ul>
+        <li>다음 던전 = <b>클리어 수 % 던전 목록</b> → 끝나면 순환</li>
+        <li>룸 시작 = 파티 온전 (HP/AP 리셋)</li>
+        <li>시드 고정 → 같은 시드 같은 런</li>
+      </ul>
+      <h3 style="margin-top:14px">실패의 무게</h3>
+      <ul>
+        <li>전멸해도 클리어 수는 남는다</li>
+        <li>되돌아가는 지점은 <b>던전 처음</b> 하나뿐</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 9 ─────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">08</span>슬라이스 3 — 몬스터 행동트리</h2>
+    <p class="sub">하드코딩 제거: 판단은 데이터, 실행은 시스템 하나</p>
+  </div>
+  <div class="body split wide">
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart TB
+  S["적 턴 시작"] --> Q{"위에서 첫 일치"}
+  Q --> R1["HP 30% 이하"]
+  Q --> R2["아군 쓰러짐"]
+  Q --> R3["사거리 안"]
+  Q --> R4["항상"]
+  R1 --> EX["use_first_skill"]
+  R2 --> EX
+  R3 --> EX
+  R4 --> MV["move_toward"]
+  EX --> OUT["실행 → 합법성 → 로그"]
+  MV --> OUT
+  classDef r fill:#0f2030,stroke:#79c0ff,color:#e6edf3;
+  class R1,R2,R3,R4 r
+      </pre>
+    </div>
+    <div class="panel bare">
+      <h3>어휘</h3>
+      <p style="margin:0 0 8px"><span class="info">when</span> always · self_hp_at_or_below ·
+        ally_downed · opponent_in_skill_range · opponent_count_at_or_above</p>
+      <p style="margin:0"><span class="info">then</span> use_first_skill · move_toward_nearest ·
+        move_away_from_nearest · wait</p>
+      <h3 style="margin-top:14px">미결</h3>
+      <ul>
+        <li>도발 · 버프 · 소모품</li>
+        <li>가중치 · 확률</li>
+        <li>2층 트리 · 파벌 접합</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 10 ────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">09</span>콘텐츠 규모 — 전부 데이터</h2>
+    <p class="sub">밸런스 변경 = JSON 한 줄</p>
+  </div>
+  <div class="body split wide">
+    <div class="diagram">
+      <pre class="mermaid">
+xychart-beta
+  x-axis ["유닛", "스킬", "조우", "던전", "행동규칙"]
+  y-axis "행 수" 0 --> 8
+  bar [4, 5, 3, 2, 8]
+      </pre>
+    </div>
+    <div class="panel bare">
+      <h3>assets/data/</h3>
+      <table>
+        <tr><td><code>units.json</code></td><td>4</td></tr>
+        <tr><td><code>skills.json</code></td><td>5</td></tr>
+        <tr><td><code>encounters.json</code></td><td>3</td></tr>
+        <tr><td><code>dungeons.json</code></td><td>2</td></tr>
+        <tr><td><code>behaviors.json</code></td><td>8</td></tr>
+      </table>
+      <p class="muted" style="margin:10px 0 0">행동규칙 8행 = 사용 6 + 어휘 커버리지 2</p>
+    </div>
+  </div>
+</section>
+
+<!-- 11 ────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">10</span>방법론 — 변경 가능성과 3단 리뷰</h2>
+    <p class="sub">추가는 싸고, 삭제도 싸야 한다</p>
+  </div>
+  <div class="body split wide">
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart TB
+  C["계약 (Pass 0)"] --> I["구현"]
+  I --> P2["Pass 2 구조 리뷰"]
+  I --> P3["Pass 3 정확성 리뷰"]
+  P2 --> V["verdict"]
+  P3 --> V
+  V --> M{"Blocker/High 0?"}
+  M -->|yes| MG["머지 후보"]
+  M -->|no| I
+  classDef g fill:#12241a,stroke:#7ee787,color:#e6edf3;
+  class V,MG g
+      </pre>
+    </div>
+    <div class="panel bare">
+      <h3>R1–R33 요약</h3>
+      <ul>
+        <li>타입당 1파일 · 컴포넌트 POD</li>
+        <li>시스템 간 호출 금지 → 이벤트</li>
+        <li>엔티티 생성은 팩토리만</li>
+        <li>이벤트 vs 상태 구분</li>
+        <li>조립은 composition root 한 곳</li>
+      </ul>
+      <h3 style="margin-top:14px">리뷰 산출물</h3>
+      <p class="muted" style="margin:0">슬라이스마다 <code>docs/reviews/&lt;slice&gt;/</code>에 계약 · 자기 리뷰 ·
+        독립 리뷰 2개 · verdict가 남는다</p>
+    </div>
+  </div>
+</section>
+
+<!-- 12 ────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">11</span>지금의 검증 상태 (정직하게)</h2>
+  </div>
+  <div class="body split wide">
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart LR
+  H["변경가능성 검사"] --> OK["통과"]
+  J["JSON 5종 파싱"] --> OK
+  R["독립 리뷰 6회"] --> OK
+  B["빌드 · 플레이"] --> PD["소유자 실행 대기"]
+  classDef ok fill:#12241a,stroke:#7ee787,color:#e6edf3;
+  classDef pd fill:#2a2410,stroke:#f2cc60,color:#e6edf3;
+  class OK ok
+  class PD pd
+      </pre>
+    </div>
+    <div class="panel bare">
+      <h3>이번 슬라이스에서 잡힌 것</h3>
+      <ul>
+        <li>정적 검사 통과인데 <b>컴파일이 안 되던</b> 스코프 오류 1건 → “하네스 통과 ≠ 컴파일 통과” 기록</li>
+        <li>규칙이 조용히 뒤집히던 스키마 → 필수 필드로 승격</li>
+        <li>빈 룸 · 격자 밖 좌표 · 같은 칸 → 부팅 실패로 이동</li>
+      </ul>
+      <h3 style="margin-top:14px">남은 검증</h3>
+      <p class="muted" style="margin:0">빌드 + 플레이 워크스루 (허브 → 3룸 → 클리어 / 전멸 → 런 종료)</p>
+    </div>
+  </div>
+  <div class="foot"><span class="tag pend">빌드 게이트 PENDING — 미통과가 아니라 미실행 (Builds Are Human-Run)</span></div>
+</section>
+
+<!-- 13 ────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">12</span>남은 것 ① — 슬라이스 4: 파밍 · 장비 · 룬</h2>
+  </div>
+  <div class="body split wide">
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart TB
+  W["룸 승리"] --> L["loot.json — 종류 · 가중치 · 수량"]
+  L --> RR["시드 결정론 롤"]
+  RR --> FR["파편 — 런 한정"]
+  RR --> EQ["장비 — 영속 창고"]
+  RR --> RU["룬 — 유닛 1개"]
+  EQ --> SQ["FStatQuery — 질의 함수 하나"]
+  RU --> SQ
+  SQ --> DM["피해 공식"]
+  classDef n fill:#12241a,stroke:#7ee787,color:#e6edf3;
+  class L,RR,SQ n
+      </pre>
+    </div>
+    <div class="panel bare">
+      <h3>확정 골격</h3>
+      <ul>
+        <li>드롭 3계층 — trash / 어픽스 롤 / 유니크</li>
+        <li>스탯은 질의 함수 하나로만 (하드코딩 금지)</li>
+        <li>장착 = 팩토리 경유 구조 변경</li>
+        <li>UI는 텍스트 목록 + Confirm/Cancel</li>
+      </ul>
+      <h3 style="margin-top:14px">미결 (수치)</h3>
+      <ul>
+        <li>어픽스 풀 · 티어 · 기대값 · pity</li>
+        <li>리롤 · 분해 비용</li>
+        <li>창고의 세션 밖 영속</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 14 ────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">13</span>남은 것 ② — 중기 로드맵</h2>
+  </div>
+  <div class="body split wide">
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart TB
+  S4["4 파밍 · 장비 · 룬"] --> S5["5 이벤트 룸 — 분기 · 숨은 방 · 상점"]
+  S5 --> S6["6 정비(캠프) — 파편 교환"]
+  S6 --> S7["7 테마 · 보스"]
+  S7 --> S8["8 스킬 변형 3층"]
+  S8 --> S9["9 메타 L1 · L2 · L3"]
+  S7 --> S10["이미지 · 애니메이션 교체"]
+  classDef near fill:#12241a,stroke:#7ee787,color:#e6edf3;
+  classDef mid fill:#0f2030,stroke:#79c0ff,color:#e6edf3;
+  classDef far fill:#111823,stroke:#222e3d,color:#e6edf3;
+  class S4 near
+  class S5,S6,S10 mid
+  class S7,S8,S9 far
+      </pre>
+    </div>
+    <div class="panel bare">
+      <h3>지켜야 할 선</h3>
+      <ul>
+        <li>수직 누적 최소 — 1번째 런 vs 20번째 런 승률차 10–20%p</li>
+        <li>영구 스탯 % · 시작 레벨 · 골드 이월 금지</li>
+        <li>전멸 후 첫 전투까지 <b>2분 이내</b></li>
+      </ul>
+      <h3 style="margin-top:14px">교체가 쉬운 이유</h3>
+      <ul>
+        <li>표시는 view 한 곳에만 있다</li>
+        <li>룸이 데이터 → 시드 기반 생성으로 이어진다</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 15 ────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">14</span>정리</h2>
+  </div>
+  <div class="body split">
+    <div class="panel">
+      <h3>지금 확인 가능한 것</h3>
+      <ul>
+        <li>허브 → 입장 → 3룸 → 클리어 → 허브</li>
+        <li>AP 2종 · 이니셔티브 · 사거리 · 타겟 순환</li>
+        <li>거부 사유가 항상 로그로 남는다</li>
+        <li>몬스터가 <b>데이터 규칙</b>으로 판단</li>
+        <li>전멸 → 런 종료, 클리어 수 유지</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>다음 스텝</h3>
+      <ul>
+        <li><b>빌드 + 플레이 워크스루</b> → 슬라이스 3 머지 판단</li>
+        <li>슬라이스 4 계약: <code>loot.json</code> · <code>items.json</code> ·
+          <code>runes.json</code> · <code>FStatQuery</code></li>
+        <li>이벤트 룸 최소 1종으로 탐험 정체성 시작</li>
+      </ul>
+      <p class="muted" style="margin:14px 0 0">텍스트 프로토타입이라도 재미의 두 축과 런 실패의 무게는
+        이미 코드와 데이터로 검증 가능한 형태다.</p>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div id="hud"><b id="cur">1</b> / <span id="tot">15</span></div>
+<div class="hint">← → 이동 · Home/End 처음/끝 · Ctrl+P 인쇄</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      darkMode: true,
+      background: '#0b0f14',
+      primaryColor: '#111823',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#222e3d',
+      lineColor: '#5a6673',
+      secondaryColor: '#0f2030',
+      tertiaryColor: '#111823',
+      fontFamily: 'Pretendard, Segoe UI, system-ui, sans-serif',
+      fontSize: '13px'
+    },
+    flowchart: { curve: 'linear', nodeSpacing: 26, rankSpacing: 42, useMaxWidth: true, padding: 6 },
+    sequence: { useMaxWidth: true, wrap: true, boxMargin: 6, mirrorActors: false },
+    state: { useMaxWidth: true, nodeSpacing: 26, rankSpacing: 42 }
+  });
+
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const cur = document.getElementById('cur');
+  const bar = document.getElementById('bar');
+  document.getElementById('tot').textContent = slides.length;
+  let i = 0;
+
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    slides.forEach((s, k) => s.classList.toggle('active', k === i));
+    cur.textContent = i + 1;
+    bar.style.width = ((i + 1) / slides.length * 100) + '%';
+    location.hash = 's' + (i + 1);
+  }
+
+  addEventListener('keydown', e => {
+    if (['ArrowRight', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); show(i + 1); }
+    else if (['ArrowLeft', 'PageUp'].includes(e.key)) { e.preventDefault(); show(i - 1); }
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(slides.length - 1);
+  });
+  addEventListener('hashchange', () => {
+    const m = location.hash.match(/^#s(\d+)$/);
+    if (m && parseInt(m[1], 10) - 1 !== i) show(parseInt(m[1], 10) - 1);
+  });
+
+  const start = parseInt((location.hash.match(/^#s(\d+)$/) || [])[1] || '1', 10);
+  show(start - 1);
+</script>
+</body>
+</html>
