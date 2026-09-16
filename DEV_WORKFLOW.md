@@ -101,13 +101,27 @@ GAME01P_WIN_BRANCH="<branch>" GAME01P_WIN_HOST="<windows-host>" ./scripts/remote
 Use Release checks before playtest builds, performance-sensitive changes, or
 anything touching packaging/runtime dependencies.
 
+### Builds Are Human-Run
+
+Builds and the platform check scripts are run by the project owner, not by
+automation. Agents (reviewers, workers, delegates, assistants) must **not**
+invoke `scripts/check-windows.ps1`, `scripts/check.sh`, `scripts/remote-windows.sh`,
+`cmake`, `ctest`, or any compile/link step — not even "just to verify".
+
+- An agent that needs build evidence says `build gate: PENDING (owner-run)` and
+  names the exact command the owner should run.
+- A missing build result is not a FAIL and not a PASS: mark the build gate
+  `UNVERIFIED` and continue with static review.
+- Harness/static checks that read files only (`scripts/verify-changeability.sh`,
+  the §5 `rg` bundle, `git diff --check`) are allowed — they do not compile.
+
 ## Merge Policy
 
 Merge feature/fix/chore branches back to `main` only after:
 
 - `git diff --check` passes.
-- Platform-appropriate Debug build passes.
-- Native Windows Debug build passes for runtime code.
+- Platform-appropriate Debug build passes (owner-run; agents never run it).
+- Native Windows Debug build passes for runtime code (owner-run).
 - Any changed game code has been reviewed against the project ECS/factory/event
   boundaries.
 
