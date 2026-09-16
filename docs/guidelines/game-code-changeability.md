@@ -218,6 +218,8 @@
   갱신 없이 머지(읽기 실패), ③ 세이브 포맷 변경에 버전 상승 또는 마이그레이션 함수 부재.
 - 확인: `jq -e 'has("schema_version")' assets/data/*.json`. `assets/data/`가 존재하므로 이 규칙은
   `N-A (미채택)`이 아니라 강제 검사다(어느 파일이든 `schema_version`이 없으면 FAIL).
+  `jq`가 없는 환경(Win Git Bash에서 관측됨)을 위해 `scripts/verify-changeability.sh`의 R17 검사는
+  `command -v jq`로 분기해 rg 폴백을 쓴다 — 명령이 `command not found`로 조용히 통과하면 안 된다.
 
 ### R18. 스레드 친화성 (S11)
 
@@ -301,7 +303,9 @@ DOOM 3에서 **버릴** 것(그대로 옮기면 위반): 매크로 RTTI와 stati
 - FAIL: 새 엔티티/무기를 추가할 때 밸런스 수치나 구성 키를 코드에 넣어야만 동작하거나, 자산에만 있고
   검증되지 않는 키(오타가 런타임에야 발견).
 - 확인: `assets/data/*.json`이 존재하고, 각 테이블이 `src/core/data/FContentLoader.cpp`에서
-  `src/gameplay/data/*Content.h`의 선언된 스키마로 검증된다(§5 R22). 심각도 High: 새 콘텐츠마다 코드 수정 = 3대 비용 위반.
+  선언된 `FContentSchema`로 검증된다(§5 R22). 이 슬라이스에서 `FContentField` 배열은
+  `src/gameplay/data/*Content.h`에, 스키마 객체(`kUnitSchema`/`kSkillSchema`)는
+  `src/gameplay/data/FContentRegistry.cpp`에 있다. 심각도 High: 새 콘텐츠마다 코드 수정 = 3대 비용 위반.
 
 ### R23. 문자열 백은 로더 경계 안에만 (S14 idDict 유산)
 
