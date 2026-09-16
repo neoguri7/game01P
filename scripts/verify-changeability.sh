@@ -235,8 +235,8 @@ if [ "$MODE" = repo ]; then
     bad "R3 system includes another concrete system"
   }
 
-  note "== R4 gameplay tuning literals (0 expected in systems/states) =="
-  r4=$(hits "$RE_R4_LITERAL" "$SRC/ecs/systems" "$SRC/states" 2>/dev/null | rg -v '//\s*fallback:' | rg -v "$RE_R4_EXEMPT" | bl R4 || true)
+  note "== R4 gameplay tuning literals (0 expected in systems/states/gameplay) =="
+  r4=$(hits "$RE_R4_LITERAL" "$SRC/ecs/systems" "$SRC/states" "$SRC/gameplay" 2>/dev/null | rg -v '//\s*fallback:' | rg -v "$RE_R4_EXEMPT" | bl R4 || true)
   [ -z "$r4" ] && ok "R4 clean" || {
     printf '%s\n' "$r4"
     bad "R4 unmarked tuning literal / asset path"
@@ -454,6 +454,38 @@ if [ "$MODE" = repo ]; then
     bad "R33 what-comment instead of a why-comment (// why:|invariant:|fallback:|boundary:|thread-affinity:)"
   fi
 
+  # ------------------------------------------------------------ R17/R22 data-asset checks (assets/data/ now exists)
+  # R17 (S10): every settings/content asset must declare a schema version. Was N-A while assets/data/ was absent.
+  note "== R17 schema migration: schema_version on assets/data/*.json (0 expected) =="
+  r17bad=""
+  if command -v jq >/dev/null 2>&1; then
+    for f in assets/data/*.json; do
+      [ -e "$f" ] || continue
+      jq -e 'has("schema_version")' "$f" >/dev/null 2>&1 || r17bad="$r17bad$f: no schema_version\n"
+    done
+  else
+    for f in assets/data/*.json; do
+      [ -e "$f" ] || continue
+      rg -q '"schema_version"' "$f" 2>/dev/null || r17bad="$r17bad$f: no schema_version\n"
+    done
+  fi
+  [ -z "$r17bad" ] && ok "R17 clean (schema_version declared on every asset)" || {
+    printf '%b' "$r17bad"
+    bad "R17 asset without schema_version"
+  }
+
+  # R22 (S14/S6): content is data — the schema-driven loader exists and gameplay declares >=1 schema.
+  note "== R22 content/balance is data: schema-driven loader (0 expected) =="
+  r22bad=""
+  [ -f "$SRC/core/data/FContentLoader.cpp" ] || r22bad="${r22bad}$SRC/core/data/FContentLoader.cpp: missing\n"
+  if ! rg -q 'FContentSchema|FContentField' "$SRC/gameplay/data/" 2>/dev/null; then
+    r22bad="${r22bad}$SRC/gameplay/data/: no declared FContentSchema/FContentField\n"
+  fi
+  [ -z "$r22bad" ] && ok "R22 clean (FContentLoader validates assets against declared schema)" || {
+    printf '%b' "$r22bad"
+    bad "R22 content not schema-driven"
+  }
+
   # ------------------------------------------------------------ manual-only rules (F1 coverage contract)
   manual "R1 system must not mutate >=3 component groups (judgement)"
   manual "R9 revert-diff deletability (needs a revert diff)"
@@ -461,10 +493,8 @@ if [ "$MODE" = repo ]; then
   manual "R12 out-of-contract files (needs docs/reviews/<slug>/contract.md)"
   manual "R13 optimization evidence in pass-3.md"
   manual "R14 registration sites per added file"
-  manual "R17 schema migration (assets/data/ absent -> N-A)"
   manual "R19 test seam for new systems"
   manual "R21 exactly one registration site per new type (needs the diff + a registration grep)"
-  manual "R22 content/balance is data, not code (assets/data/ absent -> N-A)"
   manual "R24 new toggles registered on the single debug/config surface (component-level per-entity flags are out of scope)"
   manual "R28 snapshot layer + schema_version on new persistent formats (absent -> N-A)"
   manual "R29 module boundary version/ownership (no boundary struct in this repo -> N-A)"

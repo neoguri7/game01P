@@ -1,0 +1,114 @@
+I'll start mandatory reading. Let me batch the first reads.Second file truncated. Read remainder.Read guideline tail + feedback doc.Mandatory reading done. Now inspect diff.Changes uncommitted. Let me enumerate files and read them.Found enum mismatch already. Let me confirm and read gameplay files.Confirmed enum mismatch. Read content modules + assets.Compress consumed mandatory-reading range; keep code reads active.Restored rules. Now re-read contract + design feedback (critical for rulings) and config files.Contract + feedback read. Now run verification bundle + targeted greps (no builds).Run the sanctioned harness (read-only) + calibrate.Harness OK. Now remaining checks: design specifics, SDL leak, duplicate-id gap, misc.Everything read and verified. Final review below.
+
+---
+
+# Changeability Review — gameplay-foundation SLICE 1 (content data layer)
+
+reviewer: independent changeability-reviewer session   implements: no
+
+## Calibration
+- `bash scripts/verify-changeability.sh --calibrate` → `changeability bundle: OK (calibrate)` (exit 0)
+- `bash scripts/verify-changeability.sh` → `changeability bundle: OK (repo)`; `NOT CHECKED (manual): R1,R9,R10,R12,R13,R14-per-file,R16-iter,R17-migration,R19-seam,R21-site,R22,R24-site,R28,R29,R30,R31-incremental,R32-view,R33-why`; `PRE-EXISTING (baselined, not blocking): 27 hit line(s)`
+
+## Contract check
+- Actual diff (`git status --short` + `git diff`): modified `.pi-lens.json`, `CMakeLists.txt`, `src/core/AssetManager.h`, `src/main.cpp`, `vcpkg.json`; new `src/core/AssetManager.cpp`, `src/core/data/*` (8), `src/gameplay/*` (8), `assets/data/{units,skills}.json`, `docs/design/game-design-feedback.md`, `docs/reviews/gameplay-foundation/`.
+- **Discrepancy**: contract §in-scope lists `src/core/Engine.cpp` and `src/core/Engine.h`, but `git diff` shows they are **unchanged** (`FAssetManager::Initialize(registry)` already existed pre-slice). No out-of-scope edit — just a contract-list inaccuracy. (Low, document-only.)
+- New-code LOC: ~387 (core/data) + 95 (AssetManager.cpp) + 287 (gameplay) + JSON/config.
+
+## Rule table (R1–R33)
+
+| Rule | Verdict | Evidence | Note |
+|------|---------|----------|------|
+| R1 | PASS | new data files one type each; harness NOT CHECKED, read `FContentRow.h:14`, `FContentSchema.h:13`, `FContentTable.h:12`, `FContentValue.h:13`, `FContentField.h:11` | exception `src/core/AssetManager.h:17,35` two types (F7) |
+| R2 | PASS | `rg` virtual/dtor/raw-ptr in gameplay+core/data → none; harness `ok R2 clean` | |
+| R3 | PASS | no systems in slice; harness `ok R3 clean` | |
+| R4 | PASS | all fallbacks same-line: `FUnitContent.cpp:9,10,13,16`, `FSkillContent.cpp:9,12`; values from `assets/data/*.json`; harness `ok R4 clean` | JSON cannot carry provisional marker (F4) |
+| R5 | PASS | `rg .create()/emplace<...>(e,` outside factories → none; harness `ok R5 clean` | factories dir not yet created |
+| R6 | PASS | only `GameplayServices.h:18 static void Shutdown` (member fn, allowed); harness `ok R6 clean` | |
+| R7 | PASS | `rg '#include "(gameplay\|states)/'` src/core src/ecs → none; `rg Player\|Enemy\|Unit\|Skill` code → none; harness `ok R7 clean` | |
+| R8 | PASS | `EContentFieldType` switched only in `FContentLoader.cpp` (1 file); harness `ok R8 clean` | |
+| R9 | UNVERIFIED | manual; needs revert diff. Delete = `src/gameplay/**`+`src/core/data/**`+`assets/data/*`+`AssetManager.cpp`, remove `main.cpp:36-40` registration, revert `AssetManager.h`; harness NOT CHECKED | |
+| R10 | PASS | `FContentTable` template 2 instantiations (`FContentRegistry.h:16-17`); `FContentLoader` 2 call sites (`FContentRegistry.cpp:28,37`); no pure-virtual | manual |
+| R11 | PASS | no gameplay state added to `FBaseState`; no `bool is*` new fields | |
+| R12 | PASS | in-scope edit set matches contract (Engine.* unchanged, see above); harness `ok R12 clean` | |
+| R13 | N-A | no hot-path/optimization in slice | debt: no pass-3 measurement |
+| R14 | PASS | CMake `GLOB_RECURSE`; harness `ok R14 CMake globs sources` | |
+| R15 | PASS | `shared_ptr<const FAssetDigest>` no new/delete (`AssetManager.cpp`); harness `ok R15 clean` | |
+| R16 | PASS | `cache_` unordered_map only `find`/`emplace` (`AssetManager.cpp:36,59`), never iterated → order-independent; harness `ok R16 clean` | |
+| R17 | PASS | `schema_version` in both JSON (`units.json:2`, `skills.json:2`) and checked `FContentLoader.cpp:134-137` | |
+| R18 | N-A | no threads in slice | debt: none needed yet |
+| R19 | PASS | no empty/`catch(...)`; all failure paths LOG_ERROR (`AssetManager.cpp:40,45,55`; `FContentLoader.cpp:127-204`; `FContentRegistry.cpp:51`) — but see F5 test seam, F10 throw | ③ no test seam |
+| R20 | **FAIL** | `EContentFieldType::Id`/`IdArray` used but NOT declared in `EContentFieldType.h:7-13` → unbuildable; harness `ok R20 clean` (false negative) | Blocker F1 |
+| R21 | PASS | no registration DSL/static type object; single init sites; harness `ok R21 clean` | |
+| R22 | PASS | missing/unknown/wrong-type key validated (`FContentLoader.cpp:175-204`); dangling skill ref checked (`FContentRegistry.cpp:49-54`) | duplicate id unhandled (F2) |
+| R23 | **FAIL** | string-key JSON reads in `core/data/FContentLoader.cpp:141,145,165,181,192` carry no `// boundary:` and file is not the R23 allowlist; harness `ok R23 clean` (pattern doesn't match nlohmann `find`) | contract-text violation; decl-boundary F3 |
+| R24 | PASS | harness `ok R24 clean` | |
+| R25 | PASS | only file IO in repo: `AssetManager.cpp:73,86`; no `std::filesystem` anywhere; harness `ok R25 clean` | |
+| R26 | PASS | `rg SDL_` src/gameplay src/core/data → none; harness `ok R26 clean` | |
+| R27 | PASS | no name dispatch/`void*` payload; harness `ok R27 clean` | |
+| R28 | N-A (미채택) | no save/snapshot layer | debt |
+| R29 | N-A (미채택) | single binary, no boundary struct | debt |
+| R30 | PASS | harness `ok R30 clean` | |
+| R31 | PASS | no `#if`-guarded LOG (`rg` none); new loaders log (`AssetManager.cpp:22,40,45,55,61`; `FContentLoader.cpp:127-210`); harness `ok R31 clean` | |
+| R32 | PASS | `ZoneScopedN` on every load path: `AssetManager.cpp:30`, `GameplayServices.cpp:15`, `FContentRegistry.cpp:24`, `FContentLoader.cpp:124`; harness `ok R32 clean` | |
+| R33 | PASS | `// invariant:` `FUnitContent.h:26`, `FSkillContent.h:22`; `// boundary:` markers; `// 미결(design §N):` stubs; harness `ok R33 clean` | |
+
+### N-A debt table
+| Rule | Path absent per adoption table | Debt line |
+|------|-------------------------------|-----------|
+| R13 | no measured hot path / `pass-3.md` | optimization evidence owed when a hot path lands |
+| R18 | no worker threads in slice | declare `// thread-affinity:` if threads added |
+| R28 | no save/snapshot layer | must add `schema_version` when implemented (contract non-goal) |
+| R29 | single static binary, no boundary struct | version the struct if a module boundary is introduced |
+
+## Findings (severity-ordered)
+
+- **[Blocker] R20 — undefined enum enumerators make slice unbuildable.** `src/core/data/EContentFieldType.h:7-13` declares only `Text, Number, Boolean, TextArray, NumberArray`, but `src/core/data/FContentLoader.cpp:23,32,46,52,66,87` and `src/gameplay/data/FUnitContent.h:35` / `src/gameplay/data/FSkillContent.h:31` reference `EContentFieldType::Id` and `EContentFieldType::IdArray`. Static proof (independent of build): no `Id`/`IdArray` enumerator exists. **Smallest fix:** add `Id, IdArray` to the enum (and update the three `-Wswitch` switches in `FContentLoader.cpp` only), or rename the usages `Id→Text`, `IdArray→TextArray`. Not a boundary finding.
+- **[High] R19/R22 — `schema_version` wrong type throws an uncaught `nlohmann::json::exception`.** `src/core/data/FContentLoader.cpp:134` `document.value("schema_version", 0)` throws `type_error` when the key exists but is a string/array/object, or when the document is not an object (top-level array). `FContentLoader::load` has no try/catch (unlike `AssetManager.cpp:52-56`), so a malformed asset terminates instead of logging nullopt. **Smallest fix:** guard `if (!document.is_object()) { LOG_ERROR(...); return nullopt; }` and read the version via `find` + `is_number_integer()` check, no `.value()`.
+- **[High] R22 — duplicate row `id` is accepted silently.** The row loop `src/core/data/FContentLoader.cpp:137-207` never checks uniqueness; `FContentTable::find` (`src/core/data/FContentTable.h:15-22`) returns the first match, so a duplicated id silently shadows a later row with no log. **Smallest fix:** collect ids in a local `std::unordered_set<std::string>` (only `insert`, order not used) and `LOG_ERROR(...); return std::nullopt;` on a repeat.
+- **[Medium] R23 + contract §Boundary — string-key JSON reads are in `core/`, not `gameplay/data/`, and lack `// boundary:`.** `src/core/data/FContentLoader.cpp:141,145,165,181,192` perform the actual string-key reads; the contract says these "happen only inside `src/gameplay/data/*` decoders, each such line carrying `// boundary:`" — but `gameplay/data` decoders (`FUnitContent.cpp`, `FSkillContent.cpp`) read typed `FContentRow` and never touch JSON. **This is a finding about the declared boundary (item 4).** **Smallest fix:** add `// boundary:` to those `FContentLoader.cpp` lines and amend the allowlist/contract to name `src/core/data/FContentLoader.*` as the string-key boundary (see ruling below).
+- **[Medium] Design-미결 — provisional balance numbers in assets are indistinguishable from confirmed values.** `assets/data/units.json` rows carry `max_health:120/80` and `speed:4/6`; `game-design.md:136-140` confirms only the *AP provisional* values (move 1 / skill 2) and speed-based initiative, **not** HP/speed magnitudes. G6 declares these prototype rows, but JSON cannot carry `// 미결` (G7), so the provisional status is invisible in the asset. **Smallest fix:** adopt G7 candidate ① — declare a schema `"$comment"`/`"provisional": true` field (add to `kUnitFields`/`kSkillFields`) or move the prototype rows to `tests/` fixtures.
+- **[Medium] R19③ — no test seam for the new loader.** No `tests/` fixture or `tests/changeability/fixtures` entry exercises `FContentLoader::load` (missing/unknown/wrong-type/duplicate/schema_version cases). **Smallest fix:** add one good + one bad fixture asset and an expected-failure case.
+- **[Medium] Process suppression — `.pi-lens.json` disables `no-bit-fields` globally.** `.pi-lens.json` (diff) adds `"rules": {"no-bit-fields": {"disable": ["no-bit-fields"]}}`, which removes the check for every file, not just the C++ headers misparsed as C; no comment records why. **Smallest fix:** scope the disable to the affected glob/language instead of a repo-wide disable, or document the reason.
+- **[Low] R1/R12 — `src/core/AssetManager.h:17,35` defines two types** (`FAssetDigest` + `FAssetManager`). Minor basename/content mismatch; acceptable as a boundary detail. **Fix:** move `FAssetDigest` to its own header if R1 is enforced repo-wide.
+- **[Low] `src/core/data/FContentRow.h:36-38` — `integer()` truncates `double→int` silently** (`2.9 → 2`). AP/range fields are ints authored as numbers. **Fix:** reject non-integral values at load, or document the truncation.
+
+## Ruling on the contract's declared boundary decision
+
+**ACCEPT — with one required contract correction.** The structural invariant holds:
+- File IO + path assembly exist only in `src/core/AssetManager.*` — confirmed: only `std::ifstream` in the repo is `AssetManager.cpp:73,86`; no `std::filesystem`, no path concatenation elsewhere.
+- Runtime/system code holds typed structs only — confirmed: `nlohmann` appears only in `src/core/AssetManager.{h,cpp}` and `src/core/data/FContentLoader.cpp`; `gameplay/data` decoders consume typed `FContentRow` and output `FUnitContent`/`FSkillContent`.
+- I do **not** require the alternative "positional schema decode in `core/`", because the implementation already *is* the schema-driven decode-in-core split: `FContentSchema`+`FContentLoader` (core) own JSON, `gameplay/data` owns only typed projections. That is strictly better for R7 than the literal contract wording.
+
+But the contract's literal sentence ("string-key JSON reads happen only inside `src/gameplay/data/*` decoders, each line `// boundary:`") is factually false as implemented and is the source of the R23 FAIL. **Correction (no re-architecture):** name `src/core/data/FContentLoader.*` as the R23 string-key boundary and add the `// boundary:` markers there; keep `gameplay/data` free of JSON. Adopt this as the reviewer alternative in place of "move decode to gameplay/data".
+
+## Verdict on the specified risks (item 4)
+
+- **(a) R7 dependency direction — PASS.** No `core/`/`ecs/` includes `gameplay/` or `states/`; no `Player`/`Enemy`/`Unit`/`Skill` identifiers in `core/`/`ecs/` code (harness `ok R7 clean`).
+- **(b) R22/R19 load validation — PASS except duplicate id.** Missing required key (`FContentLoader.cpp:190-196`), unknown key (`175-185`), wrong type (`197-204`) all reject + log; dangling cross-table skill ref rejects + logs (`FContentRegistry.cpp:49-54`). No silent defaulting. Gaps: duplicate id (F2) and uncaught `schema_version` throw (F10).
+- **(c) R4 — PASS.** Every gameplay balance fallback carries `// fallback:` on the same line (`FUnitContent.cpp:9,10,13,16`; `FSkillContent.cpp:9,12`); values originate from `assets/data/*.json`; field keys match schema (`kUnitFields` ↔ `units.json`, `kSkillFields` ↔ `skills.json`). Provisional values not marked in JSON (F4).
+- **(d) R17 — PASS.** `schema_version` present in both files and checked on load. **Provisional row ids ruling:** the placeholder ids/values are **acceptable under the 미결 rule *only* as disclosed schema-validation scaffolding**, not as design decisions — G6 says so and no name/HP semantics are assigned. They are not invented decisions, but they are invisible-provisional in the asset (G7), hence F4's recommended schema marker.
+- **(e) R25/R23 — PASS on IO, FAIL on R23 markers.** Nothing outside `AssetManager` opens a file or assembles a path; gameplay holds no nlohmann type (nlohmann confined to core). R23 marker contract violated in `FContentLoader.cpp` (F3).
+- **(f) R21/R5 — PASS.** No entity creation in slice. Service registration single-sited: `FAssetManager::Initialize` at `Engine.cpp:97`, `FGameplayServices::Initialize` at `main.cpp:36`; both via `registry.ctx()`.
+- **(g) R31/R32 — PASS.** All new failure paths LOG_ERROR; every new load path has `ZoneScopedN` (`AssetManager.cpp:30`, `GameplayServices.cpp:15`, `FContentRegistry.cpp:24`, `FContentLoader.cpp:124`). Minor: `GameplayServices::Shutdown` (`GameplayServices.cpp:34`) has no log.
+- **(h) R14/R9 — partial.** Whole slice is deletable to ~18 files + 1 registration line (`main.cpp:36-40`), but `AssetManager.h` is a pre-existing file the slice rewrites, so a full revert also restores that boundary file — not one line. A single content module (`FUnitContent`) is not independently deletable: removing it edits `FContentRegistry.{h,cpp}` + schema (2-3 files), not one line.
+- **(i) R16 unordered_map cache — PASS (manual).** `cache_` is only `find`/`emplace` (`AssetManager.cpp:36,59`) and never iterated, so iteration order cannot affect any result. Include alone not counted.
+
+## Change-cost numbers
+- **add** (new content table): 0 pre-existing files touched except 1 registration line in `FContentRegistry.cpp`; new `gameplay/data/FXContent.{h,cpp}` (+ edit `FContentRegistry.{h,cpp}`, `assets/data/*.json`) ≈ 3 files.
+- **delete**: ~18 files + `main.cpp:36-40` (7 lines) + revert `AssetManager.h`.
+- **tune**: **YES** — balance lives in `assets/data/*.json`; code change not required (fallbacks are the only literals).
+- **understand**: 5 files (`FContentSchema.h`, `FContentLoader.cpp`, `AssetManager.h`, `FUnitContent.h`, `FContentRegistry.cpp`).
+
+## Tooling note (not counted as defects)
+Confirmed the pi-lens false-positive signature on this repo: `.h` parsed as C with no project include paths → `error[clang] (pp_file_not_found)`, "No type named 'string_view' in namespace 'std'", and C-only `no-bit-fields` hits on every C++ header. Not counted. **Real C++ defect underneath that signature: the undefined `EContentFieldType::Id`/`IdArray` (F1 Blocker)**, proven by direct source comparison, not by the analyzer.
+
+## Build gate
+`build gate: PENDING (owner-run)` — command `scripts/check-windows.ps1 -Configuration Debug`. Not run (owner-run per DEV_WORKFLOW.md). The F1 enumerator absence is proven statically and will fail compilation independently of the gate.
+
+## Verdict
+- Status: **REWORK** (one Blocker: unbuildable enum mismatch; plus two Highs)
+- Blockers: 1  Highs: 2  Mediums: 4  Lows: 2  N-A debt: 4
+- Deletability: delete `src/gameplay/**` + `src/core/data/**` + `assets/data/*` + `AssetManager.cpp`, remove `main.cpp:36-40`, revert `AssetManager.h`
+- Teach-back: (1) The data-layer split is clean — JSON confined to `core/`, gameplay holds typed structs, file IO only in `AssetManager`; the boundary design is sound. (2) The slice does not build: `EContentFieldType::Id`/`IdArray` are referenced but never declared. (3) Integration risk: the loader's `schema_version` read and duplicate-id path can crash or silently shadow — harden before merge.
+- Boundary ruling: **ACCEPT** the file-IO/typed-struct split; the contract's "string-key reads live in gameplay/data" sentence is inaccurate and must be corrected to name `src/core/data/FContentLoader.*` (F3).

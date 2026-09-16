@@ -1,0 +1,67 @@
+== R1 one ISystem per file / filename = type name (0 expected) ==
+ok    R1 clean
+== R2 component purity (0 expected) ==
+ok    R2 clean
+== R3 no cross-system include (0 expected) ==
+ok    R3 clean
+== R4 gameplay tuning literals (0 expected in systems/states/gameplay) ==
+ok    R4 clean
+== R5 entity creation outside factories (0 expected) ==
+ok    R5 clean
+== R6 singleton / mutable global / function-local static (0 expected) ==
+ok    R6 clean
+== R7 layer boundary (0 expected) ==
+ok    R7 clean
+== R8 enum dispatched across >=3 files (0 expected) ==
+ok    R8 clean
+== R9 dead #ifdef (0 expected) ==
+ok    R9 clean
+== R11 bool state soup in components (0 expected) ==
+ok    R11 clean
+== R12 duplicated constants across files (0 expected) ==
+ok    R12 clean
+== R14 build registration burden (file add must need 0 edits) ==
+ok    R14 CMake globs sources
+== R15 ownership: new/delete/owning raw pointer (0 expected) ==
+ok    R15 clean
+== R16 non-determinism (0 expected; unordered iteration is manual) ==
+ok    R16 clean
+== R18 thread affinity declarations (0 expected) ==
+ok    R18 clean
+== R19 swallowed exceptions (0 expected) ==
+ok    R19 clean
+== R20 include resolvability + ISystem contract (0 expected) ==
+ok    R20 clean
+== R21 one registration site / no self-registering macro or static type object (0 expected) ==
+ok    R21 clean
+== R23 string-key reads and string/string bags outside the asset boundary (0 expected) ==
+ok    R23 clean
+== R24 debug/tuning toggles beyond the single debug surface (0 expected) ==
+ok    R24 clean
+== R25 raw file IO outside the asset boundary (0 expected) ==
+ok    R25 clean
+== R26 platform API outside core (0 expected; two render systems are baselined) ==
+ok    R26 clean
+== R27 name-based dispatch / void* packed args in events (0 expected) ==
+ok    R27 clean
+== R28 hand-written Save/Restore pairs (0 expected) ==
+ok    R28 clean
+== R29 versionless boundary struct / DLL-style handoff (0 expected) ==
+ok    R29 clean
+== R30 fork-by-copy: duplicate basename, both >=40 lines, >=60% shared (0 expected) ==
+ok    R30 clean
+== R31 logs deleted by the preprocessor (0 expected; level control is the sanctioned off-switch) ==
+ok    R31 clean
+== R32 silent systems: ISystem with no LOG_* and no ZoneScoped (0 expected; 5 legacy systems baselined) ==
+ok    R32 clean
+== R33 comments that only restate the next line (0 expected) ==
+ok    R33 clean
+== R17 schema migration: schema_version on assets/data/*.json (0 expected) ==
+ok    R17 clean (schema_version declared on every asset)
+== R22 content/balance is data: schema-driven loader (0 expected) ==
+ok    R22 clean (FContentLoader validates assets against declared schema)
+
+NOT CHECKED (manual): R16 unordered_* iteration affecting results R1 system must not mutate >=3 component groups (judgement) R9 revert-diff deletability (needs a revert diff) R10 abstraction impl/use-site counts where no pure-virtual decl exists R12 out-of-contract files (needs docs/reviews/<slug>/contract.md) R13 optimization evidence in pass-3.md R14 registration sites per added file R19 test seam for new systems R21 exactly one registration site per new type (needs the diff + a registration grep) R24 new toggles registered on the single debug/config surface (component-level per-entity flags are out of scope) R28 snapshot layer + schema_version on new persistent formats (absent -> N-A) R29 module boundary version/ownership (no boundary struct in this repo -> N-A) R30 variant by composition; the detector only sees duplicate basenames R31 incremental observation coverage: new/changed files that log state at all (needs the diff) R32 debug-view wiring: whether the system's state is visible on the debug overlay (needs judgement) R33 whether a non-obvious decision actually has its why-comment (needs judgement; only restatements are automated) R33 new src/ file without any comment line (needs the diff)
+PRE-EXISTING (baselined, not blocking): 27 hit line(s) from tests/changeability/baseline.txt
+
+changeability bundle: OK (repo)

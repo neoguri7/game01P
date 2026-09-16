@@ -37,6 +37,7 @@ find_package(Tracy CONFIG REQUIRED)
 find_path(MINIAUDIO_INCLUDE_DIRS "miniaudio.h")
 find_package(SDL3_ttf CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 target_include_directories(game01P PRIVATE ${MINIAUDIO_INCLUDE_DIRS})
 
@@ -50,6 +51,7 @@ target_link_libraries( game01P
 		Tracy::TracyClient
 		SDL3_ttf::SDL3_ttf
 		spdlog::spdlog
+		nlohmann_json::nlohmann_json
 )
 
 set_property(TARGET game01P PROPERTY CXX_STANDARD 23)

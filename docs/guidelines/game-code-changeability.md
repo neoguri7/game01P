@@ -53,7 +53,7 @@
 
 - `core/`는 게임플레이도 `states/`도 `ecs/`도 모른다 (`src/core/`).
 - `src/ecs/`는 `states/`를 모른다. `gameplay/`를 모른다.
-- `states/`와 (예정) `gameplay/`는 `core/` + `ecs/`를 알 수 있다.
+- `states/`와 `gameplay/`는 `core/` + `ecs/`를 알 수 있다.
 
 **채택 상태 표** — 경로가 없으면 `PASS`가 아니라 `N-A (미채택)`이며, 같은 리뷰의 부채(debt) 표에
 한 줄로 기록한다. 존재하지 않는 경로를 근거로 PASS/FAIL을 선언하는 것은 금지한다.
@@ -61,17 +61,17 @@
 | 계약 | 경로 | 상태 | 리뷰 시 처리 |
 | ------ | ------ | ------ | ------------- |
 | 레이어 | `src/core/`, `src/ecs/`, `src/states/` | 존재 | R7로 강제 (FAIL 가능) |
-| 게임플레이 레이어 | `src/gameplay/` | **미생성(예정)** | R7의 `gameplay/` 참조는 "미래 레이어를 향한 위반"으로 FAIL. PASS로 처리 금지 |
+| 게임플레이 레이어 | `src/gameplay/` | 존재 (slice 1: 데이터 계층 + GameplayServices) | R7로 강제 (FAIL 가능): `core/`나 `ecs/`가 `gameplay/`를 include하면 여전히 FAIL. "미래 레이어" 표현은 더 이상 유효하지 않다 |
 | 컴포넌트 | `src/ecs/components/*.h` (`F` 접두어) | 존재 | R2로 강제 |
 | 시스템 | `src/ecs/systems/ISystem.h`, `SystemConcept` | 존재 | R1/R20으로 강제 |
 | 팩토리 | `src/core/factories/` | **미생성(예정)** | R5는 `N-A (미채택)`. 단 `reg.create()`가 팩토리 밖에 나타나면 FAIL + 부채 표 1줄 |
-| 수치 데이터 | `assets/data/` | **미생성(예정)** | R4는 "폴백 + `// fallback:`"으로만 PASS. 튜닝 비용 질문은 `NO(미채택)`으로 답한다 |
+| 수치 데이터 | `assets/data/` | 존재 (`assets/data/*.json`, `schema_version=1`) | R4는 여전히 "폴백 1개 + 같은 줄 `// fallback:` 마커"일 때만 PASS. 튜닝 비용 질문은 이제 예 — 리컴파일 없이 값을 바꾼다 |
 | 서비스 주입 | `registry.ctx()` | 존재 | R6으로 강제 |
 | 이벤트 | `src/core/events/FEventBus.h` (typed event) | 존재 | R3으로 강제 |
 | 앱 흐름 상태 | `FBaseState` / `GameStateMachine` | 존재 | R11로 강제 (게임플레이 상태는 태그 컴포넌트) |
 | 플랫폼 경계 | `src/core/` (SDL3 호출 허용 계층) | 존재 | R26으로 강제 (ecs/states/debug의 `SDL_*` 금지) |
 | 자산 경계 | `src/core/AssetManager.h`, `src/core/ResourceManager.*` | 존재 | R23/R25의 **유일한 문자열 키·파일 IO 예외** (다른 파일은 줄에 `// boundary:` 표기 필요) |
-| 데이터 자산 | `assets/data/` | **미생성(예정)** | R22는 `N-A (미채택)`, 튜닝 비용 질문은 `NO(미채택)` |
+| 데이터 자산 | `assets/data/` | 존재 | R22/R17은 이제 강제 검사다 (로드 시 스키마 검증, `schema_version` 확인). `N-A (미채택)`이 아니다 |
 | 저장/스냅샷 | 없음 | **미생성(예정)** | R28은 `N-A (미채택)` + 부채 표 1줄 |
 | 모듈 경계 | 단일 바이너리 (`src/main.cpp` 정적 링크) | 존재 | R29는 경계 구조체가 없으므로 `N-A` + 부채 1줄. 단 R30(fork-by-copy)은 즉시 FAIL 가능 |
 | 로깅 표면 | `src/core/Logger.h` (`LOG_*` 매크로, spdlog, 콘솔 + `game01p.log`) | 존재 | R31로 강제 (`#if`로 감싸 삭제하지 않고 레벨로 제어) |
@@ -113,10 +113,10 @@
 
 - 형태: 튜닝 가능 값(데미지·속도·쿨다운·스폰 수·에셋 경로)은 `assets/data/`에서. 코드 폴백은 **1개**,
   같은 줄에 `// fallback:` 마커 필수(마커가 없으면 FAIL, 줄이 다르면 FAIL).
-- FAIL (측정): `src/ecs/`·`src/states/`에서 `// fallback:` 미표기 소수 리터럴(`0.35f`) 또는 에셋 경로
-  리터럴(`"player_idle.png"`). 수학/엔진 상수(`tau`, `MAX_DELTA_TIME_SECONDS`, 컨테이너 기본값)는 제외.
+- FAIL (측정): `src/ecs/`·`src/states/`·`src/gameplay/`에서 `// fallback:` 미표기 소수 리터럴(`0.35f`) 또는
+  에셋 경로 리터럴(`"player_idle.png"`). 수학/엔진 상수(`tau`, `MAX_DELTA_TIME_SECONDS`, 컨테이너 기본값)는 제외.
 - FAIL (반대 방향, softcoding): 분기/룰 로직 자체를 JSON 스크립트로 밀어넣기.
-- `assets/data/`가 아직 없으므로: PASS는 "폴백 1개 + 마커"일 때만. 튜닝 비용 질문은 `NO(미채택)`.
+- `assets/data/`가 존재하므로: PASS는 "폴백 1개 + 같은 줄 `// fallback:` 마커"일 때만. 튜닝 비용 질문은 예(리컴파일 없이 값을 바꾼다).
 
 ### R5. 엔티티 생성은 팩토리 단일 경로 (S1, S7)
 
@@ -216,8 +216,8 @@
 - 형태: 설정/세이브 데이터에 `schema_version` 필드, 키 삭제/이름 변경 시 마이그레이션 경로.
 - FAIL (측정): ① 새 설정 파일에 `schema_version` 없음, ② 필수 키 추가/삭제를 기존 데이터 파일의
   갱신 없이 머지(읽기 실패), ③ 세이브 포맷 변경에 버전 상승 또는 마이그레이션 함수 부재.
-- 확인: `jq -e 'has("schema_version")' assets/data/*.json`. `assets/data/`가 없으면 이 규칙은
-  `N-A (미채택)`이며 부채 표에 1줄을 남긴다("파일이 없다"를 PASS로 처리하지 않는다).
+- 확인: `jq -e 'has("schema_version")' assets/data/*.json`. `assets/data/`가 존재하므로 이 규칙은
+  `N-A (미채택)`이 아니라 강제 검사다(어느 파일이든 `schema_version`이 없으면 FAIL).
 
 ### R18. 스레드 친화성 (S11)
 
@@ -300,8 +300,8 @@ DOOM 3에서 **버릴** 것(그대로 옮기면 위반): 매크로 RTTI와 stati
   컴포넌트로 변환한다. 코드에는 스키마·기본값·변환만 남는다.
 - FAIL: 새 엔티티/무기를 추가할 때 밸런스 수치나 구성 키를 코드에 넣어야만 동작하거나, 자산에만 있고
   검증되지 않는 키(오타가 런타임에야 발견).
-- 확인: `ls assets/data/` + R4 명령 + 자산 스키마 검증 테스트. **디렉터리가 없으면 `N-A (미채택)`** +
-  부채 표 1줄(현재 그 상태). 심각도 High: 새 콘텐츠마다 코드 수정 = 3대 비용 위반.
+- 확인: `assets/data/*.json`이 존재하고, 각 테이블이 `src/core/data/FContentLoader.cpp`에서
+  `src/gameplay/data/*Content.h`의 선언된 스키마로 검증된다(§5 R22). 심각도 High: 새 콘텐츠마다 코드 수정 = 3대 비용 위반.
 
 ### R23. 문자열 백은 로더 경계 안에만 (S14 idDict 유산)
 
@@ -454,7 +454,7 @@ R24는 전역 토글을 한 곳에 모으라는 규칙이고, R32는 관측 호�
 
 1. **추가 비용**: 새 기능이 기존 파일을 몇 개 수정했는가? (기대: 0~1 + 등록 1줄)
 2. **삭제 비용**: 되돌리면 파일 몇 개가 사라지고 참조 몇 곳을 지우는가? (기대: 기능 파일 + 등록 1줄)
-3. **튜닝 비용**: 밸런스 수치를 컴파일 없이 바꿀 수 있는가? (기대: 예, `assets/data/`. 현재는 `NO(미채택)`)
+3. **튜닝 비용**: 밸런스 수치를 컴파일 없이 바꿀 수 있는가? (기대: 예, `assets/data/`. 현재 예 — `assets/data/*.json`에서 리컴파일 없이 바꾼다)
 4. **이해 비용**: 이 코드를 이해하려 다른 파일 몇 개를 읽어야 하는가? (3개 초과 = 결합 냄새)
 
 ---
@@ -670,8 +670,8 @@ ASCII 토큰 기준이므로 한글 주석은 오탐이 나지 않는다 — 그
 - 코퍼스: `tests/changeability/fixtures/` — **의도적으로 깨진** 코드. `src/` 밖이므로 CMake 글롭
   (`CMakeLists.txt`: `GLOB_RECURSE ... "src/*.h"`)에 들어가지 않고 빌드되지 않는다.
 - 자동/수동 경계: 하네스는 자동 판정 가능한 규칙만 본다. 판정할 수 없는 규칙은 마지막에
-  `NOT CHECKED (manual): R10, R13, R16b, R17(데이터), R18(affinity), R19b, R21(등록 지점),
-  R22(자산), R24(등록 단일성), R28(스냅샷), R29(경계 소유권), R30(조합 여부), R31(증분 관측 커버리지),
+  `NOT CHECKED (manual): R10, R13, R16b, R18(affinity), R19b, R21(등록 지점),
+  R24(등록 단일성), R28(스냅샷), R29(경계 소유권), R30(조합 여부), R31(증분 관측 커버리지),
   R32(디버그 뷰 배선), R33(비자명 결정의 why 주석 필요성)` 형태로 **명시**된다
   (스크립트 출력이 정본이다).
   이 목록이 출력에 없으면 "돌리긴 했다"는 증거가 아니므로 리뷰를 시작하지 않는다.
@@ -699,6 +699,12 @@ ASCII 토큰 기준이므로 한글 주석은 오탐이 나지 않는다 — 그
   `non-case-label-in-switch` 같은 C 규칙에 오탐된다(둘 다 `language: c`). 이 오탐은 의도된 픽스처에서만
   발생하며 `src/` 계약 스캔(`OK (repo)`)에는 나타나지 않는다. 픽스처를 `.hpp`로 개명하면 사라지지만,
   프로젝트 헤더 규칙(`src/**/*.h`)과 하네스/기록 참조를 깨뜨리므로 개명하지 않고 여기에 기록한다.
+- 위 한계는 픽스처에만 국한되지 않는다. slice 1 리뷰에서 `src/` 파일에도 같은 오탐이 관측됐다:
+  `src/core/data/FContentValue.h`의 `std::variant` 멤버에 `no-bit-fields` 오탐 3건(14·15·17행, 실제
+  비트필드 0건), CWD 기준 상대 include(`assets/...`, `scripts/...`)를 쓰는 파일에 `file not found`
+  연쇄 오류. 따라서 `OK (repo)` 스캔의 hit 개수는 finding 개수가 아니다 — 리뷰어는 규칙 패턴과 수동
+  확인으로 판정하고, 오탐 근거를 기록한다(실측: `docs/reviews/gameplay-foundation/evidence/`,
+  `pass-1.md`·`pass-2.md`).
 - 픽스처를 지침/스크립트 개선 없이 `src/` 쪽으로 옮기거나 삭제하면 캘리브레이션이 무효가 된다.
 - 각 픽스처는 소스 안에 `V<n> [R<rule>]` 주석으로 위반 번호를 달고 있다.
 - 하네스: `scripts/verify-changeability.sh --calibrate`가 규칙별 기대 매치 수를 단언한다.

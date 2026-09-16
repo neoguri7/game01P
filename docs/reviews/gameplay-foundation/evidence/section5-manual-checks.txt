@@ -1,0 +1,255 @@
+src/ecs/systems/AnimationSystem.h: 1
+src/ecs/systems/CollisionSystem.h: 0
+src/ecs/systems/DebugPrimitiveRenderSystem.h: 1
+src/ecs/systems/ISystem.h: 1
+src/ecs/systems/MoveSystem.h: 1
+src/ecs/systems/SpriteRenderSystem.h: 1
+src\imgui\backends\imgui_impl_sdl3.cpp:859:    static Uint64 frequency = SDL_GetPerformanceFrequency();
+src/core\InputState.h
+src/core\data\FContentLoader.cpp
+src/debug\DebugOverlay.cpp
+src/ecs\systems\CollisionSystem.h
+src/ecs\systems\DebugPrimitiveRenderSystem.h
+src\states\FBaseState.h:25:    virtual EStateTransition Update(float DeltaTime) = 0;
+src\ecs\systems\ISystem.h:22:    virtual void update(entt::registry& reg, float dt) = 0;
+src\ecs\systems\ISystem.h:23:    virtual std::string name() const = 0;
+15:file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS 
+22:add_executable (game01P ${SRC_FILES})
+src/core\AudioManager.h:41:        auto* sound = new ma_sound{};
+src/core\AudioManager.h:45:            delete sound;
+src/core\AudioManager.h:55:        auto* sound = new ma_sound{};
+src/core\AudioManager.h:59:            delete sound;
+src/core\AudioManager.h:75:            delete it->second;
+src/core\AudioManager.h:87:                        delete sound;
+src/core\AudioManager.h:105:                delete sound;
+src/core\AudioManager.h:112:                delete sound;
+src/core\events\FEventBus.h:98:// new code.
+src/states\GameStateMachine.h:3:#include "states/FBaseState.h"
+src/states\FTitleState.h:6:#include "FBaseState.h"
+src/ecs\systems\SpriteRenderSystem.h:3:#include "ecs/systems/ISystem.h"
+src/ecs\systems\SpriteRenderSystem.h:4:#include "ecs/components/FPosition.h"
+src/ecs\systems\SpriteRenderSystem.h:5:#include "ecs/components/FSprite.h"
+src/ecs\systems\SpriteRenderSystem.h:6:#include "ecs/components/FLayer.h"
+src/ecs\systems\SpriteRenderSystem.h:7:#include "core/ResourceManager.h"
+src/states\FTitleState.cpp:1:#include "FTitleState.h"
+src/states\FHubState.h:6:#include "FBaseState.h"
+src/ecs\systems\MoveSystem.h:3:#include "ecs/systems/ISystem.h"
+src/ecs\systems\MoveSystem.h:4:#include "ecs/components/FPosition.h"
+src/ecs\systems\MoveSystem.h:5:#include "ecs/components/FVelocity.h"  // you will create this next if needed
+src/core\Engine.cpp:2:#include "core/Engine.h"
+src/core\Engine.cpp:5:#include "imgui/backends/imgui_impl_sdl3.h"
+src/core\Engine.cpp:6:#include "imgui/backends/imgui_impl_sdlrenderer3.h"
+src/core\Engine.cpp:9:#include "core/AssetManager.h"
+src/core\Engine.cpp:10:#include "core/AudioManager.h"
+src/core\Engine.cpp:11:#include "core/EngineAbility.h"
+src/core\Engine.cpp:12:#include "core/EngineAbilityPipeline.h"
+src/core\Engine.cpp:13:#include "core/EngineState.h"
+src/core\Engine.cpp:14:#include "core/InputState.h"
+src/core\Engine.cpp:15:#include "core/Logger.h"
+src/core\Engine.cpp:16:#include "core/ResourceManager.h"
+src/core\Engine.cpp:17:#include "core/events/FEventBus.h"
+src/states\FHubState.cpp:1:#include "FHubState.h"
+src/ecs\systems\DebugPrimitiveRenderSystem.h:3:#include "ecs/components/FCollider.h"
+src/ecs\systems\DebugPrimitiveRenderSystem.h:4:#include "ecs/components/FDebugPrimitive.h"
+src/ecs\systems\DebugPrimitiveRenderSystem.h:5:#include "ecs/components/FLayer.h"
+src/ecs\systems\DebugPrimitiveRenderSystem.h:6:#include "ecs/components/FPosition.h"
+src/ecs\systems\DebugPrimitiveRenderSystem.h:7:#include "ecs/systems/ISystem.h"
+src/ecs\systems\CollisionSystem.h:2:#include "core/events/FCollisionEvent.h"
+src/ecs\systems\CollisionSystem.h:3:#include "core/events/FEventBus.h"
+src/ecs\systems\CollisionSystem.h:4:#include "utils/cute_c2.h"
+src/ecs\systems\CollisionSystem.h:5:#include "ecs/components/FCollider.h"
+src/ecs\systems\CollisionSystem.h:6:#include "ecs/components/FPosition.h"
+src/ecs\systems\CollisionSystem.h:7:#include "ecs/systems/ISystem.h"
+src/ecs\systems\AnimationSystem.h:2:#include "ecs/components/FAnimation.h"
+src/ecs\systems\AnimationSystem.h:3:#include "ecs/components/FSprite.h"
+src/ecs\systems\AnimationSystem.h:4:#include "ecs/systems/ISystem.h"
+src/core\AssetManager.h:3:#include "core/FAssetDigest.h"
+src/core\AssetManager.cpp:1:#include "core/AssetManager.h"
+src/core\AssetManager.cpp:3:#include "core/Logger.h"
+src/core\data\FContentField.h:3:#include "core/data/EContentFieldType.h"
+src/core\data\FContentRow.h:3:#include "core/data/FContentValue.h"
+src/core\data\FContentLoader.h:3:#include "core/AssetManager.h"
+src/core\data\FContentLoader.h:4:#include "core/data/FContentRow.h"
+src/core\data\FContentLoader.h:5:#include "core/data/FContentSchema.h"
+src/core\data\FContentLoader.cpp:1:#include "core/data/FContentLoader.h"
+src/core\data\FContentLoader.cpp:3:#include "core/Logger.h"
+src/core\ResourceManager.cpp:1:#include "core/ResourceManager.h"
+src/core\ResourceManager.cpp:3:#include "SDL3_image/SDL_image.h"
+src/core\ResourceManager.cpp:6:#include "core/Logger.h"
+src/core\EngineAbilityPipeline.cpp:1:#include "core/EngineAbilityPipeline.h"
+src/core\EngineAbilityPipeline.cpp:3:#include "core/EngineState.h"
+src/core\EngineAbilityPipeline.cpp:4:#include "core/SystemManager.h"
+src/core\EngineAbilityPipeline.cpp:5:#include "core/Time.h"
+src/core\EngineAbilityPipeline.cpp:6:#include "core/events/FEventPublishing.h"
+src/core\EngineAbilityPipeline.cpp:9:#include "imgui/backends/imgui_impl_sdlrenderer3.h"
+src/core\EngineAbilityPipeline.cpp:10:#include "imgui/backends/imgui_impl_sdl3.h"
+src/core\Engine.h:9:#include "core/SDLDeleter.h"
+src/core\Engine.h:10:#include "core/EngineAbility.h"
+src/core\Engine.h:11:#include "core/Time.h"
+src/core\Engine.h:12:#include "core/SystemManager.h"
+src/core\EngineAbilityPipeline.h:3:#include "core/EngineAbility.h"
+src/core\EngineAbilityPipeline.h:4:#include "core/InputState.h"
+src/core\SystemManager.h:3:#include "ecs/systems/ISystem.h"
+src/core\EngineInputPipeline.cpp:1:#include "core/EngineAbilityPipeline.h"
+src/core\EngineInputPipeline.cpp:3:#include "core/EngineState.h"
+src/core\EngineInputPipeline.cpp:4:#include "core/events/FEventPublishing.h"
+src/core\EngineInputPipeline.cpp:7:#include "imgui/backends/imgui_impl_sdl3.h"
+src/core\data\FContentSchema.h:3:#include "core/data/FContentField.h"
+src/core\EngineAbility.h:3:#include "core/events/EngineEvents.h"
+src/ecs\components\FAnimation.h:4:#include "ecs/components/FSprFrame.h"
+src/core\data\FContentValue.h:3:#include "core/data/EContentFieldType.h"
+src/core\events\FCollisionEvent.h:3:#include "utils/cute_c2.h"
+src/core\events\FEventPublishing.h:3:#include "core/events/FEventBus.h"
+src/ecs\systems\SpriteRenderSystem.h:28:        // In Engine we store SDL_Renderer* under registry.ctx() as : SDL_Renderer* rendererCtx;
+src/ecs\systems\SpriteRenderSystem.h:29:        auto* rendPtr = reg.ctx().find<SDL_Renderer*>();
+src/ecs\systems\SpriteRenderSystem.h:35:        SDL_Renderer* rend = *rendPtr;
+src/ecs\systems\SpriteRenderSystem.h:50:            SDL_Texture* tex = rm->tryLoadTexture(spr.texturePath);
+src/ecs\systems\SpriteRenderSystem.h:55:            SDL_FRect dst = { pos.x, pos.y, static_cast<float>(spr.width), static_cast<float>(spr.height) };
+src/ecs\systems\SpriteRenderSystem.h:56:            SDL_RenderTexture(rend, tex, nullptr, &dst);  // SDL_RenderTexture for float rect (SDL3)
+src/ecs\systems\DebugPrimitiveRenderSystem.h:25:        auto* rendPtr = reg.ctx().find<SDL_Renderer*>();
+src/ecs\systems\DebugPrimitiveRenderSystem.h:28:        SDL_Renderer* renderer = *rendPtr;
+src/ecs\systems\DebugPrimitiveRenderSystem.h:29:        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+src/ecs\systems\DebugPrimitiveRenderSystem.h:43:            SDL_FRect rect{pos.x, pos.y, primitive.width, primitive.height};
+src/ecs\systems\DebugPrimitiveRenderSystem.h:45:                SDL_SetRenderDrawColor(renderer, primitive.fillR, primitive.fillG, primitive.fillB, primitive.fillA);
+src/ecs\systems\DebugPrimitiveRenderSystem.h:46:                SDL_RenderFillRect(renderer, &rect);
+src/ecs\systems\DebugPrimitiveRenderSystem.h:49:            SDL_SetRenderDrawColor(renderer, primitive.outlineR, primitive.outlineG, primitive.outlineB, primitive.outlineA);
+src/ecs\systems\DebugPrimitiveRenderSystem.h:50:            SDL_RenderRect(renderer, &rect);
+src/ecs\systems\DebugPrimitiveRenderSystem.h:61:    static void DrawCollider(SDL_Renderer* renderer, const FPosition& pos, const FCollider& collider) {
+src/ecs\systems\DebugPrimitiveRenderSystem.h:62:        SDL_SetRenderDrawColor(renderer, 255, 220, 80, 255);
+src/ecs\systems\DebugPrimitiveRenderSystem.h:65:            const SDL_FRect bounds{
+src/ecs\systems\DebugPrimitiveRenderSystem.h:71:            SDL_RenderRect(renderer, &bounds);
+src/ecs\systems\DebugPrimitiveRenderSystem.h:78:    static void DrawCircle(SDL_Renderer* renderer, float centerX, float centerY, float radius) {
+src/ecs\systems\DebugPrimitiveRenderSystem.h:89:            SDL_RenderLine(renderer, previousX, previousY, nextX, nextY);
+== R30 fork-by-copy: duplicate basename, both >=40 lines, >=60% shared (0 expected) ==
+ok    R30 clean
+NOT CHECKED (manual): R16 unordered_* iteration affecting results R1 system must not mutate >=3 component groups (judgement) R9 revert-diff deletability (needs a revert diff) R10 abstraction impl/use-site counts where no pure-virtual decl exists R12 out-of-contract files (needs docs/reviews/<slug>/contract.md) R13 optimization evidence in pass-3.md R14 registration sites per added file R19 test seam for new systems R21 exactly one registration site per new type (needs the diff + a registration grep) R24 new toggles registered on the single debug/config surface (component-level per-entity flags are out of scope) R28 snapshot layer + schema_version on new persistent formats (absent -> N-A) R29 module boundary version/ownership (no boundary struct in this repo -> N-A) R30 variant by composition; the detector only sees duplicate basenames R31 incremental observation coverage: new/changed files that log state at all (needs the diff) R32 debug-view wiring: whether the system's state is visible on the debug overlay (needs judgement) R33 whether a non-obvious decision actually has its why-comment (needs judgement; only restatements are automated) R33 new src/ file without any comment line (needs the diff)
+== R31 logs deleted by the preprocessor (0 expected; level control is the sanctioned off-switch) ==
+ok    R31 clean
+NOT CHECKED (manual): R16 unordered_* iteration affecting results R1 system must not mutate >=3 component groups (judgement) R9 revert-diff deletability (needs a revert diff) R10 abstraction impl/use-site counts where no pure-virtual decl exists R12 out-of-contract files (needs docs/reviews/<slug>/contract.md) R13 optimization evidence in pass-3.md R14 registration sites per added file R19 test seam for new systems R21 exactly one registration site per new type (needs the diff + a registration grep) R24 new toggles registered on the single debug/config surface (component-level per-entity flags are out of scope) R28 snapshot layer + schema_version on new persistent formats (absent -> N-A) R29 module boundary version/ownership (no boundary struct in this repo -> N-A) R30 variant by composition; the detector only sees duplicate basenames R31 incremental observation coverage: new/changed files that log state at all (needs the diff) R32 debug-view wiring: whether the system's state is visible on the debug overlay (needs judgement) R33 whether a non-obvious decision actually has its why-comment (needs judgement; only restatements are automated) R33 new src/ file without any comment line (needs the diff)
+== R32 silent systems: ISystem with no LOG_* and no ZoneScoped (0 expected; 5 legacy systems baselined) ==
+ok    R32 clean
+NOT CHECKED (manual): R16 unordered_* iteration affecting results R1 system must not mutate >=3 component groups (judgement) R9 revert-diff deletability (needs a revert diff) R10 abstraction impl/use-site counts where no pure-virtual decl exists R12 out-of-contract files (needs docs/reviews/<slug>/contract.md) R13 optimization evidence in pass-3.md R14 registration sites per added file R19 test seam for new systems R21 exactly one registration site per new type (needs the diff + a registration grep) R24 new toggles registered on the single debug/config surface (component-level per-entity flags are out of scope) R28 snapshot layer + schema_version on new persistent formats (absent -> N-A) R29 module boundary version/ownership (no boundary struct in this repo -> N-A) R30 variant by composition; the detector only sees duplicate basenames R31 incremental observation coverage: new/changed files that log state at all (needs the diff) R32 debug-view wiring: whether the system's state is visible on the debug overlay (needs judgement) R33 whether a non-obvious decision actually has its why-comment (needs judgement; only restatements are automated) R33 new src/ file without any comment line (needs the diff)
+R32 src/ecs/systems\ISystem.h: silent system
+== R33 comments that only restate the next line (0 expected) ==
+ok    R33 clean
+NOT CHECKED (manual): R16 unordered_* iteration affecting results R1 system must not mutate >=3 component groups (judgement) R9 revert-diff deletability (needs a revert diff) R10 abstraction impl/use-site counts where no pure-virtual decl exists R12 out-of-contract files (needs docs/reviews/<slug>/contract.md) R13 optimization evidence in pass-3.md R14 registration sites per added file R19 test seam for new systems R21 exactly one registration site per new type (needs the diff + a registration grep) R24 new toggles registered on the single debug/config surface (component-level per-entity flags are out of scope) R28 snapshot layer + schema_version on new persistent formats (absent -> N-A) R29 module boundary version/ownership (no boundary struct in this repo -> N-A) R30 variant by composition; the detector only sees duplicate basenames R31 incremental observation coverage: new/changed files that log state at all (needs the diff) R32 debug-view wiring: whether the system's state is visible on the debug overlay (needs judgement) R33 whether a non-obvious decision actually has its why-comment (needs judgement; only restatements are automated) R33 new src/ file without any comment line (needs the diff)
+AnimationSystem.h log=0 span=1
+CollisionSystem.h log=0 span=1
+DebugPrimitiveRenderSystem.h log=0 span=1
+ISystem.h log=0 span=0
+MoveSystem.h log=0 span=1
+SpriteRenderSystem.h log=0 span=1
+MODE: calibrate against tests/changeability/fixtures (fixtures are deliberately broken)
+ok    R1 ecs/systems/ZzComboSystem.h = 3 (want 3)
+ok    R2 ecs/components/FZzBad.h = 3 (want 3)
+ok    R2 ecs/components/FZzGood.h = 0 (want 0)
+ok    R3 ecs/systems/ZzComboSystem.h = 2 (want 2)
+ok    R3 after ISystem.h exclusion = 1 (D2 fix holds)
+ok    R4 ecs/systems/ZzComboSystem.h = 4 (want 4)
+ok    R4 core/ZzLeak.h after //fallback: exclusion = 2 (D1 fix holds)
+ok    R5 ecs/systems/ZzComboSystem.h = 3 (want 3)
+ok    R5 core/ZzLeak.h = 0 (want 0)
+ok    R6 core/ZzLeak.h = 2 (want 2)
+ok    R6 core/ZzLeak.h = 1 (want 1)
+ok    R6 ecs/systems/ZzNoOrderSystem.h = 1 (want 1)
+ok    R7 core/ZzLeak.h = 1 (want 1)
+ok    R7 ecs/ZzStateLeak.h = 2 (want 2)
+ok    R9 ecs/systems/ZzComboSystem.h = 1 (want 1)
+ok    R11 ecs/components/FZzBad.h = 2 (want 2)
+ok    R11 ecs/components/FZzStats.h = 4 (want 4)
+ok    R15 core/ZzOwnership.h = 2 (want 2)
+ok    R16 ecs/systems/ZzNoOrderSystem.h = 3 (want 3)
+ok    R18 core/ZzThread.h = 2 (want 2)
+ok    R19 core/ZzError.h = 1 (want 1)
+ok    R8 EWeapon dispatch spread = 3 files
+ok    R8 ZzKit dispatch spread = 3 files
+ok    R10 IZzSolo impls=1 use-sites<=2 (FAIL case present; note it is NOT named 'class I*')
+ok    R20 core/ZzLeak.h -> gameplay/Player.h is a first-party include (must FAIL resolution)
+ok    R12 duplicated constant name+value detected generically (1)
+ok    R17 config lacks schema_version (FAIL case present)
+ok    R21 ecs/ZzRegMacro.h = 1 (want 1)
+ok    R21 ecs/ZzRegMacro.h = 2 (want 2)
+ok    R23 ecs/components/FZzDictBag.h = 3 (want 3)
+ok    R24 ecs/components/FZzToggles.h = 3 (want 3)
+ok    R25 core/ZzAssetIo.h = 3 (want 3)
+ok    R26 debug/ZzSdlLeak.h = 3 (want 3)
+ok    R27 ecs/systems/ZzStringEventSystem.h = 3 (want 3)
+ok    R28 ecs/systems/ZzSaveRestoreSystem.h = 2 (want 2)
+ok    R29 core/ZzMonolithBoundary.h = 1 (want 1)
+ok    R30 duplicate-layer detector flags the 48/48-line ZzVariantCopy pair (98% shared)
+R30 negative control: repo-mode core/Logger.h vs debug/Logger.h = 3 lines, below the 40-line floor (not a copied layer)
+ok    R31 fixture has 3 LOG_* calls total (2 guarded + 1 free)
+ok    R31 guards only the 2 #if-wrapped calls (the free call is the negative control)
+ok    R32 flags ZzSilentSystem.h (no LOG_*, no span)
+ok    R32 negative control: ZzSpannedSystem.h is observed by ZoneScopedN (0 hits)
+ok    R33 flags only the '// player position' restatement (1 hit)
+ok    R33 negative control: FZzGood.h comment is not a restatement (0 hits)
+
+changeability bundle: OK (calibrate)
+== R1 one ISystem per file / filename = type name (0 expected) ==
+ok    R1 clean
+== R2 component purity (0 expected) ==
+ok    R2 clean
+== R3 no cross-system include (0 expected) ==
+ok    R3 clean
+== R4 gameplay tuning literals (0 expected in systems/states/gameplay) ==
+ok    R4 clean
+== R5 entity creation outside factories (0 expected) ==
+ok    R5 clean
+== R6 singleton / mutable global / function-local static (0 expected) ==
+ok    R6 clean
+== R7 layer boundary (0 expected) ==
+ok    R7 clean
+== R8 enum dispatched across >=3 files (0 expected) ==
+ok    R8 clean
+== R9 dead #ifdef (0 expected) ==
+ok    R9 clean
+== R11 bool state soup in components (0 expected) ==
+ok    R11 clean
+== R12 duplicated constants across files (0 expected) ==
+ok    R12 clean
+== R14 build registration burden (file add must need 0 edits) ==
+ok    R14 CMake globs sources
+== R15 ownership: new/delete/owning raw pointer (0 expected) ==
+ok    R15 clean
+== R16 non-determinism (0 expected; unordered iteration is manual) ==
+ok    R16 clean
+== R18 thread affinity declarations (0 expected) ==
+ok    R18 clean
+== R19 swallowed exceptions (0 expected) ==
+ok    R19 clean
+== R20 include resolvability + ISystem contract (0 expected) ==
+ok    R20 clean
+== R21 one registration site / no self-registering macro or static type object (0 expected) ==
+ok    R21 clean
+== R23 string-key reads and string/string bags outside the asset boundary (0 expected) ==
+ok    R23 clean
+== R24 debug/tuning toggles beyond the single debug surface (0 expected) ==
+ok    R24 clean
+== R25 raw file IO outside the asset boundary (0 expected) ==
+ok    R25 clean
+== R26 platform API outside core (0 expected; two render systems are baselined) ==
+ok    R26 clean
+== R27 name-based dispatch / void* packed args in events (0 expected) ==
+ok    R27 clean
+== R28 hand-written Save/Restore pairs (0 expected) ==
+ok    R28 clean
+== R29 versionless boundary struct / DLL-style handoff (0 expected) ==
+ok    R29 clean
+== R30 fork-by-copy: duplicate basename, both >=40 lines, >=60% shared (0 expected) ==
+ok    R30 clean
+== R31 logs deleted by the preprocessor (0 expected; level control is the sanctioned off-switch) ==
+ok    R31 clean
+== R32 silent systems: ISystem with no LOG_* and no ZoneScoped (0 expected; 5 legacy systems baselined) ==
+ok    R32 clean
+== R33 comments that only restate the next line (0 expected) ==
+ok    R33 clean
+== R17 schema migration: schema_version on assets/data/*.json (0 expected) ==
+ok    R17 clean (schema_version declared on every asset)
+== R22 content/balance is data: schema-driven loader (0 expected) ==
+ok    R22 clean (FContentLoader validates assets against declared schema)
+
+NOT CHECKED (manual): R16 unordered_* iteration affecting results R1 system must not mutate >=3 component groups (judgement) R9 revert-diff deletability (needs a revert diff) R10 abstraction impl/use-site counts where no pure-virtual decl exists R12 out-of-contract files (needs docs/reviews/<slug>/contract.md) R13 optimization evidence in pass-3.md R14 registration sites per added file R19 test seam for new systems R21 exactly one registration site per new type (needs the diff + a registration grep) R24 new toggles registered on the single debug/config surface (component-level per-entity flags are out of scope) R28 snapshot layer + schema_version on new persistent formats (absent -> N-A) R29 module boundary version/ownership (no boundary struct in this repo -> N-A) R30 variant by composition; the detector only sees duplicate basenames R31 incremental observation coverage: new/changed files that log state at all (needs the diff) R32 debug-view wiring: whether the system's state is visible on the debug overlay (needs judgement) R33 whether a non-obvious decision actually has its why-comment (needs judgement; only restatements are automated) R33 new src/ file without any comment line (needs the diff)
+PRE-EXISTING (baselined, not blocking): 27 hit line(s) from tests/changeability/baseline.txt
+
+changeability bundle: OK (repo)

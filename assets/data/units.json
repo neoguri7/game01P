@@ -1,0 +1,23 @@
+{
+  "_comment": "프로토타입 행: id·수치(max_health, speed, ap_cost, range)는 스키마 검증용 잠정값이며 design §4 확정 수치가 아니다(미결). 확정 수치는 밸런싱 단계에서 이 파일만 고쳐 정한다.",
+  "schema_version": 1,
+  "units": [
+    {
+      "id": "proto_melee",
+      "display_name": "Proto Melee",
+      "max_health": 120,
+      "speed": 4,
+      "skills": ["proto_cleave", "proto_guard"]
+    },
+    {
+      "id": "proto_ranged",
+      "display_name": "Proto Ranged",
+      "max_health": 80,
+      "speed": 6,
+      "move_ap": 1,
+      "skill_ap": 2,
+      "skills": ["proto_shot"],
+      "sprite": "units/proto_ranged"
+    }
+  ]
+}

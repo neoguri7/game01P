@@ -1,0 +1,42 @@
+# Slice 1 reviewed range: main..working tree (feature/gameplay)
+# generated: git diff --stat main (excerpt, full diff = git diff main)
+
+ CMakeLists.txt                                     |   2 +
+ assets/data/skills.json                            |  25 ++
+ assets/data/units.json                             |  23 ++
+ docs/design/game-design-feedback.md                | 207 +++++++++++++++++
+ docs/guidelines/game-code-changeability.md         |  34 +--
+ docs/reviews/gameplay-foundation/contract.md       | 106 +++++++++
+ .../evidence/compiler-syntax-check.txt             |   7 +
+ .../evidence/delegate-docs-harness-round1.txt      |  41 ++++
+ .../evidence/independent-review-round1.txt         | 114 +++++++++
+ .../evidence/section5-manual-checks.txt            | 255 +++++++++++++++++++++
+ .../evidence/verify-changeability-calibrate.txt    |  47 ++++
+ .../evidence/verify-changeability-repo.txt         |  67 ++++++
+ docs/reviews/gameplay-foundation/pass-1.md         |  53 +++++
+ docs/reviews/gameplay-foundation/pass-2.md         | 133 +++++++++++
+ docs/reviews/gameplay-foundation/pass-3.md         |  27 +++
+ docs/reviews/gameplay-foundation/verdict.md        | 105 +++++++++
+ scripts/verify-changeability.sh                    |  38 ++-
+ src/core/AssetManager.cpp                          |  93 ++++++++
+ src/core/AssetManager.h                            |  52 ++++-
+ src/core/FAssetDigest.h                            |  26 +++
+ src/core/data/EContentFieldType.h                  |  18 ++
+ src/core/data/FContentField.h                      |  17 ++
+ src/core/data/FContentLoader.cpp                   | 240 +++++++++++++++++++
+ src/core/data/FContentLoader.h                     |  21 ++
+ src/core/data/FContentRow.h                        |  53 +++++
+ src/core/data/FContentSchema.h                     |  21 ++
+ src/core/data/FContentTable.h                      |  25 ++
+ src/core/data/FContentValue.h                      |  24 ++
+ src/gameplay/GameplayServices.cpp                  |  41 ++++
+ src/gameplay/GameplayServices.h                    |  21 ++
+ src/gameplay/data/FContentRegistry.cpp             |  61 +++++
+ src/gameplay/data/FContentRegistry.h               |  24 ++
+ src/gameplay/data/FSkillContent.cpp                |  18 ++
+ src/gameplay/data/FSkillContent.h                  |  45 ++++
+ src/gameplay/data/FUnitContent.cpp                 |  23 ++
+ src/gameplay/data/FUnitContent.h                   |  54 +++++
+ src/main.cpp                                       |   9 +
+ vcpkg.json                                         |   1 +
+ 38 files changed, 2142 insertions(+), 29 deletions(-)

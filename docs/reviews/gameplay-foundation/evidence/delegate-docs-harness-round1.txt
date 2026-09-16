@@ -1,0 +1,41 @@
+I'll start by reading both files and running pre-edit validation.Now let me read the guideline doc and capture pre-edit counts.Let me verify the slice-1 files referenced.jq says both JSON missing `schema_version`. Context claimed both carry it. Let me inspect.jq not on PATH — genuine env fact, script must guard like existing calibrate code does. Let me preview what R4/R17/R22 would find on slice-1 files.Understood. jq is absent in this shell despite context claim; docs claim both JSONs carry `"schema_version": 1` — they do (confirmed by read). Now applying edits.Now the script edits.Syntax check + post-edit harness.Checking final doc line ranges + confirming only my 2 files changed relative to pre-edit state.Done. Report:
+
+## Edits
+
+**`docs/guidelines/game-code-changeability.md`**
+- L56: `states/`와 (예정) `gameplay/` → `states/`와 `gameplay/` — stale "(예정)" gone.
+- L64: `게임플레이 레이어` row → status `존재 (slice 1: 데이터 계층 + GameplayServices)`; cell now R7 enforced (`core/`/`ecs/` include of `gameplay/` still FAIL) + "미래 레이어" obsolete.
+- L68: `수치 데이터` row → status `존재 (assets/data/*.json, schema_version=1)`; R4 still PASS only with fallback + same-line `// fallback:`; tuning-cost now 예.
+- L74: `데이터 자산` row → status `존재`; R22/R17 now enforced checks, not N-A.
+- L116,119: R4 FAIL scan now lists `src/gameplay/`; absent-dir clause → exists + real check.
+- L219: R17 확인 → dir exists, enforced (`jq -e 'has("schema_version")' assets/data/*.json`), no N-A.
+- L303: R22 확인 → `assets/data/*.json` validated by `src/core/data/FContentLoader.cpp` against `src/gameplay/data/*Content.h` schemas.
+- L457: tuning-cost question answered 예.
+- L673: §6 manual list dropped stale `R17(데이터)`, `R22(자산)`.
+- Kept every rule number/severity/vocabulary/`// ` convention. No new/deleted rules.
+
+**`scripts/verify-changeability.sh`**
+- L238-239: R4 scan paths + note now include `$SRC/gameplay`.
+- L458-488: replaced two `manual` N-A entries with real automated checks — R17 loops `assets/data/*.json` (`jq -e 'has("schema_version")'`, rg fallback when `jq` absent) → `bad` on missing; R22 asserts `src/core/data/FContentLoader.cpp` exists + `src/gameplay/data/` declares `FContentSchema|FContentField` → `bad` otherwise.
+- L495/496 region: removed `manual "R17 ..."` and `manual "R22 ..."`.
+- `ok`/`bad`/`manual`/`note` vocabulary + exit contract untouched. Tests/src untouched.
+
+## Harness
+
+| run | ok | FAIL | manual list | bundle |
+|---|---|---|---|---|
+| before | 29 | 0 | contains `R17 ... absent -> N-A`, `R22 ... absent -> N-A` | `OK (repo)` |
+| after | 31 | 0 | R17/R22 gone | `OK (repo)` |
+
+`PRE-EXISTING ... 27 hit line(s)` unchanged before/after.
+`bash -n scripts/verify-changeability.sh` → pass.
+`--calibrate` → `OK (calibrate)` (43 ok / 0 FAIL).
+**NEW failures: none.** Slice-1 files add zero R4/R17/R22 hits.
+Negative controls confirm real checks: fixture `tests/changeability/fixtures/assets/data/zz_bad_config.json` fails the R17 rg-fallback; missing `gameplay/data` schema fails R22.
+
+## `git diff --name-only`
+Shows 7 files — my 2 plus **5 pre-existing slice-1 modifications** (present before I started): `.pi-lens.json`, `CMakeLists.txt`, `src/core/AssetManager.h`, `src/main.cpp`, `vcpkg.json`. I edited only the two allowed files.
+
+## Genuine slice-1 defect (reported, not fixed)
+- **`jq` not on PATH** in this Git Bash env (`which jq` → none; `cmd where jq` → none), contradicting the pass context. The new R17 check would silently no-op/fail without the rg fallback, so the script now guards with `command -v jq` (mirrors existing calibrate code). Anyone running the documented `jq -e ...` R17 command per the guideline would get `command not found` here.
+- **Doc precision nit** (not a violation): docs L303 says schemas declared in `src/gameplay/data/*Content.h`; actual `FContentSchema` objects live at `src/gameplay/data/FContentRegistry.cpp:18-19` (`kUnitSchema`/`kSkillSchema`) while the `FContentField` arrays are in `*Content.h`. Wording was prescribed by the task; flagging only.

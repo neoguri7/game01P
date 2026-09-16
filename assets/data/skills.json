@@ -1,0 +1,25 @@
+{
+  "_comment": "프로토타입 행: id·수치(ap_cost, range)·태그는 스키마 검증용 잠정값이며 design §4/§5 확정 수치가 아니다(미결). 확정 수치는 밸런싱 단계에서 이 파일만 고쳐 정한다.",
+  "schema_version": 1,
+  "skills": [
+    {
+      "id": "proto_cleave",
+      "display_name": "Proto Cleave",
+      "ap_cost": 1,
+      "tags": ["Melee"]
+    },
+    {
+      "id": "proto_guard",
+      "display_name": "Proto Guard",
+      "ap_cost": 1,
+      "tags": ["Melee"]
+    },
+    {
+      "id": "proto_shot",
+      "display_name": "Proto Shot",
+      "ap_cost": 2,
+      "range": 4,
+      "tags": ["Projectile"]
+    }
+  ]
+}
