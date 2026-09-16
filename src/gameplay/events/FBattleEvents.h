@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gameplay/data/FBehaviorContent.h"
+
 #include <entt/entt.hpp>
 
 #include <string>
@@ -92,6 +94,17 @@ struct FUnitDamagedEvent {
 
 struct FUnitDownedEvent {
     entt::entity unit{entt::null};
+};
+
+/// An enemy turn was decided by a behaviour rule (design `dungeon-run.md` §2). why this event and not only a
+/// LOG_* line: the decision is narration the player must be able to follow (R31) — "why did this monster
+/// move instead of attack" is answerable only by naming the rule that matched. `ruleId` empty means no rule
+/// matched (the unit waits). `action` is the typed vocabulary from the data layer, so the log consumer does
+/// not parse text (R27).
+struct FBehaviorDecidedEvent {
+    entt::entity unit{entt::null};
+    std::string ruleId;
+    EBehaviorAction action{EBehaviorAction::Wait};
 };
 
 /// Terminal state of the battle (design §4 확정: 일반 전투 목표 = 적 제거).
