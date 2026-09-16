@@ -42,18 +42,22 @@ first finding below is exactly that class of defect, and it is why a green harne
 
 ## Tooling note (false positive, do not "fix")
 
-`pi-lens` reports `bit fields should not be used` on `src/core/data/FContentValue.h:14-17`,
-`src/core/data/FContentLoader.h:18` and `src/core/AssetManager.h` on every edit in this slice. None of these files
-is part of the slice (`git status` shows `src/core/` untouched), and none contains a bit field:
+`pi-lens` reports `bit fields should not be used` on `src/core/data/FContentValue.h`,
+`src/core/data/FContentLoader.h` and `src/core/AssetManager.h` on every edit in this slice. None of these files
+is part of the slice (`git status src/` and `git diff --stat HEAD -- src/` are both empty; they were last changed
+in `a88fcea`), and none contains a bit field:
 
 ```text
-$ grep -rnE "^\s*(const\s+)?[A-Za-z_][A-Za-z0-9_:<>, ]*\s+[A-Za-z_][A-Za-z0-9_]*\s*:\s*[0-9]+\s*;" --include=*.h --include=*.cpp src/
+$ grep -rnE "^[[:space:]]*(const[[:space:]]+)?[A-Za-z_][A-Za-z0-9_:<>, ]*[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*:[[:space:]]*[0-9]+[[:space:]]*;" --include=*.h --include=*.cpp src/
 (no output)
-$ sed -n '14,17p' src/core/data/FContentValue.h
+$ sed -n '14p' src/core/data/FContentValue.h
     EContentFieldType type = EContentFieldType::Text;
-    std::variant<std::string, double, bool, std::vector<std::string>, std::vector<double>> value{std::string{}};
+$ sed -n '18p' src/core/data/FContentLoader.h
+    [[nodiscard]] static std::optional<std::vector<FContentRow>> load(const FAssetManager& assets, const FContentSchema& schema);
 ```
 
-The rule misparses `enum`-member initialisers / `std::variant` templates as bit-field declarations. Reported as
-a linter bug, not as a code defect; touching `src/core/` to silence it would be unrelated churn outside the
-contract.
+Root cause confirmed by reading the rule itself: `pi-lens/rules/tree-sitter-queries/c/no-bit-fields.yml` declares
+`language: c` with the query `(field_declaration (bitfield_clause) @BITFIELD) @DECL`, and it is being applied to
+C++ headers — the C grammar cannot parse `Scope::Name`, so error recovery invents a `bitfield_clause` on exactly
+those declaration lines (the `::` is the trigger). Reported as a linter bug, not as a code defect; touching
+`src/core/` to silence it would be unrelated churn outside the contract.
