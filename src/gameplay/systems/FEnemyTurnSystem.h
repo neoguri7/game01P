@@ -152,10 +152,14 @@ private:
         const entt::entity target = nearestLivingOpponentWithinRange(registry, unit, skill->range);
         if (target == entt::null) {
             // why no request is queued out of range: the resolver would reject it, and a rejection the rule
-            // already knew about is noise; the decision event still states what was chosen (R19).
+            // already knew about is noise (R19). why the rejection *event* is still queued: the player read
+            // "decided → 첫 스킬" from FBehaviorDecidedEvent and must also read that nothing came of it — the
+            // resolver's own rejection channel (FSkillRejectedEvent) is the existing place for that sentence.
             LOG_WARN("enemy turn: entity {} has no opponent within range {}; its turn is spent.",
                      static_cast<int>(unit),
                      skill->range);
+            bus->queueFrame<FSkillRejectedEvent>(
+                FSkillRejectedEvent{unit, skill->id, "사거리 안에 상대가 없다"});
             return;
         }
 

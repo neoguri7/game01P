@@ -1,5 +1,5 @@
 {
-  "_comment": "프로토타입 행: 규칙 어휘(when/then)와 threshold는 design §2 확정 어휘를 모두 한 번씩 덮는 잠정값이며, 규칙별 수치와 우선순위는 design §4 확정 수치가 아니다(미결). threshold는 self_hp_at_or_below(비율 0~1)와 opponent_count_at_or_above(마리 수)에서만 쓰고 나머지 조건은 값을 무시한다. 확정 수치는 밸런싱 단계에서 이 파일만 고쳐 정한다.",
+  "_comment": "프로토타입 행: 규칙 어휘(when/then)와 threshold는 design §2 확정 어휘를 모두 한 번씩 덮는 잠정값이며, 규칙별 수치와 우선순위는 design §4 확정 수치가 아니다(미결). threshold는 모든 행에 필수다(스키마 required) — 비율 조건은 0~1, 마리 수 조건은 정수 마리 수를 쓰고, 쓰지 않는 조건은 0을 적는다(값을 생략하면 투영 기본값 0과 구분되지 않아 규칙이 조용히 뒤집힌다). proto_retreat와 proto_wait_outnumbered는 어느 유닛도 참조하지 않는 어휘 커버리지 행이다(units.json의 behavior 목록이 늘면 그때 연결한다) — 실행 경로가 살아 있는 행은 proto_grunt_* / proto_brute_* 뿐이다. 확정 수치는 밸런싱 단계에서 이 파일만 고쳐 정한다.",
   "schema_version": 1,
   "behaviors": [
     {
@@ -11,26 +11,31 @@
     {
       "id": "proto_grunt_engage",
       "when": "opponent_in_skill_range",
+      "threshold": 0,
       "then": "use_first_skill"
     },
     {
       "id": "proto_grunt_advance",
       "when": "always",
+      "threshold": 0,
       "then": "move_toward_nearest_opponent"
     },
     {
       "id": "proto_brute_avenge",
       "when": "ally_downed",
+      "threshold": 0,
       "then": "use_first_skill"
     },
     {
       "id": "proto_brute_engage",
       "when": "opponent_in_skill_range",
+      "threshold": 0,
       "then": "use_first_skill"
     },
     {
       "id": "proto_brute_advance",
       "when": "always",
+      "threshold": 0,
       "then": "move_toward_nearest_opponent"
     },
     {

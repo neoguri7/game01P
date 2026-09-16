@@ -99,8 +99,10 @@ private:
 
         // why the shared predicate and not `distance > range` here: the AI's `opponent_in_skill_range` rule must
         // ask the exact same question, or a rule could pick a target this check then rejects (R12).
+        // why `distance` is computed before the branch: the rejection and the success log both print it, so it is
+        // the actor→target distance of this resolution, not a fact of the refusal.
+        const int distance = gridDistance(*actorCell, *targetCell);
         if (!withinSkillRange(*actorCell, *targetCell, skill->range)) {
-            const int distance = gridDistance(*actorCell, *targetCell);
             reject(bus, request, fmt::format("사거리 밖 (거리 {}, 사거리 {})", distance, skill->range));
             return;
         }

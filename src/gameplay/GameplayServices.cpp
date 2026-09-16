@@ -62,10 +62,10 @@ bool FGameplayServices::Initialize(entt::registry& registry) {
         return false;
     }
 
-    // Run-scope service (R6). why the seed is written here and not left to the default: design §1 확정 — the run seed
-    // is fixed at 0 so the same inputs replay the same run (R19).
+    // Run-scope service (R6). why the seed is not written here: design §1 fixes the run seed at 0, and
+    // FRunState carries that as its documented default — a second assignment would be the same decision in two
+    // places (R12/R22).
     FRunState& run = registry.ctx().emplace<FRunState>();
-    run.seed = 0;
     run.phase = ERunPhase::Hub;
 
     return true;
@@ -83,7 +83,7 @@ void FGameplayServices::RegisterSystems(game::SystemManager& systems) {
     systems.addSystem<FTurnStartSystem>();   // opens the next turn (AP refill + FTurnActive)
     systems.addSystem<FGridMoveSystem>();    // player movement (이동 AP)
     systems.addSystem<FPlayerCommandSystem>(); // player skill/target selection (스킬 AP)
-    systems.addSystem<FEnemyTurnSystem>();   // 미결(design §4) 몬스터 AI 자리
+    systems.addSystem<FEnemyTurnSystem>();   // 적 턴 — 고르는 행동은 data(behaviors.json) + rules/FBehaviorTree.h가 정한다 (design §2)
     systems.addSystem<FSkillResolveSystem>(); // legality: turn, skill list, range, AP
     systems.addSystem<FDamageSystem>();      // 피해 공식 (미결(design §4)) + 쓰러짐
     systems.addSystem<FBattleOutcomeSystem>(); // 승리/패배 판정

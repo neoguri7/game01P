@@ -5,6 +5,7 @@
 
 #include <tracy/Tracy.hpp>
 
+#include <cmath>
 #include <cstddef>
 #include <span>
 #include <string>
@@ -65,6 +66,14 @@ bool behaviorVocabularyKnown(std::string_view behaviorId, std::string_view when,
 /// encounter are the three ways a room can be wrong, so one function keeps the room index in the message
 /// (R19/R22/R31).
 bool dungeonRowValid(const FContentRegistry& registry, const FDungeonContent& dungeon, const std::vector<std::string>& kindTokens) {
+    // why the empty check exists: a dungeon with no rooms cannot produce a run — FRunFactory refuses it at entry
+    // time, which is a runtime refusal for content that should never have loaded (R19/R22: design §1 확정은
+    // 던전 = 룸 목록이 있다).
+    if (dungeon.roomEncounterIds.empty()) {
+        LOG_ERROR("content: dungeon '{}' has no rooms; a dungeon without rooms cannot be entered.", dungeon.id);
+        return false;
+    }
+
     if (dungeon.roomEncounterIds.size() != kindTokens.size()) {
         LOG_ERROR("content: dungeon '{}' lists {} room encounter(s) but {} room kind(s); expected one kind per room.",
                   dungeon.id,
@@ -95,6 +104,46 @@ bool dungeonRowValid(const FContentRegistry& registry, const FDungeonContent& du
                       index,
                       dungeon.roomEncounterIds[index]);
             return false;
+        }
+    }
+    return true;
+}
+
+/// Flat [x, y, x, y, ...] list → every cell must be inside the authored grid.
+/// why the check exists: an out-of-bounds cell used to fail only when a unit was spawned, which rolled the run
+/// back to the hub mid-session instead of failing the boot (R19/R22).
+bool cellsInsideGrid(const FEncounterContent& encounter, const std::vector<double>& cells) {
+    for (std::size_t index = 0; index + 1 < cells.size(); index += 2) {
+        const double x = cells[index];
+        const double y = cells[index + 1];
+        if (x < 0.0 || y < 0.0 || x >= static_cast<double>(encounter.gridWidth)
+            || y >= static_cast<double>(encounter.gridHeight)) {
+            LOG_ERROR("content: encounter '{}' places a unit outside the {}x{} grid at ({}, {}).",
+                      encounter.id,
+                      encounter.gridWidth,
+                      encounter.gridHeight,
+                      x,
+                      y);
+            return false;
+        }
+    }
+    return true;
+}
+
+/// True when no party cell equals an enemy cell.
+/// why the check exists: occupancy is tracked per side, so one shared cell puts two units on it and the battle
+/// starts already broken — FGridOccupancy only guards movement afterwards (R19/R22).
+bool cellsDisjointFromOpponent(const FEncounterContent& encounter) {
+    for (std::size_t party = 0; party + 1 < encounter.partyCells.size(); party += 2) {
+        for (std::size_t enemy = 0; enemy + 1 < encounter.enemyCells.size(); enemy += 2) {
+            if (encounter.partyCells[party] == encounter.enemyCells[enemy]
+                && encounter.partyCells[party + 1] == encounter.enemyCells[enemy + 1]) {
+                LOG_ERROR("content: encounter '{}' puts a party and an enemy unit on the same cell ({}, {}).",
+                          encounter.id,
+                          encounter.partyCells[party],
+                          encounter.partyCells[party + 1]);
+                return false;
+            }
         }
     }
     return true;
@@ -190,14 +239,24 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
         }
     }
 
-    // why the threshold check exists: decodeBehavior projects a value (R22), so a negative threshold would
-    // silently invert a comparison — `self_hp_at_or_below` would never fire and `opponent_count_at_or_above`
-    // would always fire (F4/R19).
+    // why the threshold checks are condition-specific: decodeBehavior projects a value (R22), so a threshold
+    // outside its condition's domain silently inverts the rule — `self_hp_at_or_below: 3` always fires,
+    // `self_hp_at_or_below: -1` never fires, and a fractional `opponent_count_at_or_above` truncates to a
+    // different count than the author read (F4/R19/R22).
     for (const FBehaviorContent& behavior : registry.behaviors.rows) {
-        if ((behavior.condition == EBehaviorCondition::SelfHpAtOrBelow
-                || behavior.condition == EBehaviorCondition::OpponentCountAtOrAbove)
-            && behavior.threshold < 0.0) {
-            LOG_ERROR("content: behavior '{}' has a negative threshold {}; expected >= 0.", behavior.id, behavior.threshold);
+        if (behavior.condition == EBehaviorCondition::SelfHpAtOrBelow
+            && (behavior.threshold < 0.0 || behavior.threshold > 1.0)) {
+            LOG_ERROR("content: behavior '{}' has ratio threshold {}; expected 0~1 for self_hp_at_or_below.",
+                      behavior.id,
+                      behavior.threshold);
+            return std::nullopt;
+        }
+        if (behavior.condition == EBehaviorCondition::OpponentCountAtOrAbove
+            && (behavior.threshold < 0.0 || std::fmod(behavior.threshold, 1.0) != 0.0)) {
+            LOG_ERROR("content: behavior '{}' has count threshold {}; expected a whole number >= 0 for "
+                      "opponent_count_at_or_above.",
+                      behavior.id,
+                      behavior.threshold);
             return std::nullopt;
         }
     }
@@ -256,6 +315,13 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
                       encounter.id,
                       encounter.gridWidth,
                       encounter.gridHeight);
+            return std::nullopt;
+        }
+
+        // why both checks live after the grid check: a cell is only inside or outside a grid once the grid is
+        // known to be sane, and a shared cell is only meaningful once both sides have valid cells (R19/R22).
+        if (!cellsInsideGrid(encounter, encounter.partyCells) || !cellsInsideGrid(encounter, encounter.enemyCells)
+            || !cellsDisjointFromOpponent(encounter)) {
             return std::nullopt;
         }
     }

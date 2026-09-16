@@ -40,8 +40,7 @@ enum class EBehaviorAction {
 struct FBehaviorContent {
     std::string id;
     EBehaviorCondition condition{EBehaviorCondition::Always};
-    double threshold{0.0}; // 비율 조건과 마리 수 조건이 공유한다 (쓰지 않는 조건은 값을 무시한다)
-    EBehaviorAction action{EBehaviorAction::Wait};
+    double threshold{0.0}; // 비율 조건과 마리 수 조건이 공유한다 (쓰지 않는 조건은 값을 무시한다)    EBehaviorAction action{EBehaviorAction::Wait};
 };
 
 /// Field order IS the projection order FContentLoader uses (R22).
@@ -50,7 +49,12 @@ struct FBehaviorContent {
 inline constexpr FContentField kBehaviorFields[] = {
     {"id", EContentFieldType::Text, true},        // boundary: asset key
     {"when", EContentFieldType::Text, true},      // boundary: asset key — 조건 어휘
-    {"threshold", EContentFieldType::Number, false}, // boundary: asset key
+    // why required even for the conditions that ignore it: after projection the loader's default (0.0) is
+    // indistinguishable from an authored 0, so "the field is missing" is only visible as a schema violation —
+    // and a silent 0 makes self_hp_at_or_below never fire while making opponent_count_at_or_above always fire
+    // (R19/R22). Every row therefore carries the key; unused conditions author 0 and the registry rejects
+    // negatives.
+    {"threshold", EContentFieldType::Number, true}, // boundary: asset key
     {"then", EContentFieldType::Text, true},      // boundary: asset key — 행동 어휘
 };
 
@@ -67,8 +71,8 @@ static_assert(std::size(kBehaviorFields) == 4, "kBehaviorFields and the kBehavio
 [[nodiscard]] std::optional<EBehaviorAction> behaviorActionFromText(std::string_view text);
 
 /// Projects one validated row into a rule. Cannot fail on types (R22); the grammar check (known `when`/`then`
-/// token, threshold present for the conditions that need it) belongs to FContentRegistry, which owns the
-/// tables.
+/// token, non-negative threshold, presence of `threshold` via the required field) belongs to FContentRegistry,
+/// which owns the tables.
 [[nodiscard]] FBehaviorContent decodeBehavior(const FContentRow& row);
 
 } // namespace game::gameplay

@@ -37,31 +37,6 @@ namespace game::gameplay {
     return opponents;
 }
 
-/// Nearest living opponent, ties going to the lower entity id (the sorted order above already decides it).
-/// why a free function: the default player target and 미결(design §4) 몬스터 AI share this rule; when the AI is
-/// designed, only the caller changes.
-[[nodiscard]] inline entt::entity nearestLivingOpponent(entt::registry& registry, entt::entity self) {
-    const FGridPosition* selfPosition = registry.try_get<FGridPosition>(self);
-    if (selfPosition == nullptr) {
-        return entt::null;
-    }
-
-    entt::entity best = entt::null;
-    int bestDistance = 0;
-    for (const entt::entity candidate : livingOpponents(registry, self)) {
-        const FGridPosition* position = registry.try_get<FGridPosition>(candidate);
-        if (position == nullptr) {
-            continue;
-        }
-        const int distance = gridDistance(*selfPosition, *position);
-        if (best == entt::null || distance < bestDistance) {
-            best = candidate;
-            bestDistance = distance;
-        }
-    }
-    return best;
-}
-
 /// True when `to` is within `range` cells of `from` (Chebyshev via FGridDistance).
 /// why this exists: range is asked by the AI's `opponent_in_skill_range` fact AND validated by
 /// FSkillResolveSystem — a second comparison would eventually let a rule pick a target the resolver rejects
@@ -70,11 +45,18 @@ namespace game::gameplay {
     return gridDistance(from, to) <= range;
 }
 
-/// Nearest living opponent *inside* `range` cells, or entt::null when none is in range. Same tie rule as
-/// `nearestLivingOpponent` (lower entity id wins), so a rule and the player's default target never disagree (R16).
-[[nodiscard]] inline entt::entity nearestLivingOpponentWithinRange(entt::registry& registry,
-                                                                   entt::entity self,
-                                                                   int range) {
+namespace detail {
+
+/// Nearest living opponent whose cell `acceptPosition(self, candidate)` accepts, or entt::null.
+/// why one helper for both public queries: the tie rule (lower entity id wins — the sorted order above) and the
+/// missing-cell handling are the parts that must not drift between "any opponent" and "an opponent in range"
+/// (R12); the two queries differ only in which candidates they accept.
+/// `invariant:` the accepted candidate set is decided by the caller's predicate, never by iteration order —
+/// `livingOpponents` is sorted, and only a strictly smaller distance replaces the current best.
+template <typename AcceptPosition>
+[[nodiscard]] inline entt::entity nearestLivingOpponentWhere(entt::registry& registry,
+                                                             entt::entity self,
+                                                             AcceptPosition acceptPosition) {
     const FGridPosition* selfPosition = registry.try_get<FGridPosition>(self);
     if (selfPosition == nullptr) {
         return entt::null;
@@ -84,7 +66,7 @@ namespace game::gameplay {
     int bestDistance = 0;
     for (const entt::entity candidate : livingOpponents(registry, self)) {
         const FGridPosition* position = registry.try_get<FGridPosition>(candidate);
-        if (position == nullptr || !withinSkillRange(*selfPosition, *position, range)) {
+        if (position == nullptr || !acceptPosition(*selfPosition, *position)) {
             continue;
         }
         const int distance = gridDistance(*selfPosition, *position);
@@ -94,6 +76,29 @@ namespace game::gameplay {
         }
     }
     return best;
+}
+
+} // namespace detail
+
+/// Nearest living opponent, ties going to the lower entity id (the sorted order above already decides it).
+/// why a free function: the default player target and the monster's behaviour rules share this rule, so a
+/// balance change to "nearest" moves both (R12).
+[[nodiscard]] inline entt::entity nearestLivingOpponent(entt::registry& registry, entt::entity self) {
+    return detail::nearestLivingOpponentWhere(registry, self, [](const FGridPosition&, const FGridPosition&) {
+        return true;
+    });
+}
+
+/// Nearest living opponent *inside* `range` cells, or entt::null when none is in range. Uses `withinSkillRange`,
+/// so a rule and the resolver's own check can never disagree about who is reachable (R12), and the tie rule is
+/// the shared one (lower entity id wins) so a rule and the player's default target never disagree (R16).
+[[nodiscard]] inline entt::entity nearestLivingOpponentWithinRange(entt::registry& registry,
+                                                                   entt::entity self,
+                                                                   int range) {
+    return detail::nearestLivingOpponentWhere(
+        registry,
+        self,
+        [range](const FGridPosition& from, const FGridPosition& to) { return withinSkillRange(from, to, range); });
 }
 
 } // namespace game::gameplay

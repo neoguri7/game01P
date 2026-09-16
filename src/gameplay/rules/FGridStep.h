@@ -11,6 +11,7 @@
 #include <entt/entt.hpp>
 #include <fmt/format.h>
 
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <utility>
