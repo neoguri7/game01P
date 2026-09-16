@@ -1,0 +1,6 @@
+# Calibration corpus only. These files are DELIBERATELY invalid game code: they must
+# keep the exact literals and names the R1-R20 rules detect (e.g. `10.f` for R4,
+# `kZz*` constants for R12a, default `int` enums for R8). Style/cosmetic clang-tidy
+# checks are therefore switched off inside this directory and nowhere else.
+Checks: "-readability-uppercase-literal-suffix,-readability-identifier-naming,-performance-enum-size,-readability-convert-member-functions-to-static,-readability-magic-numbers"
+WarningsAsErrors: ""

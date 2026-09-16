@@ -1,0 +1,4 @@
+# rule path reason  — PRE-EXISTING debt only; adding an entry to reach a green run is itself a finding.
+R15 src/core/AudioManager.h miniaudio ma_sound lifecycle uses manual new/delete (RAII follow-up slice)
+R26 src/ecs/systems/DebugPrimitiveRenderSystem.h SDL3 drawing done inside an ECS system; move behind a core Renderer service (needs a Renderer slice)
+R26 src/ecs/systems/SpriteRenderSystem.h SDL3 drawing done inside an ECS system; move behind a core Renderer service (needs a Renderer slice)
