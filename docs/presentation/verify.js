@@ -38,7 +38,19 @@ mermaid.initialize({
 
 const blocks = [
   ...html.matchAll(/<pre class="mermaid">([\s\S]*?)<\/pre>/g),
-].map((m) => m[1].trim());
+].map((m) => unescapeHtml(m[1]).trim());
+
+/// Mirrors what the HTML parser does to text nodes: mermaid reads `--&gt;` in the source as `-->`.
+/// (Arrows are escaped in the markup so the unescaped-`>` lint rule stays quiet.)
+function unescapeHtml(text) {
+  return text
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
+}
 
 (async () => {
   let failed = 0;
@@ -74,6 +86,10 @@ const blocks = [
   console.log(
     "offline mermaid:   ",
     /vendor\/mermaid\.min\.js/.test(html) ? "yes" : "NO",
+  );
+  console.log(
+    "escaped arrows:    ",
+    `${(html.match(/&gt;/g) || []).length} (&gt; inside mermaid blocks)`,
   );
   console.log(
     "keyboard routing:  ",

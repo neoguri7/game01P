@@ -47,7 +47,7 @@
   .bare li::before{display:none}
 
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;
-    padding:16px 18px;min-width:0}
+    padding:16px 18px;min-width:0;overflow:auto}
   .panel h3{font-size:13px;margin:0 0 10px;color:var(--info);font-weight:650;letter-spacing:.02em;
     text-transform:uppercase}
   .panel .big{font-size:clamp(15px,1.4vw,19px);margin:0 0 4px;font-weight:650}
@@ -68,6 +68,10 @@
     border-radius:999px;color:var(--muted)}
   .tag.ok{color:var(--ok);border-color:rgba(126,231,135,.35)}
   .tag.pend{color:var(--warn);border-color:rgba(242,204,96,.35)}
+
+  .log{background:#0d131b;border:1px solid var(--line);border-radius:8px;padding:12px 14px;
+    margin:0;white-space:pre-wrap;font-size:12.5px;line-height:1.75;color:#c9d5e1;overflow:auto;max-height:46vh}
+  .log i{color:var(--ok);font-style:normal}
 
   #bar{position:fixed;left:0;top:0;height:2px;background:var(--ok);width:0;z-index:10;
     transition:width .16s ease}
@@ -96,533 +100,621 @@
 <section class="slide active">
   <div class="head">
     <h1>게임01P — 중간 발표</h1>
-    <p class="sub">턴제 그리드 전술 로그라이크 · 텍스트 프로토타입 (이미지 교체 예정)</p>
+    <p class="sub">턴제 그리드 전술 로그라이크 · 텍스트 프로토타입 (이미지·애니메이션은 이후 교체)</p>
   </div>
-  <div class="body split wide">
+  <div class="body split">
     <div class="diagram">
       <pre class="mermaid">
 flowchart LR
-  P["파밍"] --> C["선택지"] --> B["빌드"] --> V["드롭 가치"] --> P
-  classDef c fill:#12241a,stroke:#7ee787,color:#e6edf3;
-  class P,B c
+  A["1. 엔진 구조"] --&gt; B["2. 기획 + 검증"] --&gt; C["3. 다음 단계"]
+  classDef done fill:#12241a,stroke:#7ee787,color:#e6edf3;
+  classDef next fill:#241f12,stroke:#f2cc60,color:#e6edf3;
+  class A,B done
+  class C next
       </pre>
     </div>
     <div class="panel bare">
-      <h3>두 축</h3>
-      <p class="big">파밍</p>
-      <p class="muted" style="margin:0 0 12px">분산과 분해 비용이 기대값보다 중요</p>
-      <p class="big">빌드</p>
-      <p class="muted" style="margin:0">시너지 발견이 선택지 수보다 중요</p>
+      <h3>발표 3축</h3>
+      <p class="big">1. 구현된 엔진 구조</p>
+      <p class="muted" style="margin:0 0 12px">허브 → 입장 → 3룸 → 클리어가 코드에서 지나는 경로</p>
+      <p class="big">2. 정해진 기획 + 검증한 매커니즘</p>
+      <p class="muted" style="margin:0 0 12px">런 루프 · 전투 시스템 · 런 초기화/누적 + 텍스트로 돌려본 것</p>
+      <p class="big">3. 앞으로 (큰 틀)</p>
+      <p class="muted" style="margin:0">에셋 준비 · 매커니즘 구체화 · 남은 미결</p>
     </div>
   </div>
   <div class="foot">
-    <span class="tag">C++23 · SDL3 · EnTT</span>
-    <span class="tag ok">슬라이스 1–3 구현 완료</span>
-    <span class="tag pend">빌드 = 소유자 실행 대기</span>
+    <span class="tag ok">slice 1–3 구현</span>
+    <span class="tag">slice 4 설계만</span>
+    <span class="tag pend">빌드·실행은 소유자 몫 (DEV_WORKFLOW)</span>
   </div>
 </section>
 
 <!-- 2 ─────────────────────────────────────────────── -->
 <section class="slide">
   <div class="head">
-    <h2><span class="idx">01</span>재미 두 축의 연결</h2>
-    <p class="sub">파밍 = 빌드의 입력 · 빌드 = 파밍의 목적</p>
+    <h1>축 1 — 구현된 엔진 구조</h1>
+    <p class="sub">"게임 진행 1회"를 실증 경로로 삼는다: 허브에서 Confirm → 던전 입장 → 룸 3개 → 클리어 → 허브</p>
   </div>
-  <div class="body split wide">
+  <div class="body split">
     <div class="diagram">
       <pre class="mermaid">
 flowchart LR
-  F["파밍"] --> O["선택지 개방"] --> B["빌드"]
-  B --> V["무엇이 쓸모 있는가"] --> F
-  classDef c fill:#12241a,stroke:#7ee787,color:#e6edf3;
-  class F,B c
+  M["main.cpp"] --&gt; E["Engine"]
+  E --&gt; S["GameStateMachine"]
+  E --&gt; SM["SystemManager"]
+  S --&gt; T["FTitleState"]
+  S --&gt; H["FHubState"]
+  SM --&gt; ES["ecs systems"]
+  SM --&gt; GS["gameplay systems"]
+  GS --&gt; CTX["ctx services"]
+  classDef core fill:#0f2030,stroke:#79c0ff,color:#e6edf3;
+  classDef gp fill:#12241a,stroke:#7ee787,color:#e6edf3;
+  class E,S,SM,ES core
+  class GS,CTX gp
       </pre>
     </div>
-    <div class="panel bare">
-      <h3>드롭의 목적</h3>
+    <div class="panel">
+      <h3>읽는 순서</h3>
       <ul>
-        <li>파워 상승이 아니라 <b>선택지 개방</b></li>
-        <li>장비·룬이 빌드를 열고, 빌드가 드롭 가치를 바꾼다</li>
-      </ul>
-      <h3 style="margin-top:14px">경계할 실패</h3>
-      <ul>
-        <li><span class="warn">최적 빌드 수렴</span></li>
-        <li><span class="warn">그라인드화</span></li>
+        <li><b>앱 흐름</b> — <code>GameStateMachine</code> + <code>FTitleState</code>/<code>FHubState</code>.
+          화면 전환만 담당하고 게임플레이 상태는 넣지 않는다(주석에 박아둠).</li>
+        <li><b>프레임</b> — <code>Engine::run()</code>이 <code>SystemManager::updateAll()</code>을 부른다.</li>
+        <li><b>시뮬레이션</b> — <code>src/gameplay/systems/</code> 11개가 정해진 순서로 한 프레임을 걷는다.</li>
+        <li><b>서비스</b> — 배틀·런 상태는 <code>registry.ctx()</code>에 있다(싱글턴 금지, R6).</li>
       </ul>
     </div>
   </div>
-  <div class="foot">기획 §1–§2 확정</div>
+  <div class="foot"><span class="tag">src/core · src/states · src/gameplay</span></div>
 </section>
 
 <!-- 3 ─────────────────────────────────────────────── -->
 <section class="slide">
   <div class="head">
-    <h2><span class="idx">02</span>확정된 게임 프레임</h2>
+    <h2><span class="idx">3</span>한 프레임에서 실제로 도는 것</h2>
+    <p class="sub">시스템은 서로를 호출하지 않는다 — 같은 프레임의 큐 이벤트로만 이어진다 (R3)</p>
   </div>
-  <div class="body three">
-    <div class="panel">
-      <h3>전투</h3>
-      <ul>
-        <li>턴제 · 그리드 <b>8×8</b> · 사거리 = 칸</li>
-        <li>파티 최대 4 · 전원 직접 조작</li>
-        <li>AP 2종 분리 — 이동 <b>1</b> / 스킬 <b>2</b></li>
-        <li>속도 기반 이니셔티브</li>
-      </ul>
+  <div class="body split">
+    <div class="diagram">
+      <pre class="mermaid">
+sequenceDiagram
+  participant E as Engine
+  participant AB as Ability
+  participant SM as SystemManager
+  participant GP as gameplay
+  participant V as View
+  E-&gt;&gt;AB: BeginEngineFrameAbility
+  AB--&gt;&gt;E: FInputState
+  E-&gt;&gt;SM: updateAll(registry, dt)
+  SM-&gt;&gt;GP: 11개 순서대로 update
+  GP-&gt;&gt;GP: queueFrame 소비 (같은 프레임)
+  E-&gt;&gt;V: snapshot(registry)
+  E-&gt;&gt;E: EndEngineFrameEffects
+      </pre>
     </div>
     <div class="panel">
-      <h3>런</h3>
+      <h3>왜 이 모양인가</h3>
       <ul>
-        <li>단위 = <b>던전 1개</b> (테마 = 난이도 묶음)</li>
-        <li>던전 = 몬스터 룸 3 + 이벤트 룸 1–2</li>
-        <li>룸 시작 시 파티 온전</li>
-        <li>전멸 = <b>런 종료</b></li>
-      </ul>
-    </div>
-    <div class="panel">
-      <h3>누적</h3>
-      <ul>
-        <li>영속: 명단 · 승격 · 풀 해금 · <b>장비 창고</b></li>
-        <li>런 한정: 수치노드 · 룬 · 파편</li>
-        <li>스탯 강화 = 장비 + 수치노드뿐</li>
+        <li><b>입력 → 시뮬 → 표시</b>가 한 프레임 안에서 끝난다. 표시가 시뮬을 되먹이지 않는다.</li>
+        <li>이벤트는 <b>typed</b>만 쓴다. 문자열 디스패치 없음 → 문자열 키 상태 가방도 없음 (R23/R27).</li>
+        <li>프레임 순서는 <code>FGameplayServices::RegisterSystems</code>에 주석과 함께 한 곳에만 있다.</li>
+        <li>이 순서를 깨면 그 자리에서 검출된다 — R3 이벤트 순서 규칙이 fixture로 고정됨.</li>
       </ul>
     </div>
   </div>
-  <div class="foot">기획 §3–§4 확정 · 수치는 전부 데이터</div>
+  <div class="foot"><span class="tag ok">R3 검증 통과</span><span class="tag">same-frame queue</span></div>
 </section>
 
 <!-- 4 ─────────────────────────────────────────────── -->
 <section class="slide">
   <div class="head">
-    <h2><span class="idx">03</span>엔진 (요약)</h2>
-    <p class="sub">엔진은 게임을 모른다 · 게임 계층이 위에 얹힌다</p>
+    <h2><span class="idx">4</span>무엇을 어디에 두는가 (배치 계약)</h2>
+    <p class="sub">이 표가 곧 "지워도 되는 단위"의 목록이다 — 삭제 가능성이 구조의 1순위 기준</p>
   </div>
-  <div class="body split wide">
-    <div class="diagram">
-      <pre class="mermaid">
-flowchart TB
-  M["main.cpp — 조립 루트"] --> E["Engine<br/>입력 · 프레임 · 렌더"]
-  E --> SM["SystemManager"]
-  subgraph CTX["registry.ctx() — 싱글턴 없음"]
-    direction LR
-    C1["FInputState"]
-    C2["FContentRegistry"]
-    C3["FRunState"]
-  end
-  subgraph GP["gameplay/"]
-    direction LR
-    G1["data"] --> G2["rules"] --> G3["systems"] --> G4["view"]
-  end
-  SM --> GP
-  CTX --> GP
-      </pre>
-    </div>
-    <div class="panel bare">
-      <h3>규칙 3개</h3>
-      <ul>
-        <li><b>컴포넌트</b> = 데이터만 (POD, 로직 없음)</li>
-        <li><b>시스템</b> = 한 가지 일, 순서로만 연결</li>
-        <li><b>rules/</b> = 순수 함수, 상태를 만들지 않음</li>
-      </ul>
-      <h3 style="margin-top:14px">통신</h3>
-      <ul>
-        <li>시스템 간은 typed event만</li>
-        <li>엔티티 생성은 팩토리 한 곳</li>
-        <li>텍스트 표시는 <b>view 한 곳</b> → 스프라이트 교체 지점</li>
-      </ul>
+  <div class="body full">
+    <div class="panel">
+      <table>
+        <tr><th>경로</th><th>넣는 것</th><th>넣지 않는 것</th><th>규칙</th></tr>
+        <tr>
+          <td><code>src/core/</code></td>
+          <td>엔진 루프, 자산 경계, 이벤트 버스, 시스템 관리</td>
+          <td>게임 규칙·수치</td><td>R25 경계</td>
+        </tr>
+        <tr>
+          <td><code>src/gameplay/components/</code></td>
+          <td>값 + 태그 (14종)</td>
+          <td>동작·분기</td><td>R11 태그 우선</td>
+        </tr>
+        <tr>
+          <td><code>src/gameplay/systems/</code></td>
+          <td>한 가지 판단/적용 (11종)</td>
+          <td>다른 시스템 호출, 문장 생성</td><td>R3 이벤트</td>
+        </tr>
+        <tr>
+          <td><code>src/gameplay/rules/</code></td>
+          <td>순수 판단 함수 (거리·점유·스텝·타겟·행동트리)</td>
+          <td>상태 변경</td><td>R19 결정론</td>
+        </tr>
+        <tr>
+          <td><code>src/gameplay/data/</code></td>
+          <td>JSON 스키마·디코드·부팅 검증</td>
+          <td>밸런스 수치 하드코딩</td><td>R17/R22</td>
+        </tr>
+        <tr>
+          <td><code>src/gameplay/factories/</code></td>
+          <td>엔티티 생성·구조 변경·전이</td>
+          <td>규칙 판단</td><td>R5 팩토리</td>
+        </tr>
+        <tr>
+          <td><code>src/gameplay/view/</code></td>
+          <td>시뮬 → 텍스트 한 곳</td>
+          <td>규칙·상태 변경</td><td>R26 뷰</td>
+        </tr>
+      </table>
     </div>
   </div>
-  <div class="foot">SDL3 · EnTT · glm · nlohmann-json · spdlog · Tracy · ImGui</div>
+  <div class="foot"><span class="tag">컴포넌트 14 · 시스템 11 · 규칙 6</span></div>
 </section>
 
 <!-- 5 ─────────────────────────────────────────────── -->
 <section class="slide">
   <div class="head">
-    <h2><span class="idx">04</span>한 프레임의 턴 루프 — 11 시스템</h2>
-    <p class="sub">시스템은 서로를 호출하지 않는다 · 생산자가 소비자보다 먼저</p>
+    <h2><span class="idx">5</span>던전 입장이 지나는 경로</h2>
+    <p class="sub">Confirm 한 번이 어떤 파일들을 통과하는가 — 구조 변경은 전부 팩토리를 지난다</p>
   </div>
-  <div class="body full">
+  <div class="body split">
     <div class="diagram">
       <pre class="mermaid">
-flowchart LR
-  subgraph A["판정"]
-    direction TB
-    A1["1 순서"]
-    A2["2 턴 시작 · AP"]
-    A3["3 이동 · 4 명령 · 5 적 턴"]
-  end
-  subgraph B["해소"]
-    direction TB
-    B1["6 합법성 — 턴 · 사거리 · AP"]
-    B2["7 피해"]
-    B3["8 승패"]
-  end
-  subgraph C["표시 · 진행"]
-    direction TB
-    C1["9 턴 종료"]
-    C2["10 로그"]
-    C3["11 룸 진행 — 맨 뒤"]
-  end
-  A --> B --> C
-  classDef last fill:#12241a,stroke:#7ee787,color:#e6edf3;
-  class C3 last
+sequenceDiagram
+  participant P as Player
+  participant R as RunProgression
+  participant RF as FRunFactory
+  participant BF as FBattleFactory
+  P-&gt;&gt;R: Enter (허브)
+  R-&gt;&gt;RF: enterDungeon(dungeonId)
+  RF--&gt;&gt;R: FRunState 갱신
+  R-&gt;&gt;RF: advanceRoom()
+  RF-&gt;&gt;BF: buildBattle(encounter)
+  BF--&gt;&gt;P: 유닛 배치 + FBattleOngoing
       </pre>
     </div>
+    <div class="panel">
+      <h3>포인트</h3>
+      <ul>
+        <li>입장·룸 전환은 <b>승패 상태에 대한 시스템 반응</b>이다. UI가 진행을 밀지 않는다 (R19).</li>
+        <li><code>FRunFactory::enterDungeon / advanceRoom / returnToHub</code>가 런 전이를 독점한다.</li>
+        <li><code>FBattleFactory::buildBattle</code>이 유닛·팀태그·셀·HP·AP·<code>FBattleOngoing</code>을 한 번에 만든다.</li>
+        <li>룸 시작 시 <b>HP/AP 리셋</b> — 부상·사망이 없으므로 룸 간 누적도 없다.</li>
+      </ul>
+    </div>
   </div>
-  <div class="foot">11번이 맨 뒤인 이유: 다음 룸을 생성하므로 다른 시스템이 반쯤 만들어진 룸을 보면 안 된다</div>
+  <div class="foot"><span class="tag">FRunProgressionSystem은 파이프라인 <b>마지막</b>에 등록</span></div>
 </section>
 
 <!-- 6 ─────────────────────────────────────────────── -->
 <section class="slide">
   <div class="head">
-    <h2><span class="idx">05</span>슬라이스 1 — 데이터가 코드를 대신한다</h2>
+    <h2><span class="idx">6</span>전투 1턴이 지나는 경로</h2>
+    <p class="sub">플레이어와 몬스터가 <b>같은 요청 경로</b>를 쓴다 — 합법성 판정이 한 곳뿐이다</p>
   </div>
-  <div class="body split wide">
+  <div class="body split">
     <div class="diagram">
       <pre class="mermaid">
-flowchart LR
-  J["JSON 5종"] --> L["스키마 검증"]
-  L -->|실패| F["부팅 실패"]
-  L -->|성공| R["레지스트리"] --> X["팩토리 · 시스템"]
-  classDef bad fill:#2a1416,stroke:#ff7b72,color:#e6edf3;
-  class F bad
+sequenceDiagram
+  participant I as Initiative
+  participant T as TurnStart
+  participant C as PlayerCommand
+  participant N as EnemyTurn
+  participant R as SkillResolve
+  participant D as Damage
+  I-&gt;&gt;T: 순서 재계산 (라운드)
+  T-&gt;&gt;C: FTurnActive + AP
+  C-&gt;&gt;R: FSkillRequested
+  N-&gt;&gt;R: FSkillRequested (행동트리)
+  R-&gt;&gt;D: FSkillResolved
+  D-&gt;&gt;D: HP 감소 → FDowned
       </pre>
     </div>
-    <div class="panel bare">
-      <h3>원칙</h3>
+    <div class="panel">
+      <h3>포인트</h3>
       <ul>
-        <li>수치 · 아이템 · 스킬 · 룸 = 전부 데이터</li>
-        <li>검증 실패 = <b>부팅 실패</b>, 런타임 열화 아님</li>
-        <li>밸런스 하드코딩 금지</li>
-      </ul>
-      <h3 style="margin-top:14px">얻는 것</h3>
-      <ul>
-        <li>잘못된 콘텐츠를 플레이어가 아니라 <b>부팅이 먼저</b> 잡는다</li>
-        <li>재조정 비용이 코드에서 diff로 내려간다</li>
+        <li>등록 순서: <code>Initiative → TurnStart → GridMove → PlayerCommand → EnemyTurn → SkillResolve → Damage → Outcome → TurnEnd → BattleLog → RunProgression</code>.</li>
+        <li>거부는 <code>FSkillRejectedEvent</code>로 돌아오고 <b>사유가 문장으로 로그에 남는다</b>. 조용한 실패가 없다.</li>
+        <li>몬스터가 <b>고르는 것</b>은 데이터(<code>behaviors.json</code>) + 순수 함수. <b>실행하는 것</b>만 <code>FEnemyTurnSystem</code>.</li>
+        <li>피해 적용과 승패 판정이 분리돼 있다 — 피해 공식이 확정되면 <code>FDamageSystem</code> 한 곳만 바뀐다.</li>
       </ul>
     </div>
   </div>
+  <div class="foot"><span class="tag ok">이동 AP · 스킬 AP 분리</span><span class="tag">사거리 = Chebyshev</span></div>
 </section>
 
 <!-- 7 ─────────────────────────────────────────────── -->
 <section class="slide">
   <div class="head">
-    <h2><span class="idx">06</span>슬라이스 2 — 텍스트 전투 코어</h2>
-    <p class="sub">지금 플레이 가능한 범위</p>
+    <h1>축 2 — 정해진 기획 + 텍스트로 확인한 매커니즘</h1>
+    <p class="sub">기획 문서는 <b>확정 / 가정 / 미결</b> 태그로 갈라 둔다. 미결이 남아 있으면 그 코드는 쓰지 않는다.</p>
   </div>
-  <div class="body split wide">
+  <div class="body split">
     <div class="diagram">
       <pre class="mermaid">
-sequenceDiagram
-  participant P as 플레이어
-  participant T as 턴 루프
-  participant M as 몬스터
-  P->>T: 이동 / 스킬 선택
-  T->>T: 합법성 판정
-  T-->>P: 거부 시 사유 로그
-  T->>M: 피해 · 쓰러짐
-  M->>T: 행동 결정 → 실행
-  T-->>P: 결정 → 행동 서술
+flowchart LR
+  G["game-design.md"] --&gt; R["dungeon-run.md"]
+  R --&gt; S3["slice 3 구현"]
+  R --&gt; S4["slice 4 설계"]
+  classDef done fill:#12241a,stroke:#7ee787,color:#e6edf3;
+  classDef next fill:#241f12,stroke:#f2cc60,color:#e6edf3;
+  class G,R done
+  class S3 done
+  class S4 next
       </pre>
     </div>
     <div class="panel">
-      <h3>조작</h3>
-      <table>
-        <tr><td><code>WASD</code></td><td>1칸 이동 (이동 AP)</td></tr>
-        <tr><td><code>Q</code> <code>E</code></td><td>스킬 이전 / 다음</td></tr>
-        <tr><td><code>Tab</code></td><td>타겟 순환</td></tr>
-        <tr><td><code>Enter</code></td><td>사용 · 입장 · 복귀</td></tr>
-        <tr><td><code>Esc</code></td><td>턴 종료</td></tr>
-      </table>
+      <h3>문서 구조</h3>
+      <ul>
+        <li><code>game-design.md</code> — 상위 기획. §2 런, §4 전투, §5 빌드/스코프, §6 누적이 <b>확정</b>.</li>
+        <li><code>dungeon-run.md</code> — 텍스트 프로토타입 범위로 좁힌 구현 기획 (slice 3~4).</li>
+        <li><code>game-design-feedback.md</code> — 구현자 관점 자기반박: 충돌 확정문 F1~F8, 미결 Q1~Q10, 공백 G1~G5.</li>
+        <li>구현이 택한 해석은 코드에 <code>// 미결(...)</code> + <code>// fallback:</code>로 남는다.</li>
+      </ul>
     </div>
   </div>
-  <div class="foot">모든 거부는 플레이어가 읽는 로그로 남는다 — 침묵 실패 없음</div>
+  <div class="foot"><span class="tag">상위 기획이 이긴다</span></div>
 </section>
 
 <!-- 8 ─────────────────────────────────────────────── -->
 <section class="slide">
   <div class="head">
-    <h2><span class="idx">07</span>슬라이스 3 — 던전 런 상태 기계</h2>
+    <h2><span class="idx">8</span>게임 루프</h2>
+    <p class="sub">진행 단위 = 던전 1개. 실패는 파티 전멸뿐이고, 클리어한 던전 수는 유지된다</p>
   </div>
-  <div class="body split wide">
+  <div class="body split">
     <div class="diagram">
       <pre class="mermaid">
-stateDiagram-v2
-  [*] --> Hub
-  Hub --> InDungeon: 입장
-  InDungeon --> InDungeon: 룸 승리
-  InDungeon --> Hub: 던전 클리어
-  InDungeon --> RunOver: 파티 전멸
-  RunOver --> Hub: 복귀
+flowchart TB
+  Hub["허브"] --&gt;|Enter| Ent["던전 입장"]
+  Ent --&gt; Room["룸 시작"]
+  Room --&gt; B["전투"]
+  B --&gt;|승리| Last{"마지막 룸?"}
+  Last --&gt;|아니오| Room
+  Last --&gt;|예| Clear["던전 클리어"]
+  B --&gt;|전멸| End["런 종료"]
+  Clear --&gt; Hub
+  End --&gt; Hub
+  classDef ok fill:#12241a,stroke:#7ee787,color:#e6edf3;
+  classDef bad fill:#241214,stroke:#ff7b72,color:#e6edf3;
+  class Hub,Room ok
+  class End bad
       </pre>
     </div>
-    <div class="panel bare">
-      <h3>규칙</h3>
+    <div class="panel">
+      <h3>확정 / 미결</h3>
       <ul>
-        <li>다음 던전 = <b>클리어 수 % 던전 목록</b> → 끝나면 순환</li>
-        <li>룸 시작 = 파티 온전 (HP/AP 리셋)</li>
-        <li>시드 고정 → 같은 시드 같은 런</li>
-      </ul>
-      <h3 style="margin-top:14px">실패의 무게</h3>
-      <ul>
-        <li>전멸해도 클리어 수는 남는다</li>
-        <li>되돌아가는 지점은 <b>던전 처음</b> 하나뿐</li>
+        <li><b>확정</b> — 룸은 데이터 순서대로 진행. 룸 시작 시 HP/AP 리셋. 시드 고정(0) = 같은 시드 같은 런.</li>
+        <li><b>확정</b> — 던전 클리어 → 허브 복귀 + <code>clearedDungeons +1</code>, 다음 진입은 다음 던전(목록 순환).</li>
+        <li><b>미결</b> — 이벤트 룸 종류(스키마에 <code>kind</code> 어휘만 존재), 테마/보스 구분, 정비 지점의 자원 유지.</li>
+        <li>룸 종류는 지금 <code>monster</code> 하나다 — 룸이 데이터라서 이벤트 룸은 <b>행 추가</b>로 들어온다.</li>
       </ul>
     </div>
   </div>
+  <div class="foot"><span class="tag">던전 2종 × 룸 3개</span><span class="tag pend">이벤트 룸 미구현</span></div>
 </section>
 
 <!-- 9 ─────────────────────────────────────────────── -->
 <section class="slide">
   <div class="head">
-    <h2><span class="idx">08</span>슬라이스 3 — 몬스터 행동트리</h2>
-    <p class="sub">하드코딩 제거: 판단은 데이터, 실행은 시스템 하나</p>
+    <h2><span class="idx">9</span>런 초기화 / 누적 요소</h2>
+    <p class="sub">전멸 시 "대부분 손실" — 무엇이 영속이고 무엇이 런 스코프인지가 먼저 확정됐다</p>
   </div>
-  <div class="body split wide">
-    <div class="diagram">
-      <pre class="mermaid">
-flowchart TB
-  S["적 턴 시작"] --> Q{"위에서 첫 일치"}
-  Q --> R1["HP 30% 이하"]
-  Q --> R2["아군 쓰러짐"]
-  Q --> R3["사거리 안"]
-  Q --> R4["항상"]
-  R1 --> EX["use_first_skill"]
-  R2 --> EX
-  R3 --> EX
-  R4 --> MV["move_toward"]
-  EX --> OUT["실행 → 합법성 → 로그"]
-  MV --> OUT
-  classDef r fill:#0f2030,stroke:#79c0ff,color:#e6edf3;
-  class R1,R2,R3,R4 r
-      </pre>
-    </div>
-    <div class="panel bare">
-      <h3>어휘</h3>
-      <p style="margin:0 0 8px"><span class="info">when</span> always · self_hp_at_or_below ·
-        ally_downed · opponent_in_skill_range · opponent_count_at_or_above</p>
-      <p style="margin:0"><span class="info">then</span> use_first_skill · move_toward_nearest ·
-        move_away_from_nearest · wait</p>
-      <h3 style="margin-top:14px">미결</h3>
-      <ul>
-        <li>도발 · 버프 · 소모품</li>
-        <li>가중치 · 확률</li>
-        <li>2층 트리 · 파벌 접합</li>
-      </ul>
+  <div class="body full">
+    <div class="panel">
+      <table>
+        <tr><th>층</th><th>요소</th><th>전멸 시</th><th>근거</th></tr>
+        <tr>
+          <td><b>영속 (거점)</b></td>
+          <td>캐릭터 명단, 해금 스킬 목록, 캐릭터 레벨, <b>장비 창고</b></td>
+          <td>유지</td>
+          <td>§5 요소 스코프 확정 · 장비 영속 = 사용자 결정 m00738</td>
+        </tr>
+        <tr>
+          <td><b>영속 (진행)</b></td>
+          <td>클리어한 던전 수</td>
+          <td>유지 (던전 진행만 그 던전 처음부터)</td>
+          <td>§2 진행 체크포인트 확정 (m00732)</td>
+        </tr>
+        <tr>
+          <td><b>런 스코프</b></td>
+          <td>파편, 룬, 수치노드, 런 스코프 EXP, 미확정 룻</td>
+          <td>소실</td>
+          <td>§5/§6.1 확정 · 룬은 런 중 드롭</td>
+        </tr>
+        <tr>
+          <td><b>성장 원칙</b></td>
+          <td>스탯 강화 = <b>장비 + 수치노드</b>로만</td>
+          <td>—</td>
+          <td>§5 확정 · 레벨은 스탯을 주지 않음 (레벨 = 스킬 해금)</td>
+        </tr>
+        <tr>
+          <td><b>EXP 2종</b></td>
+          <td>런 스코프 EXP(몬스터 처치) / 누적 EXP(런 결과)</td>
+          <td>런 EXP 소실, 누적은 유지</td>
+          <td>§5 확정 (m00798 · m00836)</td>
+        </tr>
+        <tr>
+          <td><b>폐기</b></td>
+          <td>등불(계정 단위 실패 게이지), L4 거점 시설</td>
+          <td>—</td>
+          <td>§6.2/§6 확정</td>
+        </tr>
+      </table>
     </div>
   </div>
+  <div class="foot"><span class="tag pend">미결: 명단 상한 · 자원 이름/수치 · 초기화권 경로</span></div>
 </section>
 
 <!-- 10 ────────────────────────────────────────────── -->
 <section class="slide">
   <div class="head">
-    <h2><span class="idx">09</span>콘텐츠 규모 — 전부 데이터</h2>
-    <p class="sub">밸런스 변경 = JSON 한 줄</p>
+    <h2><span class="idx">10</span>전투 시스템</h2>
+    <p class="sub">턴제 · 전원 직접 조작 · 이동 AP와 스킬 AP는 서로 전환 불가</p>
   </div>
-  <div class="body split wide">
+  <div class="body split">
     <div class="diagram">
       <pre class="mermaid">
-xychart-beta
-  x-axis ["유닛", "스킬", "조우", "던전", "행동규칙"]
-  y-axis "행 수" 0 --> 8
-  bar [4, 5, 3, 2, 8]
+flowchart TB
+  Order["이니셔티브 = 속도"] --&gt; Turn["턴 시작 · AP"]
+  Turn --&gt; Act{"행동"}
+  Act --&gt; Move["이동 · 카디널"]
+  Act --&gt; Skill["스킬 · 사거리"]
+  Move --&gt; Check["경계 · 점유 검사"]
+  Skill --&gt; Resolve["해결 → 피해"]
+  Resolve --&gt; Down["HP 0 → 쓰러짐"]
+  Down --&gt; Win{"승패"}
+  Win --&gt;|적 0| V1["승리"]
+  Win --&gt;|아군 0| V2["패배"]
+  classDef ok fill:#12241a,stroke:#7ee787,color:#e6edf3;
+  classDef bad fill:#241214,stroke:#ff7b72,color:#e6edf3;
+  class V1 ok
+  class V2 bad
       </pre>
     </div>
-    <div class="panel bare">
-      <h3>assets/data/</h3>
-      <table>
-        <tr><td><code>units.json</code></td><td>4</td></tr>
-        <tr><td><code>skills.json</code></td><td>5</td></tr>
-        <tr><td><code>encounters.json</code></td><td>3</td></tr>
-        <tr><td><code>dungeons.json</code></td><td>2</td></tr>
-        <tr><td><code>behaviors.json</code></td><td>8</td></tr>
-      </table>
-      <p class="muted" style="margin:10px 0 0">행동규칙 8행 = 사용 6 + 어휘 커버리지 2</p>
+    <div class="panel">
+      <h3>지금 데이터에 있는 수치</h3>
+      <ul>
+        <li>유닛 — melee 120HP/속4 · ranged 80HP/속6 · grunt 40HP/속5 · brute 70HP/속3. 전원 <b>이동AP 1 / 스킬AP 2</b>.</li>
+        <li>스킬 — cleave ap1 r1 p12 · guard ap1 r1 p0 · shot ap2 r4 p9 · bite ap1 r1 p7 · slam ap2 r1 p11.</li>
+        <li>격자 8×8, 거리·사거리 단위 = 칸, 이동은 카디널 1칸(대각선 이동 없음).</li>
+        <li>양쪽 모두 <b>0HP에서 쓰러짐</b>: 칸을 막고, 턴 순서에서 빠지고, 부상 페널티는 누적되지 않는다.</li>
+      </ul>
     </div>
   </div>
+  <div class="foot"><span class="tag pend">미결: 피해 공식(경감·치명타) · 사거리 수치 · AP 회복</span></div>
 </section>
 
 <!-- 11 ────────────────────────────────────────────── -->
 <section class="slide">
   <div class="head">
-    <h2><span class="idx">10</span>방법론 — 변경 가능성과 3단 리뷰</h2>
-    <p class="sub">추가는 싸고, 삭제도 싸야 한다</p>
+    <h2><span class="idx">11</span>몬스터 행동 트리</h2>
+    <p class="sub">순서 있는 규칙 목록에서 <b>위에서 첫 일치 1개만</b> 실행한다 — 유닛마다 목록을 데이터로 갖는다</p>
   </div>
-  <div class="body split wide">
+  <div class="body split">
     <div class="diagram">
       <pre class="mermaid">
 flowchart TB
-  C["계약 (Pass 0)"] --> I["구현"]
-  I --> P2["Pass 2 구조 리뷰"]
-  I --> P3["Pass 3 정확성 리뷰"]
-  P2 --> V["verdict"]
-  P3 --> V
-  V --> M{"Blocker/High 0?"}
-  M -->|yes| MG["머지 후보"]
-  M -->|no| I
-  classDef g fill:#12241a,stroke:#7ee787,color:#e6edf3;
-  class V,MG g
+  G["proto_grunt"] --&gt; P1{"HP ≤ 30%"} --&gt; A1["첫 스킬"]
+  G --&gt; P2{"사거리 내"} --&gt; A2["첫 스킬"]
+  G --&gt; P3["항상"] --&gt; A3["접근"]
+  B["proto_brute"] --&gt; Q1{"아군 쓰러짐"} --&gt; D1["첫 스킬"]
+  B --&gt; Q2{"사거리 내"} --&gt; D2["첫 스킬"]
+  B --&gt; Q3["항상"] --&gt; D3["접근"]
+  classDef ai fill:#0f2030,stroke:#79c0ff,color:#e6edf3;
+  class G,B ai
       </pre>
     </div>
-    <div class="panel bare">
-      <h3>R1–R33 요약</h3>
+    <div class="panel">
+      <h3>어휘 (이번 슬라이스 확정 집합)</h3>
       <ul>
-        <li>타입당 1파일 · 컴포넌트 POD</li>
-        <li>시스템 간 호출 금지 → 이벤트</li>
-        <li>엔티티 생성은 팩토리만</li>
-        <li>이벤트 vs 상태 구분</li>
-        <li>조립은 composition root 한 곳</li>
+        <li><code>when</code> 5종 — <code>always</code>, <code>self_hp_at_or_below</code>, <code>ally_downed</code>, <code>opponent_in_skill_range</code>, <code>opponent_count_at_or_above</code>.</li>
+        <li><code>then</code> 4종 — <code>use_first_skill</code>, <code>move_toward_nearest_opponent</code>, <code>move_away_from_nearest_opponent</code>, <code>wait</code>.</li>
+        <li>판단은 <code>rules/FBehaviorTree.h</code>의 순수 함수 — 입력은 <code>FBehaviorContext</code> 하나(내 HP 비율, 아군 다운, 사거리 내 적, 생존 적 수).</li>
+        <li>그래서 "몬스터가 무엇에 반응하는가"가 <b>읽을 수 있는 목록</b>이고, 판단은 표 기반으로 검증 가능하다.</li>
+        <li>미결 — 어휘 확장(도발·버프), 규칙 가중치·확률, 2층 트리, 파벌/기질 접합.</li>
       </ul>
-      <h3 style="margin-top:14px">리뷰 산출물</h3>
-      <p class="muted" style="margin:0">슬라이스마다 <code>docs/reviews/&lt;slice&gt;/</code>에 계약 · 자기 리뷰 ·
-        독립 리뷰 2개 · verdict가 남는다</p>
     </div>
   </div>
+  <div class="foot"><span class="tag">behaviors.json 8행</span><span class="tag ok">slice 2의 하드코딩 대체</span></div>
 </section>
 
 <!-- 12 ────────────────────────────────────────────── -->
 <section class="slide">
   <div class="head">
-    <h2><span class="idx">11</span>지금의 검증 상태 (정직하게)</h2>
+    <h2><span class="idx">12</span>지금 화면에 실제로 뜨는 문장</h2>
+    <p class="sub">프레젠테이션은 <code>view/</code> 한 곳에서만 만든다 — 이미지 슬라이스가 이 파일을 통째로 교체한다</p>
   </div>
-  <div class="body split wide">
-    <div class="diagram">
-      <pre class="mermaid">
-flowchart LR
-  H["변경가능성 검사"] --> OK["통과"]
-  J["JSON 5종 파싱"] --> OK
-  R["독립 리뷰 6회"] --> OK
-  B["빌드 · 플레이"] --> PD["소유자 실행 대기"]
-  classDef ok fill:#12241a,stroke:#7ee787,color:#e6edf3;
-  classDef pd fill:#2a2410,stroke:#f2cc60,color:#e6edf3;
-  class OK ok
-  class PD pd
-      </pre>
-    </div>
-    <div class="panel bare">
-      <h3>이번 슬라이스에서 잡힌 것</h3>
-      <ul>
-        <li>정적 검사 통과인데 <b>컴파일이 안 되던</b> 스코프 오류 1건 → “하네스 통과 ≠ 컴파일 통과” 기록</li>
-        <li>규칙이 조용히 뒤집히던 스키마 → 필수 필드로 승격</li>
-        <li>빈 룸 · 격자 밖 좌표 · 같은 칸 → 부팅 실패로 이동</li>
-      </ul>
-      <h3 style="margin-top:14px">남은 검증</h3>
-      <p class="muted" style="margin:0">빌드 + 플레이 워크스루 (허브 → 3룸 → 클리어 / 전멸 → 런 종료)</p>
+  <div class="body full">
+    <div class="panel">
+      <pre class="log">=== 허브 — 클리어한 던전 <i>{}</i>개 / 다음 던전: <i>{}</i> ===
+Enter = 던전 입장
+=== 던전: <i>{}</i> — 룸 <i>{}/{}</i> (시드 <i>{}</i>) ===
+=== 라운드 <i>{}</i> ===
+<i>{}</i> 의 턴
+  턴 순서: <i>{}</i>
+  <i>{}</i> 이동 → (<i>{}</i>, <i>{}</i>)
+  이동 불가: <i>{}</i>
+  <i>{}</i> → <i>{}</i> (<i>{}</i> 대상)
+  사용 불가: <i>{}</i> (<i>{}</i>)
+  <i>{}</i> 피해 <i>{}</i> → 남은 HP <i>{}</i>
+  <i>{}</i> 쓰러짐
+  <i>{}</i> 행동: '규칙 id' → 첫 스킬 / 접근 / 후퇴
+전투 승리
+파티 전멸 — 전투 패배
+명령: <i>{}</i> (조작: WASD 이동, Q/E 스킬, Tab 대상, Enter 사용, Esc 턴 종료)</pre>
     </div>
   </div>
-  <div class="foot"><span class="tag pend">빌드 게이트 PENDING — 미통과가 아니라 미실행 (Builds Are Human-Run)</span></div>
+  <div class="foot">
+    <span class="tag">로그 문장 = FBattleLogSystem 한 곳</span>
+    <span class="tag ok">거부 사유가 항상 남는다</span>
+  </div>
 </section>
 
 <!-- 13 ────────────────────────────────────────────── -->
 <section class="slide">
   <div class="head">
-    <h2><span class="idx">12</span>남은 것 ① — 슬라이스 4: 파밍 · 장비 · 룬</h2>
+    <h2><span class="idx">13</span>데이터와 결정론</h2>
+    <p class="sub">수치·룸·행동은 전부 <code>assets/data/*.json</code>. 스키마 검증 실패는 부팅 실패이지 런타임 열화가 아니다</p>
   </div>
-  <div class="body split wide">
+  <div class="body split">
     <div class="diagram">
       <pre class="mermaid">
-flowchart TB
-  W["룸 승리"] --> L["loot.json — 종류 · 가중치 · 수량"]
-  L --> RR["시드 결정론 롤"]
-  RR --> FR["파편 — 런 한정"]
-  RR --> EQ["장비 — 영속 창고"]
-  RR --> RU["룬 — 유닛 1개"]
-  EQ --> SQ["FStatQuery — 질의 함수 하나"]
-  RU --> SQ
-  SQ --> DM["피해 공식"]
-  classDef n fill:#12241a,stroke:#7ee787,color:#e6edf3;
-  class L,RR,SQ n
+flowchart LR
+  JSON["assets/data"] --&gt; REG["FContentRegistry"]
+  REG --&gt; FAC["Factories"]
+  FAC --&gt; REG2["registry"]
+  REG2 --&gt; SYS["Systems"]
+  classDef d fill:#0f2030,stroke:#79c0ff,color:#e6edf3;
+  class JSON,REG d
       </pre>
     </div>
-    <div class="panel bare">
-      <h3>확정 골격</h3>
+    <div class="panel">
+      <h3>지금 들어 있는 내용</h3>
       <ul>
-        <li>드롭 3계층 — trash / 어픽스 롤 / 유니크</li>
-        <li>스탯은 질의 함수 하나로만 (하드코딩 금지)</li>
-        <li>장착 = 팩토리 경유 구조 변경</li>
-        <li>UI는 텍스트 목록 + Confirm/Cancel</li>
-      </ul>
-      <h3 style="margin-top:14px">미결 (수치)</h3>
-      <ul>
-        <li>어픽스 풀 · 티어 · 기대값 · pity</li>
-        <li>리롤 · 분해 비용</li>
-        <li>창고의 세션 밖 영속</li>
+        <li><code>units.json</code> 4 · <code>skills.json</code> 5 · <code>encounters.json</code> 3 · <code>dungeons.json</code> 2(각 3룸) · <code>behaviors.json</code> 8.</li>
+        <li>전 테이블 <code>schema_version: 1</code> — 부팅 시 한 번 디코드하고, 이후 시스템은 <code>FContentRegistry</code>만 본다.</li>
+        <li>룸·좌표·가중치가 데이터라서 <b>리튜닝은 자산 편집</b>이지 코드 편집이 아니다.</li>
+        <li>드롭 롤은 <code>random(seed, counter)</code> 순수 함수로 갈 예정 — registry 순회 순서에 의존하지 않는다(R16/R19).</li>
       </ul>
     </div>
   </div>
+  <div class="foot"><span class="tag">시드 고정 = 같은 런</span><span class="tag">R17/R22 데이터 우선</span></div>
 </section>
 
 <!-- 14 ────────────────────────────────────────────── -->
 <section class="slide">
   <div class="head">
-    <h2><span class="idx">13</span>남은 것 ② — 중기 로드맵</h2>
+    <h1>축 3 — 앞으로 해야 될 것 (큰 틀)</h1>
+    <p class="sub">네 덩어리: 에셋 준비 · 행동트리 구체화 · 전투 시스템 구체화 · 장비/스킬/룬 시스템</p>
   </div>
-  <div class="body split wide">
+  <div class="body split">
     <div class="diagram">
       <pre class="mermaid">
 flowchart TB
-  S4["4 파밍 · 장비 · 룬"] --> S5["5 이벤트 룸 — 분기 · 숨은 방 · 상점"]
-  S5 --> S6["6 정비(캠프) — 파편 교환"]
-  S6 --> S7["7 테마 · 보스"]
-  S7 --> S8["8 스킬 변형 3층"]
-  S8 --> S9["9 메타 L1 · L2 · L3"]
-  S7 --> S10["이미지 · 애니메이션 교체"]
-  classDef near fill:#12241a,stroke:#7ee787,color:#e6edf3;
-  classDef mid fill:#0f2030,stroke:#79c0ff,color:#e6edf3;
-  classDef far fill:#111823,stroke:#222e3d,color:#e6edf3;
-  class S4 near
-  class S5,S6,S10 mid
-  class S7,S8,S9 far
+  A["에셋 이미지·사운드"] --&gt; V["view/ 교체"]
+  B["slice 4: 파밍·장비·룬"] --&gt; Q["FStatQuery"]
+  C["행동트리 구체화"] --&gt; AI["어휘 확장"]
+  D["전투 구체화"] --&gt; F["피해 공식"]
+  B --&gt; E["이벤트 룸"]
+  classDef now fill:#12241a,stroke:#7ee787,color:#e6edf3;
+  classDef later fill:#241f12,stroke:#f2cc60,color:#e6edf3;
+  class V,Q now
+  class AI,F,E later
       </pre>
     </div>
-    <div class="panel bare">
-      <h3>지켜야 할 선</h3>
+    <div class="panel">
+      <h3>순서를 정한 근거</h3>
       <ul>
-        <li>수직 누적 최소 — 1번째 런 vs 20번째 런 승률차 10–20%p</li>
-        <li>영구 스탯 % · 시작 레벨 · 골드 이월 금지</li>
-        <li>전멸 후 첫 전투까지 <b>2분 이내</b></li>
-      </ul>
-      <h3 style="margin-top:14px">교체가 쉬운 이유</h3>
-      <ul>
-        <li>표시는 view 한 곳에만 있다</li>
-        <li>룸이 데이터 → 시드 기반 생성으로 이어진다</li>
+        <li><b>slice 4 먼저</b> — 피해 공식이 스탯 조회를 입력으로 받는다. <code>FStatQuery</code>(기본값 + 장비 합산)가 없으면 공식을 정해도 갈 곳이 없다.</li>
+        <li><b>에셋은 독립</b> — <code>view/</code> 파일과 오버레이 호출 한 곳을 교체하면 되도록 시뮬레이션이 분리돼 있다. 스프라이트 슬라이스가 <code>FBattleLog</code>를 지운다.</li>
+        <li><b>행동트리 확장은 저렴</b> — 조건·행동 어휘를 늘려도 시스템은 "규칙 실행"만 하면 된다.</li>
+        <li><b>이벤트 룸</b> — 룸이 이미 데이터라 <code>kind</code> 어휘에 한 종을 채우는 일부터.</li>
       </ul>
     </div>
   </div>
+  <div class="foot"><span class="tag pend">slice 4 = loot · items · runes · FStatQuery</span></div>
 </section>
 
 <!-- 15 ────────────────────────────────────────────── -->
 <section class="slide">
   <div class="head">
-    <h2><span class="idx">14</span>정리</h2>
+    <h2><span class="idx">15</span>미결 → 결정이 필요한 순서</h2>
+    <p class="sub">자기반박 문서에서 뽑은 목록. 확정되지 않은 항목은 코드에 스텁/주석으로만 남아 있다</p>
+  </div>
+  <div class="body full">
+    <div class="panel">
+      <table>
+        <tr><th>미결</th><th>왜 먼저인가</th><th>막히는 것</th></tr>
+        <tr><td><b>피해 공식</b> (G5/Q1)</td><td><code>FDamageSystem</code> 한 곳에 갇혀 있고 밸런스 전체가 여기 걸린다</td><td>장비·수치노드의 가치 계산</td></tr>
+        <tr><td>AP 회복·추가 수단 (Q2)</td><td>턴 자원 설계의 나머지 절반</td><td>스킬 비용 상한</td></tr>
+        <tr><td>이동 거리·사거리 수치 (Q3)</td><td>데이터로만 바뀌지만 그리드 감각을 고정한다</td><td>룸 배치·AI 판단 품질</td></tr>
+        <tr><td>드롭 기대값·어픽스 풀 (Q9)</td><td>파밍 재미의 두 축 중 하나</td><td>slice 4 전체</td></tr>
+        <tr><td>명단 상한·자원 이름/수치 (Q6/Q7)</td><td>거점 화면과 손실 장치의 문법</td><td>메타 누적 UI</td></tr>
+        <tr><td>태그 세트·승격 조합 (Q4/Q5)</td><td>빌드 3층 중 2·3층 — 발견 재미의 본체</td><td>스킬 변형 구현</td></tr>
+        <tr><td>런 성공 정의 (F8) · 저장 포맷 (Q10)</td><td>L2 승격 조건이 성립하려면 필요</td><td>런 간 누적 지급</td></tr>
+        <tr><td>이벤트 룸 배치·테마 던전 수 (G3/G1)</td><td>탐험 정체성의 최소 단위</td><td>던전 생성기</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="foot"><span class="tag">출처: game-design-feedback.md F1–F8 · Q1–Q10 · G1–G5</span></div>
+</section>
+
+<!-- 16 ────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h2><span class="idx">16</span>작업 규범 — 재미와 별개로 지키는 것</h2>
+    <p class="sub">"나중에 고치기 쉬운가"를 기능보다 먼저 본다. 그래서 규칙이 코드가 아니라 검증 스크립트에 있다</p>
+  </div>
+  <div class="body three">
+    <div class="panel">
+      <h3>리뷰 3패스</h3>
+      <ul>
+        <li>슬라이스마다: pass-1 자체 리뷰 → pass-2 독립 리뷰 → pass-3 정확성/견고성.</li>
+        <li>계약(<code>contract.md</code>)과 판정(<code>verdict.md</code>)이 <code>docs/reviews/</code>에 남는다.</li>
+        <li>slice 3은 pass-1·2·3 findings를 한 커밋(<code>432aeca</code>)에서 닫았다.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>변경 용이성 R1–R33</h3>
+      <ul>
+        <li><code>scripts/verify-changeability.sh</code> + fixture 세트가 규칙을 강제한다.</li>
+        <li>삭제 가능성, 의존 방향, ECS/팩토리/이벤트/데이터 경계, 결정론(R19), 소유권.</li>
+        <li>fixture가 양성 대조군 역할 — 검출기 자체가 조용히 죽지 않았는지 확인한다.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>경계와 게이트</h3>
+      <ul>
+        <li>엔티티 생성·구조 변경 = 팩토리만. 시스템 간 = typed event. 표시 = <code>view/</code>만.</li>
+        <li>빌드·테스트 실행은 <b>소유자 몫</b> (DEV_WORKFLOW "Builds Are Human-Run").</li>
+        <li>그래서 지금 상태는 "코드·데이터 계약까지 완료, 실제 플레이 판정은 다음 실행에서".</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span class="tag">검증 근거는 docs/reviews/*/evidence/</span></div>
+</section>
+
+<!-- 17 ────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="head">
+    <h1>정리</h1>
+    <p class="sub">텍스트만으로도 런 루프 · 전투 규칙 · 몬스터 판단이 이미 데이터와 계약으로 고정됐다</p>
   </div>
   <div class="body split">
-    <div class="panel">
-      <h3>지금 확인 가능한 것</h3>
-      <ul>
-        <li>허브 → 입장 → 3룸 → 클리어 → 허브</li>
-        <li>AP 2종 · 이니셔티브 · 사거리 · 타겟 순환</li>
-        <li>거부 사유가 항상 로그로 남는다</li>
-        <li>몬스터가 <b>데이터 규칙</b>으로 판단</li>
-        <li>전멸 → 런 종료, 클리어 수 유지</li>
-      </ul>
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart LR
+  E["엔진: 진행 경로"] --&gt; G["기획: 루프·전투·누적"] --&gt; N["다음: 에셋·구체화"]
+  classDef ok fill:#12241a,stroke:#7ee787,color:#e6edf3;
+  class E,G ok
+      </pre>
     </div>
     <div class="panel">
-      <h3>다음 스텝</h3>
+      <h3>다음 3개 작업</h3>
       <ul>
-        <li><b>빌드 + 플레이 워크스루</b> → 슬라이스 3 머지 판단</li>
-        <li>슬라이스 4 계약: <code>loot.json</code> · <code>items.json</code> ·
-          <code>runes.json</code> · <code>FStatQuery</code></li>
-        <li>이벤트 룸 최소 1종으로 탐험 정체성 시작</li>
+        <li><b>슬라이스 3 실제 플레이 판정</b> — 빌드 후 허브→3룸→클리어를 눈으로 확인하고 머지 결정.</li>
+        <li><b>피해 공식 확정</b> — 미결 목록의 첫 항목. 확정되면 장비·수치노드 가치 계산이 열린다.</li>
+        <li><b>slice 4 계약</b> — <code>items.json</code> · <code>loot.json</code> · <code>runes.json</code> · <code>FStatQuery</code>.</li>
       </ul>
-      <p class="muted" style="margin:14px 0 0">텍스트 프로토타입이라도 재미의 두 축과 런 실패의 무게는
-        이미 코드와 데이터로 검증 가능한 형태다.</p>
+      <p class="muted" style="margin:14px 0 0">이미지·애니메이션은 <code>view/</code> 교체로 끝나도록 분리돼 있어서,
+        에셋이 늦어도 시스템 구체화가 먼저 갈 수 있다.</p>
     </div>
+  </div>
+  <div class="foot">
+    <span class="tag ok">branch feature/gameplay-dungeon-run</span>
+    <span class="tag">commit 79800c6 · fix 432aeca</span>
   </div>
 </section>
 
 </div>
 
-<div id="hud"><b id="cur">1</b> / <span id="tot">15</span></div>
+<div id="hud"><b id="cur">1</b> / <span id="tot">17</span></div>
 <div class="hint">← → 이동 · Home/End 처음/끝 · Ctrl+P 인쇄</div>
 
 <script>
