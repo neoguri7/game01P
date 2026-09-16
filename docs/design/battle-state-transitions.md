@@ -11,11 +11,11 @@ code (damage formula, AP recovery, final AP/range numbers, monster AI, room/run 
 
 Exactly one phase tag is present at any time.
 
-| From | To | Trigger | Writer |
+| From | To | Trigger | Decision (writer of the entity change) |
 | --- | --- | --- | --- |
-| (none) | `FBattleOngoing` + `FBattleRound{0}` | `FBattleFactory::buildBattle` spawned every unit successfully | `src/gameplay/factories/FBattleFactory.cpp` |
-| `FBattleOngoing` | `FBattleVictory` | no living `FTeamEnemy` unit remains (`FBattleOutcomeSystem`) | `src/gameplay/systems/FBattleOutcomeSystem.h` |
-| `FBattleOngoing` | `FBattleDefeat` | no living `FTeamPlayer` unit remains | `src/gameplay/systems/FBattleOutcomeSystem.h` |
+| (none) | `FBattleOngoing` + `FBattleRound{0}` | `FBattleFactory::buildBattle` spawned every unit successfully | `FBattleFactory::buildBattle` |
+| `FBattleOngoing` | `FBattleVictory` | no living `FTeamEnemy` unit remains (`FBattleOutcomeSystem`) | `FBattleFactory::endBattleAsVictory` |
+| `FBattleOngoing` | `FBattleDefeat` | no living `FTeamPlayer` unit remains (`FBattleOutcomeSystem`) | `FBattleFactory::endBattleAsDefeat` |
 | `FBattleVictory` | — | terminal; a new battle is a new entity, never a revived one | — |
 | `FBattleDefeat` | — | terminal (design §2: 파티 전멸 = 런 종료 — the run model itself is not built yet) | — |
 
@@ -30,13 +30,18 @@ Rules that follow from the table:
 
 ## 2. Unit states — on a unit entity
 
-| From | To | Trigger | Writer |
+| From | To | Trigger | Decision (writer of the entity change) |
 | --- | --- | --- | --- |
-| (none) | `FTurnActive` | `FTurnStartSystem` walks `FBattleState::order` and refills AP from content | `src/gameplay/systems/FTurnStartSystem.h` |
-| `FTurnActive` | (none) | `FTurnEndRequestedEvent` consumed at the start of the next `FTurnStartSystem` pass (player Esc / enemy finished) | `src/gameplay/systems/FTurnStartSystem.h` |
-| `FTurnActive` | (none) | the active unit reaches HP 0 and is marked `FDowned` | `src/gameplay/systems/FDamageSystem.h` |
-| (none) | `FDowned` | `FHealth::current` reaches 0 (`FDamageSystem`) | `src/gameplay/systems/FDamageSystem.h` |
+| (none) | `FTurnActive` | `FTurnStartSystem` walks `FBattleState::order` and refills AP from content | `FBattleFactory::openTurn` |
+| `FTurnActive` | (none) | `FTurnEndRequestedEvent` consumed at the start of the next `FTurnStartSystem` pass (player Esc / enemy finished) | `FBattleFactory::closeTurn` |
+| `FTurnActive` | (none) | the active unit reaches HP 0 and is marked `FDowned` | `FBattleFactory::markDowned` |
+| (none) | `FDowned` | `FHealth::current` reaches 0 (`FDamageSystem`) | `FBattleFactory::markDowned` |
 | `FDowned` | — | not reachable in this slice: design §4 확정 — 캐릭터 부상·사망 없음, and a battle never returns a downed unit to play | — |
+
+Every row's entity change is performed by `src/gameplay/factories/FBattleFactory.{h,cpp}`, not by the system that
+notices the condition: a system decides *when*, the factory decides *what the entity becomes*. That is the single
+place to read to answer "which components can a live entity gain or lose?" (R5), and it is why the table above can
+list a decision per row at all.
 
 Team identity is a tag as well (`FTeamPlayer` / `FTeamEnemy`) and is **set once at spawn** by the factory; no
 system moves a unit between sides, so it is not a transition.
