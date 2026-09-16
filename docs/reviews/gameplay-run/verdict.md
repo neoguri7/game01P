@@ -1,6 +1,6 @@
 # Verdict — gameplay-run (slice 3, dungeon run) (2026-09-17)
 
-Range: `37daea8..3787f0f` on `feature/gameplay-dungeon-run`.
+Range: `37daea8..432aeca` on `feature/gameplay-dungeon-run`.
 Artifacts: `contract.md` (Pass 0, committed before implementing), `pass-1.md` (self), `pass-2.md` (structure,
 independent), `pass-3-correctness.md` (correctness, independent), this file.
 
@@ -18,7 +18,7 @@ finding from the three passes is either fixed or recorded as accepted with its r
 | Pass 1 | coordinator (self) | 1 Medium fixed during implementation (hub screen dropped the transition narration — `FBattleTextView.cpp:273`). |
 | Pass 2 | `reviewer` `del_mu4b4alg_hnz8` | **REWORK** — 1 Blocker (build-breaking `distance` scope error the harness cannot see), 1 High (R9 deletion-test surface), 3 Medium (dead content, missing out-of-range narration, stale comment), 3 Low. All addressed. |
 | Pass 3 | `reviewer` `del_mu4b5w1z_ku1d` | 1 High + 3 Medium + 2 Low, all fixed (`pass-3-correctness.md`). The run was cut off by the watchdog before its closing summary; each item was verified by the coordinator. |
-| Oracle | `oracle` `del_mu4b4ex5_l0co` | All 8 questions **PASS**; final line **READY TO MERGE** at `79800c6` (pre-fix). Its Q5 gap list (threshold domain, spawn-cell bounds/overlap) is closed by `3787f0f`. |
+| Oracle | `oracle` `del_mu4b4ex5_l0co` | All 8 questions **PASS**; final line **READY TO MERGE** at `79800c6` (pre-fix). Its Q5 gap list (threshold domain, spawn-cell bounds/overlap) is closed by `432aeca`. |
 
 Two delegates died with an empty result on this range (`del_mu4b467u_6o09`, and an earlier oracle attempt): the
 harness has no build step, so the only way to catch a compile error is a human-run build — which is why the
