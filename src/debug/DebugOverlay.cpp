@@ -12,6 +12,7 @@
 #include "core/events/FEventBus.h"
 #include "core/SystemManager.h"
 #include "core/Time.h"
+#include "gameplay/view/FBattleTextView.h"
 #include "ecs/components/FAnimation.h"
 #include "ecs/components/FCamera.h"
 #include "ecs/components/FCollider.h"
@@ -128,7 +129,22 @@ void RenderEngineStats(entt::registry& registry, const Time& frameTime, const Sy
     }
 
     ImGui::Separator();
-    ImGui::TextDisabled("No gameplay scene is bootstrapped. Engine services and ECS systems are available for the next prototype.");
+    ImGui::TextDisabled("Gameplay slice 2: a text battle runs in the registry (see the Battle (text) window).");
+    ImGui::End();
+}
+
+/// Draws whatever lines the gameplay view produced. why the overlay holds no battle vocabulary of its own: the
+/// text is built in `gameplay/view/FBattleTextView.cpp`, so the sprite/animation slice deletes that file and this
+/// call without touching the simulation (R9/R26).
+void RenderBattleText(entt::registry& registry) {
+    ImGui::SetNextWindowPos(ImVec2(360, 120), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(560, 460), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Battle (text)");
+
+    for (const std::string& line : game::gameplay::FBattleTextView::snapshot(registry)) {
+        ImGui::TextUnformatted(line.c_str());
+    }
+
     ImGui::End();
 }
 
@@ -168,6 +184,7 @@ void RenderDebugOverlay(entt::registry& registry, const Time& frameTime, const S
     ZoneScopedN("RenderDebugOverlay");
     RenderEngineStats(registry, frameTime, systemManager);
     RenderEntityInspector(registry);
+    RenderBattleText(registry);
 }
 
 } // namespace game

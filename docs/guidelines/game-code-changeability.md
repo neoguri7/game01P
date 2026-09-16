@@ -76,7 +76,7 @@
 | 모듈 경계 | 단일 바이너리 (`src/main.cpp` 정적 링크) | 존재 | R29는 경계 구조체가 없으므로 `N-A` + 부채 1줄. 단 R30(fork-by-copy)은 즉시 FAIL 가능 |
 | 로깅 표면 | `src/core/Logger.h` (`LOG_*` 매크로, spdlog, 콘솔 + `game01p.log`) | 존재 | R31로 강제 (`#if`로 감싸 삭제하지 않고 레벨로 제어) |
 | 관측/디버그 뷰 | `src/debug/DebugOverlay.*`, Tracy `ZoneScoped*` (`src/core/Engine.cpp:28` 등) | 존재 | R32로 강제 (로그도 스팬도 없는 "침묵 시스템" 금지) |
-| 주석 마커 | `// why:`, `// invariant:`, `// fallback:`, `// boundary:`, `// thread-affinity:` | 관례는 문서화됨(사용 0건) | R33으로 강제 (신규 파일에 역할 주석 + 왜 마커) |
+| 주석 마커 | `// why:`, `// invariant:`, `// fallback:`, `// boundary:`, `// thread-affinity:`, `// 미결(design §N):` | 관례는 문서화됨(사용 0건) | R33으로 강제 (신규 파일에 역할 주석 + 왜 마커) |
 
 ---
 
@@ -442,10 +442,11 @@ R24는 전역 토글을 한 곳에 모으라는 규칙이고, R32는 관측 호�
 
 - 형태: ① 새 파일 상단에 역할 1줄(트레이싱 시 어떤 카테고리/시스템인지), ② 비자명한 결정마다
   `// why:` 1~2줄(왜 이 순서인가 / 왜 안전한가 / 무엇이 깨지면 안 되는가), ③ 우회·폴백은
-  `// fallback:`, 경계 예외는 `// boundary:`, 불변식은 `// invariant:`, 스레드는 `// thread-affinity:`.
+  `// fallback:`, 경계 예외는 `// boundary:`, 불변식은 `// invariant:`, 스레드는 `// thread-affinity:`,
+  미확정 값의 출처는 `// 미결(design §N):`(design 문서의 어느 절이 이 값을 아직 정하지 않았는지).
   금지: 다음 줄 코드를 그대로 되풀이하는 주석(`// player position` + `player.position = …`).
 - FAIL (측정): ① 잡음 주석 — 주석의 내용어(≥3자, 불용어 제외)가 2개 이상이고 **모두** 다음 코드 줄의
-  토큰에 존재하며 `why|invariant|fallback|boundary|thread-affinity` 마커가 없음(기대 0),
+  토큰에 존재하며 `why|invariant|fallback|boundary|thread-affinity|미결(` 마커가 없음(기대 0),
   ② 증분: 새로 추가된 `src/` 파일에 `//` 주석이 0줄(역할 주석 부재).
 - 확인: §5 R33 (잡음 주석 탐지기는 `awk`; 증분은 `git diff --diff-filter=A`).
 - 심각도: Medium(이해 비용 — 4대 질문의 "이해 비용"에 직접 걸린다).

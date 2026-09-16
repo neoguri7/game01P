@@ -1,0 +1,16 @@
+{
+  "_comment": "프로토타입 행: 파티/적 구성·칸 좌표·그리드 크기는 슬라이스 2 전투를 돌리기 위한 잠정값이며 design §4 확정 수치가 아니다(미결: 이동 거리·사거리 최종 수치, 몬스터 AI). 좌표는 정수 칸이며 [x, y, x, y, ...] 순서다. 확정 수치는 이 파일만 고쳐 정한다.",
+  "schema_version": 1,
+  "encounters": [
+    {
+      "id": "proto_skirmish",
+      "display_name": "Proto Skirmish",
+      "party": ["proto_melee", "proto_ranged"],
+      "party_cells": [0, 2, 0, 5],
+      "enemies": ["proto_grunt", "proto_brute"],
+      "enemy_cells": [5, 3, 6, 4],
+      "grid_width": 8,
+      "grid_height": 8
+    }
+  ]
+}

@@ -1,17 +1,21 @@
 {
-  "_comment": "프로토타입 행: id·수치(ap_cost, range)·태그는 스키마 검증용 잠정값이며 design §4/§5 확정 수치가 아니다(미결). 확정 수치는 밸런싱 단계에서 이 파일만 고쳐 정한다.",
+  "_comment": "프로토타입 행: id·수치(ap_cost, range, power)·태그는 스키마 검증용 잠정값이며 design §4/§5 확정 수치가 아니다(미결: 피해 공식, 사거리 최종 수치, 태그 세트 규모). power는 미결(design §4) 피해 공식이 정해지기 전까지 피해량으로 그대로 쓰인다. 확정 수치는 밸런싱 단계에서 이 파일만 고쳐 정한다.",
   "schema_version": 1,
   "skills": [
     {
       "id": "proto_cleave",
       "display_name": "Proto Cleave",
       "ap_cost": 1,
+      "range": 1,
+      "power": 12,
       "tags": ["Melee"]
     },
     {
       "id": "proto_guard",
       "display_name": "Proto Guard",
       "ap_cost": 1,
+      "range": 1,
+      "power": 0,
       "tags": ["Melee"]
     },
     {
@@ -19,7 +23,24 @@
       "display_name": "Proto Shot",
       "ap_cost": 2,
       "range": 4,
+      "power": 9,
       "tags": ["Projectile"]
+    },
+    {
+      "id": "proto_bite",
+      "display_name": "Proto Bite",
+      "ap_cost": 1,
+      "range": 1,
+      "power": 7,
+      "tags": ["Melee"]
+    },
+    {
+      "id": "proto_slam",
+      "display_name": "Proto Slam",
+      "ap_cost": 2,
+      "range": 1,
+      "power": 11,
+      "tags": ["Melee"]
     }
   ]
 }

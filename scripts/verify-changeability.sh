@@ -107,7 +107,7 @@ r31_guarded_logs() {
 RE_R32_OBS='LOG_[A-Z]+[[:space:]]*\(|ZoneScoped'
 r32_silent_systems() {
   local f obs
-  rg -l --no-heading 'public ISystem' "$1" 2>/dev/null | path_filter | rg -v 'ISystem\.h$' | while IFS= read -r f; do
+  rg -l --no-heading 'public +(ecs::)?ISystem' "$1" 2>/dev/null | path_filter | rg -v 'ISystem\.h$' | while IFS= read -r f; do
     # comments are stripped before the observation check: a file that only MENTIONS ZoneScopedN in prose is
     # still a silent system (the ZzSilentSystem fixture header documents exactly that). --with-filename keeps
     # the "<path>:<line>:" shape that strip_all_comments expects, even when a single file is passed in.
@@ -139,6 +139,10 @@ r33_what_comments() {
           cmt = lines[i]
           sub(/^[[:space:]]*\/\//, "", cmt)
           if (cmt ~ /(why|invariant|fallback|boundary|thread-affinity)/) continue
+          # 미결(design §N) is the decision-status marker defined in
+          # docs/guidelines/game-code-changeability.md §1: a comment that names the open design question is
+          # already a why-marker, not a restatement of the code below.
+          if (cmt ~ /미결\(/) continue
           j = i + 1
           while (j <= NR && lines[j] ~ /^[[:space:]]*$/) j++
           if (j > NR || lines[j] ~ /^[[:space:]]*\/\//) continue
@@ -210,19 +214,19 @@ if [ "$MODE" = repo ]; then
   note "== R1 one ISystem per file / filename = type name (0 expected) =="
   r1bad=""
   while IFS= read -r f; do
-    c=$(rg -o --no-heading 'struct [A-Za-z_][A-Za-z0-9_]*[^;{]*: *public ISystem' "$f" 2>/dev/null | wc -l | tr -d ' ')
+    c=$(rg -o --no-heading 'struct [A-Za-z_][A-Za-z0-9_]*[^;{]*: *public +(ecs::)?ISystem' "$f" 2>/dev/null | wc -l | tr -d ' ')
     [ "${c:-0}" -ge 2 ] && r1bad="$r1bad$f: $c ISystem types\n"
     [ "$(wc -l <"$f")" -gt 400 ] && r1bad="$r1bad$f: >400 lines\n"
     base=$(basename "$f" .h)
     rg -q --no-heading "struct $base\b" "$f" 2>/dev/null || r1bad="$r1bad$f: filename != type name\n"
-  done < <(rg -l --no-heading 'public ISystem' "$SRC/ecs/systems" 2>/dev/null | path_filter)
+  done < <(rg -l --no-heading 'public +(ecs::)?ISystem' "$SRC/ecs/systems" "$SRC/gameplay/systems" 2>/dev/null | path_filter)
   [ -z "$r1bad" ] && ok "R1 clean" || {
     printf '%b' "$r1bad"
     bad "R1 multiple systems / oversized / filename mismatch"
   }
 
   note "== R2 component purity (0 expected) =="
-  r2=$(hits_code "$RE_COMPONENT_BAD" "$SRC/ecs/components/" | bl R2 || true)
+  r2=$(hits_code "$RE_COMPONENT_BAD" "$SRC/ecs/components/" "$SRC/gameplay/components/" | bl R2 || true)
   [ -z "$r2" ] && ok "R2 clean" || {
     printf '%s\n' "$r2"
     bad "R2 component contains virtual / destructor / owning raw pointer"
@@ -230,8 +234,11 @@ if [ "$MODE" = repo ]; then
 
   note "== R3 no cross-system include (0 expected) =="
   r3=$(rg -n --no-heading '#include "ecs/systems/[A-Za-z]+System\.h"' "$SRC/ecs/systems/" 2>/dev/null | rg -v 'ISystem\.h' | path_filter | bl R3 || true)
-  [ -z "$r3" ] && ok "R3 clean" || {
-    printf '%s\n' "$r3"
+  # the gameplay layer follows the same rule; R1 already enforces it only inside a file, R3 catches the same
+  # mistake in the file's includes (a gameplay system reaching for another gameplay system's internals).
+  r3g=$(rg -n --no-heading '#include "gameplay/systems/[A-Za-z]+System\.h"' "$SRC/gameplay/systems/" 2>/dev/null | rg -v 'ISystem\.h' | path_filter | bl R3 || true)
+  [ -z "$r3$r3g" ] && ok "R3 clean" || {
+    printf '%s\n%s\n' "$r3" "$r3g"
     bad "R3 system includes another concrete system"
   }
 
@@ -287,7 +294,7 @@ if [ "$MODE" = repo ]; then
   }
 
   note "== R11 bool state soup in components (0 expected) =="
-  r11=$(hits "\bbool\s+(is|has|can|should)[A-Z]\w*" "$SRC/ecs/components/" | bl R11 || true)
+  r11=$(hits "\bbool\s+(is|has|can|should)[A-Z]\w*" "$SRC/ecs/components/" "$SRC/gameplay/components/" | bl R11 || true)
   [ -z "$r11" ] && ok "R11 clean" || {
     printf '%s\n' "$r11"
     bad "R11 mutually-exclusive bool state fields"
@@ -362,7 +369,7 @@ if [ "$MODE" = repo ]; then
   r20name=""
   while IFS= read -r f; do
     rg -q --no-heading '\bname\(\)\s*(const)?\s*(override)?\s*\{' "$f" 2>/dev/null || r20name="$r20name$f: ISystem without name()\n"
-  done < <(rg -l --no-heading 'public ISystem' "$SRC/ecs/systems" 2>/dev/null | path_filter)
+  done < <(rg -l --no-heading 'public +(ecs::)?ISystem' "$SRC/ecs/systems" "$SRC/gameplay/systems" 2>/dev/null | path_filter)
   if [ -z "$unresolved$r20name" ]; then ok "R20 clean"; else
     printf '%b%b' "$unresolved" "$r20name"
     bad "R20 unresolved include / missing name()"
@@ -385,7 +392,7 @@ if [ "$MODE" = repo ]; then
   fi
 
   note "== R24 debug/tuning toggles beyond the single debug surface (0 expected) =="
-  r24=$(hits "$RE_R24_FLAG" "$SRC/ecs/systems" "$SRC/states" "$SRC/core" | bl R24 || true)
+  r24=$(hits "$RE_R24_FLAG" "$SRC/ecs/systems" "$SRC/states" "$SRC/gameplay" "$SRC/core" | bl R24 || true)
   if [ -z "$r24" ]; then ok "R24 clean"; else
     printf '%s\n' "$r24"
     bad "R24 scattered show*/debug* flags instead of one registered debug surface"
@@ -399,7 +406,7 @@ if [ "$MODE" = repo ]; then
   fi
 
   note "== R26 platform API outside core (0 expected; two render systems are baselined) =="
-  r26=$(hits "$RE_R26_SDL" "$SRC/ecs" "$SRC/states" "$SRC/debug" | bl R26 || true)
+  r26=$(hits "$RE_R26_SDL" "$SRC/ecs" "$SRC/states" "$SRC/debug" "$SRC/gameplay" | bl R26 || true)
   if [ -z "$r26" ]; then ok "R26 clean"; else
     printf '%s\n' "$r26"
     bad "R26 SDL/OS API used outside the platform boundary (core/)"
@@ -607,6 +614,20 @@ else
   [ "$w_hits" = "1" ] && ok "R33 flags only the '// player position' restatement (1 hit)" || bad "R33 what-comment hits = $w_hits (want 1)"
   w_ctrl=$(r33_what_comments "$SRC/ecs/components/FZzGood.h" | wc -l | tr -d ' ')
   [ "$w_ctrl" = "0" ] && ok "R33 negative control: FZzGood.h comment is not a restatement (0 hits)" || bad "R33 negative control hits = $w_ctrl (want 0)"
+
+  # Slice-2 gameplay coverage (V34..V38): R1/R2/R26/R32 now also assert over src/gameplay. Each new rule needs a
+  # positive fixture AND a negative control, otherwise "clean" in repo mode could just mean "never scanned".
+  assert_hits R2 gameplay/components/FZzBadGameplayComponent.h 3 "$RE_COMPONENT_BAD"
+  # the discovery pattern must accept the qualified base class the gameplay layer uses (`: public ecs::ISystem`),
+  # otherwise R1/R20/R32 would keep silently skipping every gameplay system while reporting "clean".
+  assert_hits R1 gameplay/systems/ZzMismatchSystem.h 1 'struct [A-Za-z_]+[^;{]*: *public +(ecs::)?ISystem'
+  g1_match=$(rg -q --no-heading 'struct ZzMismatchSystem\b' "$SRC/gameplay/systems/ZzMismatchSystem.h" && echo matched || echo mismatched)
+  [ "$g1_match" = "mismatched" ] && ok "R1 gameplay fixture: filename truly != type name (detectable)" || bad "R1 gameplay fixture filename matches its type — fixture no longer calibrates anything"
+  assert_hits R26 gameplay/ZzSdlGameplay.h 1 "$RE_R26_SDL"
+  g_quiet=$(r32_silent_systems "$SRC/gameplay/systems/ZzQuietGameplaySystem.h" | wc -l | tr -d ' ')
+  g_obs=$(r32_silent_systems "$SRC/gameplay/systems/ZzObservedGameplaySystem.h" | wc -l | tr -d ' ')
+  [ "$g_quiet" = "1" ] && ok "R32 flags a silent gameplay system (no LOG_*, no span)" || bad "R32 gameplay silent hits = $g_quiet (want 1)"
+  [ "$g_obs" = "0" ] && ok "R32 negative control: a ZoneScopedN gameplay system is not flagged" || bad "R32 gameplay control hits = $g_obs (want 0)"
 fi
 
 if [ "$MODE" = repo ]; then

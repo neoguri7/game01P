@@ -14,6 +14,11 @@ enum class EInputAction {
     MoveRight,
     Confirm,
     Cancel,
+    // why these three exist (slice 2): W/A/S/D already mean "move one cell", so skill cycling and target
+    // cycling need their own actions instead of overloading movement with a mode toggle.
+    NextSkill,
+    PrevSkill,
+    NextTarget,
     DebugToggle
 };
 
@@ -97,6 +102,9 @@ private:
         case EInputAction::MoveRight: return SDL_SCANCODE_D;
         case EInputAction::Confirm: return SDL_SCANCODE_RETURN;
         case EInputAction::Cancel: return SDL_SCANCODE_ESCAPE;
+        case EInputAction::NextSkill: return SDL_SCANCODE_E;
+        case EInputAction::PrevSkill: return SDL_SCANCODE_Q;
+        case EInputAction::NextTarget: return SDL_SCANCODE_TAB;
         case EInputAction::DebugToggle: return SDL_SCANCODE_GRAVE;
         }
         return SDL_SCANCODE_UNKNOWN;

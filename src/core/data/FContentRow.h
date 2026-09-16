@@ -11,6 +11,8 @@ namespace game {
 /// One schema-projected content row: values[i] belongs to schema field i (FContentSchema::fields order).
 /// Accessors return the caller's fallback when the slot is missing, so a decoder stays branch-free;
 /// a wrong type cannot reach here because FContentLoader rejected it at load time.
+/// why `numberArray` exists: `EContentFieldType::NumberArray` was already declared by the loader, but no row
+/// accessor exposed it — a schema type the projection cannot read is a dead option, not a feature.
 struct FContentRow {
     std::vector<FContentValue> values;
 
@@ -47,6 +49,12 @@ struct FContentRow {
         const FContentValue* slot = at(index);
         const std::vector<std::string>* array = slot ? slot->asTextArray() : nullptr;
         return array ? *array : std::vector<std::string>{};
+    }
+
+    [[nodiscard]] std::vector<double> numberArray(std::size_t index) const {
+        const FContentValue* slot = at(index);
+        const std::vector<double>* array = slot ? slot->asNumberArray() : nullptr;
+        return array ? *array : std::vector<double>{};
     }
 };
 

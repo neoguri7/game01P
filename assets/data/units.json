@@ -7,6 +7,8 @@
       "display_name": "Proto Melee",
       "max_health": 120,
       "speed": 4,
+      "move_ap": 1,
+      "skill_ap": 2,
       "skills": ["proto_cleave", "proto_guard"]
     },
     {
@@ -18,6 +20,24 @@
       "skill_ap": 2,
       "skills": ["proto_shot"],
       "sprite": "units/proto_ranged"
+    },
+    {
+      "id": "proto_grunt",
+      "display_name": "Proto Grunt",
+      "max_health": 40,
+      "speed": 5,
+      "move_ap": 1,
+      "skill_ap": 2,
+      "skills": ["proto_bite"]
+    },
+    {
+      "id": "proto_brute",
+      "display_name": "Proto Brute",
+      "max_health": 70,
+      "speed": 3,
+      "move_ap": 1,
+      "skill_ap": 2,
+      "skills": ["proto_slam"]
     }
   ]
 }

@@ -39,6 +39,10 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
+    // Gameplay systems register at the same single composition root, and only after content and the battle
+    // spawned (R21): a failed boot contributes no systems to the frame pipeline.
+    game::gameplay::FGameplayServices::RegisterSystems(engine.getSystemManager());
+
     engine.run();
 
     game::gameplay::FGameplayServices::Shutdown(engine.getRegistry());
