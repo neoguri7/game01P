@@ -11,6 +11,7 @@
 #include "gameplay/components/FInitiative.h"
 #include "gameplay/events/FBattleEvents.h"
 #include "gameplay/run/FBattleState.h"
+#include "gameplay/rules/FTurnActor.h"
 
 #include <entt/entt.hpp>
 #include <tracy/Tracy.hpp>
@@ -35,6 +36,13 @@ struct FInitiativeSystem final : public ecs::ISystem {
             return;
         }
         if (registry.all_of<FBattleVictory>(state->battle) || registry.all_of<FBattleDefeat>(state->battle)) {
+            return;
+        }
+        // why the holder check comes first: FTurnStartSystem advances `cursor` the moment a turn *opens*, so
+        // `cursor == order.size()` while the last unit is still playing. Rebuilding there bumped FBattleRound and
+        // reset the prediction mid-turn, so the banner said "라운드 2" while the active unit was still in round 1.
+        // The rebuild waits for the holder to release the turn instead of guessing the boundary (F1).
+        if (activeUnit(registry) != entt::null) {
             return;
         }
         // why: a consumed order (cursor reached the end) is the round boundary; a non-empty order still being

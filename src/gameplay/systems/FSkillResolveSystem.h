@@ -7,6 +7,7 @@
 #include "gameplay/components/FApPool.h"
 #include "gameplay/components/FDowned.h"
 #include "gameplay/components/FGridPosition.h"
+#include "gameplay/components/FHealth.h"
 #include "gameplay/components/FSkillSet.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/data/FSkillContent.h"
@@ -66,6 +67,12 @@ private:
         }
         if (!registry.valid(request.target) || registry.all_of<FDowned>(request.target)) {
             reject(bus, request, "대상이 이미 쓰러졌다");
+            return;
+        }
+        // why before the AP charge: FDamageSystem drops a resolution whose target has no FHealth, so charging
+        // first burned the actor's skill AP on a hit that could never land, with no rejection event to show (F5).
+        if (!registry.all_of<FHealth>(request.target)) {
+            reject(bus, request, "대상에게 체력 정보가 없다");
             return;
         }
 

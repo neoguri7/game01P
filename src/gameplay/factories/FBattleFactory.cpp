@@ -30,6 +30,20 @@ namespace {
 
 /// One spawn = the component set every unit has, regardless of side. why a helper instead of a builder class:
 /// the composition is fixed for this slice, and R10 forbids an abstraction before a second shape exists.
+/// Releases the turn holder, if any. why here: the holder tag lives on a *unit*, not on the battle entity, so a
+/// terminal transition that only tags the battle left the acting unit commandable — it kept moving, spending AP and
+/// appending "이동 → ..." lines after "전투 승리", and a defeated enemy re-warned every frame (F2/F3). The factory
+/// stays the single writer of turn/phase structure (R5).
+void releaseTurnHolder(entt::registry& registry) {
+    std::vector<entt::entity> holders;
+    for (const auto entity : registry.view<FTurnActive>()) {
+        holders.push_back(entity);
+    }
+    for (const auto entity : holders) {
+        registry.remove<FTurnActive>(entity);
+    }
+}
+
 entt::entity spawnUnit(entt::registry& registry,
                        const FUnitContent& unit,
                        int x,
@@ -168,6 +182,7 @@ void FBattleFactory::endBattleAsVictory(entt::registry& registry, entt::entity b
     if (battle == entt::null || !registry.valid(battle)) {
         return;
     }
+    releaseTurnHolder(registry);
     registry.remove<FBattleOngoing>(battle);
     registry.emplace<FBattleVictory>(battle);
 }
@@ -176,6 +191,7 @@ void FBattleFactory::endBattleAsDefeat(entt::registry& registry, entt::entity ba
     if (battle == entt::null || !registry.valid(battle)) {
         return;
     }
+    releaseTurnHolder(registry);
     registry.remove<FBattleOngoing>(battle);
     registry.emplace<FBattleDefeat>(battle);
 }

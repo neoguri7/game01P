@@ -75,6 +75,33 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
         registry.encounters.rows.push_back(decodeEncounter(row));
     }
 
+    // why numeric range checks live here instead of in decode: a decode function is a straight projection that
+    // cannot fail (R22), while "values are data" (R4/R22) means malformed data must fail the boot. Without these,
+    // a negative apCost *refunded* AP in FSkillResolveSystem and maxHealth <= 0 spawned a unit that countLiving
+    // counted as living while no damage could ever down it (F4).
+    for (const FSkillContent& skill : registry.skills.rows) {
+        if (skill.apCost < 0 || skill.range < 0 || skill.power < 0.0) {
+            LOG_ERROR("content: skill '{}' has a negative value (ap_cost {}, range {}, power {}); expected >= 0.",
+                      skill.id,
+                      skill.apCost,
+                      skill.range,
+                      skill.power);
+            return std::nullopt;
+        }
+    }
+    for (const FUnitContent& unit : registry.units.rows) {
+        if (unit.maxHealth <= 0.0 || unit.speed <= 0.0 || unit.moveAp < 0 || unit.skillAp < 0) {
+            LOG_ERROR("content: unit '{}' has a non-positive value (max_health {}, speed {}, move_ap {}, skill_ap {}); "
+                      "expected > 0 for health/speed and >= 0 for AP.",
+                      unit.id,
+                      unit.maxHealth,
+                      unit.speed,
+                      unit.moveAp,
+                      unit.skillAp);
+            return std::nullopt;
+        }
+    }
+
     // Cross-table references are checked here, in the one place that owns every table (R22): a typo in a
     // data file must fail the boot instead of becoming a silent no-op the first time that row is used.
     for (const FUnitContent& unit : registry.units.rows) {
