@@ -57,3 +57,37 @@ Zero bit fields exist. The reported lines are an enumerator literally named `Tex
 resolution and re-reading ordinary member syntax as a bitfield. Verdict: `NOT USABLE` on this branch. The correct
 response is to report it, not to edit already-reviewed files (`src/core/data/*`, `src/core/AssetManager.h` are
 outside this slice's contract and untouched by it).
+
+## New harness rule: event queue/producer frame order (R3)
+
+`scripts/verify-changeability.sh` gained an `event_order_report` pass after slice 2 shipped the cross-frame event
+bug. `FEventBus::beginFrame()` is called once per frame from `src/core/Engine.cpp:248` and clears the frame queues,
+so a system that reads an event is only correct if **every** producer of that type is registered *before* it in the
+walk order. The pass resolves each `addSystem<T>()` index per registry file, resolves each system's header, and
+reports a violation of the shape `consumer (index c) reads E, queued later by producer (index p)` with `p > c`.
+The real bug it was written for: `FTurnStartSystem` read `FTurnEndRequestedEvent`, but the producers
+(`FPlayerCommandSystem`, `FEnemyTurnSystem`) are registered after it, so the request was read a frame late and
+silently dropped by the next `beginFrame()`.
+
+Three calibration traps — all three first produced a wrong pass/fail verdict before being fixed, so they are
+recorded here rather than rediscovered:
+
+1. **Direction.** The first version iterated producers and flagged later *readers*; the violation is the opposite:
+   the consumer's index is the lower one. A consumer that runs early sees an empty queue and the producer fills it
+   afterwards, unread.
+2. **`strip_comments` needs a `path:line:` prefix.** With a single file argument `rg` omits that prefix, so the
+   comment stripper matched nothing and the fixture's `// systems.addSystem<...>` annotation lines were counted as
+   real registrations. Fixed with `rg -n -H`.
+3. **Per-system body scope.** R1 asks for one `ISystem` per file, but the detector must stay correct when a header
+   holds helpers — or two fixture structs. Searching the whole header attributed one system's `queueFrame<E>` to its
+   neighbour and produced two extra false positives. Fixed with a `system_body()` awk helper that slices
+   `struct <name>` to its closing `};`.
+   A fourth gotcha inside that helper: gawk/mawk read `\b` in a dynamic regex as a literal *backspace*, so the
+   boundary must be written as `([^A-Za-z0-9_]|$)`; with `\b` the helper silently returned an empty body and the
+   positive control vanished instead of failing loudly.
+
+Calibration is part of the harness run: on `tests/changeability/fixtures/gameplay/**` the pass must report exactly
+one violation (`ZzEarlyConsumerSystem` reading `ZzPingEvent`), while the real tree is R3-clean.
+
+Guided question: *when a detector is written to catch a bug that already happened, does its own calibration
+positive control actually fail when the bug is reintroduced — or does it pass for the wrong reason?*
