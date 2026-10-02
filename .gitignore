@@ -10,6 +10,7 @@ Testing/
 .cache/
 .ninja_deps
 .ninja_log
+docs/
 
 .codex
 .codex/

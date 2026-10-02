@@ -6,6 +6,9 @@
 #include "ecs/systems/AnimationSystem.h"
 #include "ecs/systems/CollisionSystem.h"
 #include "ecs/systems/DebugPrimitiveRenderSystem.h"
+#include "ecs/systems/GridCameraSystem.h"
+#include "ecs/systems/GridRenderSystem.h"
+#include "ecs/systems/GridSelectSystem.h"
 #include "ecs/systems/MoveSystem.h"
 #include "ecs/systems/SpriteRenderSystem.h"
 #include "ecs/systems/Stage0BattleSystem.h"
@@ -26,6 +29,9 @@ void RegisterSystems(game::SystemManager& systems)
     systems.addSystem<game::TurnDemoSystem>();
     systems.addSystem<game::ecs::TurnSystem>();
     systems.addSystem<game::ecs::Stage0BattleSystem>();
+    systems.addSystem<game::ecs::GridCameraSystem>();
+    systems.addSystem<game::ecs::GridSelectSystem>();
+    systems.addSystem<game::ecs::GridRenderSystem>();
 }
 
 bool LoadStage0Definitions(game::FScene& scene)

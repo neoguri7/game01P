@@ -53,6 +53,14 @@ public:
         return stateStack.empty() ? std::string_view{} : stateStack.top()->GetName();
     }
 
+    [[nodiscard]] FBaseState* currentState() noexcept {
+        return stateStack.empty() ? nullptr : stateStack.top().get();
+    }
+
+    [[nodiscard]] const FBaseState* currentState() const noexcept {
+        return stateStack.empty() ? nullptr : stateStack.top().get();
+    }
+
     void popState(entt::registry& reg) {
         if (!stateStack.empty()) {
             stateStack.top()->OnExit(reg);

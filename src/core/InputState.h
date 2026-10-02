@@ -25,6 +25,7 @@ enum class EInputAction {
 struct FInputState {
     // Mouse
     glm::vec2 mousePos{0.f, 0.f};
+    float     mouseWheelDelta{0.f};
     bool      mouseLeftPressed{false};
     bool      mouseLeftHeld{false};
     bool      uiCapturesKeyboard{false};
@@ -48,6 +49,7 @@ struct FInputState {
     void beginFrame(bool keyboardCapturedByUi = false, bool mouseCapturedByUi = false) {
         uiCapturesKeyboard = keyboardCapturedByUi;
         uiCapturesMouse = mouseCapturedByUi;
+        mouseWheelDelta = 0.f;
         mouseLeftPressed = false;
         for (auto& b : keysJustPressed) b = false;
     }
@@ -56,6 +58,9 @@ struct FInputState {
         switch (ev.type) {
         case SDL_EVENT_MOUSE_MOTION:
             mousePos = { ev.motion.x, ev.motion.y };
+            return true;
+        case SDL_EVENT_MOUSE_WHEEL:
+            if (!uiCapturesMouse) mouseWheelDelta += ev.wheel.y;
             return true;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             if (uiCapturesMouse) return false;

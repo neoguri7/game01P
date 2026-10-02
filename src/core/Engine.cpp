@@ -346,8 +346,12 @@ void Engine::applyStateTransition(EStateTransition transition) {
 
 void Engine::syncStateSystemPolicy() {
     systemMgr.disableAll();
-    if (stateMachine.getCurrentStateName() == "Battle (dummy)") {
-        systemMgr.setEnabled("Stage0BattleSystem", true);
+    const FBaseState* state = stateMachine.currentState();
+    if (!state) return;
+    for (const auto name : state->RequiredSystems()) {
+        if (!systemMgr.setEnabled(name, true)) {
+            LOG_WARN("Required system not registered: {}", name);
+        }
     }
 }
 

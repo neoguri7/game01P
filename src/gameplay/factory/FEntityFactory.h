@@ -8,6 +8,7 @@
 
 #include "gameplay/factory/FEntityDefinitions.h"
 #include "gameplay/factory/FScene.h"
+#include "gameplay/grid/FBattlefieldData.h"
 
 namespace game {
 
@@ -18,6 +19,10 @@ struct FFactoryError {
 class FEntityFactory {
 public:
     [[nodiscard]] static std::expected<entt::entity, FFactoryError> CreateUnit(
+        FScene& scene,
+        const nlohmann::json& document
+    );
+    [[nodiscard]] static std::expected<FBattlefieldData, FFactoryError> CreateBattlefield(
         FScene& scene,
         const nlohmann::json& document
     );

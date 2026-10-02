@@ -1,6 +1,7 @@
 #pragma once
 
 #include <entt/entt.hpp>
+#include <span>
 #include <string_view>
 
 /// App-flow transition intents only.
@@ -30,6 +31,8 @@ public:
 
     /// Human-readable app-flow state name for diagnostics.
     [[nodiscard]] virtual std::string_view GetName() const noexcept = 0;
+
+    [[nodiscard]] virtual std::span<const std::string_view> RequiredSystems() const noexcept { return {}; }
 
     /// Called when this state becomes active.
     virtual void OnEnter(entt::registry& Registry) {}

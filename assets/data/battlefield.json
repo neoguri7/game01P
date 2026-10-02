@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "width": 8,
+  "height": 8,
+  "tile_size": 64,
+  "origin_x": 0,
+  "origin_y": 0,
+  "units": [
+    { "id": "party.a", "display_name": "A", "faction": "party", "grid_x": 0, "grid_y": 5 },
+    { "id": "party.b", "display_name": "B", "faction": "party", "grid_x": 1, "grid_y": 5 },
+    { "id": "party.c", "display_name": "C", "faction": "party", "grid_x": 2, "grid_y": 5 },
+    { "id": "party.d", "display_name": "D", "faction": "party", "grid_x": 3, "grid_y": 5 },
+    { "id": "enemy.a", "display_name": "EA", "faction": "enemy", "grid_x": 5, "grid_y": 2 },
+    { "id": "enemy.b", "display_name": "EB", "faction": "enemy", "grid_x": 6, "grid_y": 2 }
+  ]
+}
