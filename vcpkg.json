@@ -12,6 +12,7 @@
     "tracy",
     "miniaudio",
     "sdl3-ttf",
-    "spdlog"
+    "spdlog",
+    "nlohmann-json"
   ]
 }

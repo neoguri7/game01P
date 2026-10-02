@@ -15,6 +15,9 @@
 #include "core/Logger.h"
 #include "core/ResourceManager.h"
 #include "core/events/FEventBus.h"
+#include "states/FBattleState.h"
+#include "states/FHubState.h"
+#include "states/FTitleState.h"
 
 namespace game {
 
@@ -75,6 +78,9 @@ bool Engine::applyEngineInitializeAbility(const FEngineAbilityRequest& request, 
         applyEngineShutdownSdlEffect();
         return false;
     }
+
+    stateMachine.switchState(std::make_unique<FTitleState>(), registry);
+    updateAppFlowRuntimeState();
 
     applyEngineMarkRunningEffect(true);
     return true;
@@ -303,17 +309,56 @@ void Engine::processInput() {
 void Engine::update(float dt) {
     ZoneScopedN("Engine::Update");
 
-    // High level game systems (movement, physics, AI, etc.)
-    systemMgr.updateAll(registry, dt);
+    applyStateTransition(stateMachine.update(registry, dt));
+    syncStateSystemPolicy();
+    systemMgr.updateEnabled(registry, dt);
 
     if (auto* audio = registry.ctx().find<FAudioManager>()) {
         audio->gcOneShots();
     }
 
-    // TODO: optional state machine update (e.g. current state.Update(registry, dt))
-
     // debug updates
     // debugOverlay.update(registry, dt);
+}
+
+void Engine::applyStateTransition(EStateTransition transition) {
+    switch (transition) {
+    case EStateTransition::None:
+        return;
+    case EStateTransition::ToTitle:
+        stateMachine.switchState(std::make_unique<FTitleState>(), registry);
+        break;
+    case EStateTransition::ToHub:
+        stateMachine.switchState(std::make_unique<FHubState>(), registry);
+        break;
+    case EStateTransition::ToBattle:
+    case EStateTransition::ToPrototype:
+        stateMachine.switchState(std::make_unique<FBattleState>(), registry);
+        break;
+    case EStateTransition::Quit:
+        applyEngineMarkRunningEffect(false);
+        break;
+    case EStateTransition::ToGameOver:
+        return;
+    }
+    updateAppFlowRuntimeState();
+}
+
+void Engine::syncStateSystemPolicy() {
+    systemMgr.disableAll();
+    if (stateMachine.getCurrentStateName() == "Battle (dummy)") {
+        systemMgr.setEnabled("Stage0BattleSystem", true);
+    }
+}
+
+void Engine::updateAppFlowRuntimeState() {
+    auto* appFlow = registry.ctx().find<FAppFlowRuntimeState>();
+    if (!appFlow) appFlow = &registry.ctx().emplace<FAppFlowRuntimeState>();
+    const std::string stateName(stateMachine.getCurrentStateName());
+    if (appFlow->currentState != stateName) {
+        if (!appFlow->currentState.empty()) ++appFlow->transitionCount;
+        appFlow->currentState = stateName;
+    }
 }
 
 void Engine::render() {
@@ -362,6 +407,8 @@ void Engine::applyEngineShutdownAbility(const FEngineAbilityRequest& request) {
 
     LOG_INFO("Engine shutting down...");
     applyEngineMarkRunningEffect(false);
+
+    stateMachine.popState(registry);
 
     applyEngineShutdownEntitiesEffect();
 

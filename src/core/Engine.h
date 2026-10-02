@@ -10,6 +10,7 @@
 #include "core/EngineAbility.h"
 #include "core/Time.h"
 #include "core/SystemManager.h"
+#include "states/GameStateMachine.h"
 
 namespace game {
 
@@ -43,6 +44,9 @@ private:
     void processInput();
     void update(float dt);
     void render();
+    void applyStateTransition(EStateTransition transition);
+    void syncStateSystemPolicy();
+    void updateAppFlowRuntimeState();
 
     bool applyEngineInitializeAbility(const FEngineAbilityRequest& request, const std::string& title, int w, int h);
     void applyEngineShutdownAbility(const FEngineAbilityRequest& request);
@@ -74,6 +78,7 @@ private:
     entt::registry registry;
     Time           frameTime;
     SystemManager  systemMgr;
+    GameStateMachine stateMachine;
     std::function<void(entt::registry&, const Time&, const SystemManager&)> overlayRenderer;
     bool           running{false};
 };

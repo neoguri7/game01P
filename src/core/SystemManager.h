@@ -25,34 +25,54 @@ public:
     void addSystem() {
         auto sys = std::make_unique<ecs::SystemWrapper<T>>();
         spdlog::info("[SystemManager] Registered system: {}", sys->name());
-        systems.push_back(std::move(sys));
+        systems.push_back({ std::move(sys), false });
     }
 
     void addSystem(std::unique_ptr<ecs::ISystem> sys) {
         if (sys) {
             spdlog::info("[SystemManager] Registered system: {}", sys->name());
-            systems.push_back(std::move(sys));
+            systems.push_back({ std::move(sys), false });
         }
     }
 
     void onAllSystemsRegistered(entt::registry& reg) {
-        for (auto& sys : systems) {
-            sys->onRegister(reg);
+        for (auto& entry : systems) {
+            entry.system->onRegister(reg);
         }
     }
 
-    void updateAll(entt::registry& reg, float deltaTime) {
-        ZoneScopedN("SystemManager::updateAll");
-        for (const auto& sys : systems) {
-            sys->update(reg, deltaTime);
+    void updateEnabled(entt::registry& reg, float deltaTime) {
+        ZoneScopedN("SystemManager::updateEnabled");
+        for (const auto& entry : systems) {
+            if (entry.enabled) entry.system->update(reg, deltaTime);
         }
     }
 
-    void renderAll(entt::registry& reg) {
-        ZoneScopedN("SystemManager::renderAll");
-        for (const auto& sys : systems) {
-            sys->render(reg);
+    void renderEnabled(entt::registry& reg) {
+        ZoneScopedN("SystemManager::renderEnabled");
+        for (const auto& entry : systems) {
+            if (entry.enabled) entry.system->render(reg);
         }
+    }
+
+    bool setEnabled(std::string_view name, bool enabled) {
+        const auto entry = std::ranges::find_if(systems, [name](const FSystemEntry& candidate) {
+            return candidate.system->name() == name;
+        });
+        if (entry == systems.end()) return false;
+        entry->enabled = enabled;
+        return true;
+    }
+
+    void disableAll() noexcept {
+        for (auto& entry : systems) entry.enabled = false;
+    }
+
+    [[nodiscard]] bool isEnabled(std::string_view name) const {
+        const auto entry = std::ranges::find_if(systems, [name](const FSystemEntry& candidate) {
+            return candidate.system->name() == name;
+        });
+        return entry != systems.end() && entry->enabled;
     }
 
     [[nodiscard]] size_t getRegisteredCount() const noexcept {
@@ -62,7 +82,15 @@ public:
     [[nodiscard]] std::vector<std::string> getSystemNames() const {
         std::vector<std::string> names;
         names.reserve(systems.size());
-        for (const auto& sys : systems) names.push_back(sys->name());
+        for (const auto& entry : systems) names.push_back(entry.system->name());
+        return names;
+    }
+
+    [[nodiscard]] std::vector<std::string> getEnabledSystemNames() const {
+        std::vector<std::string> names;
+        for (const auto& entry : systems) {
+            if (entry.enabled) names.push_back(entry.system->name());
+        }
         return names;
     }
 
@@ -71,7 +99,12 @@ public:
     }
 
 private:
-    std::vector<std::unique_ptr<ecs::ISystem>> systems;
+    struct FSystemEntry {
+        std::unique_ptr<ecs::ISystem> system;
+        bool enabled{false};
+    };
+
+    std::vector<FSystemEntry> systems;
 };
 
 } // namespace game

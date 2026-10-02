@@ -13,6 +13,7 @@
 #include "core/events/FEventBus.h"
 #include "core/SystemManager.h"
 #include "core/Time.h"
+#include "states/GameStateMachine.h"
 #include "ecs/components/FAnimation.h"
 #include "ecs/components/FCamera.h"
 #include "ecs/components/FCollider.h"
@@ -113,6 +114,11 @@ void RenderEngineStats(entt::registry& registry, const Time& frameTime, const Sy
     ImGui::Text("FPS: %d", frameTime.getFps());
     ImGui::Text("Entity count: %zu", registry.storage<entt::entity>().size());
     ImGui::Text("Systems: %zu", systemManager.getRegisteredCount());
+    if (const auto* appFlow = registry.ctx().find<FAppFlowRuntimeState>()) {
+        ImGui::Text("App state: %s (transitions: %llu)", appFlow->currentState.c_str(),
+                    static_cast<unsigned long long>(appFlow->transitionCount));
+    }
+    ImGui::TextDisabled("Enter: continue/start; Esc: back");
     ImGui::Text("Debug primitives: %zu", CountView<FDebugPrimitive>(registry));
     ImGui::Text("Movers: %zu", CountView<FVelocity>(registry));
     ImGui::Text("Colliders: %zu", CountView<FCollider>(registry));
@@ -123,7 +129,7 @@ void RenderEngineStats(entt::registry& registry, const Time& frameTime, const Sy
 
     if (ImGui::TreeNode("Registered systems")) {
         for (const auto& systemName : systemManager.getSystemNames()) {
-            ImGui::BulletText("%s", systemName.c_str());
+            ImGui::BulletText("%s [%s]", systemName.c_str(), systemManager.isEnabled(systemName) ? "active" : "inactive");
         }
         ImGui::TreePop();
     }

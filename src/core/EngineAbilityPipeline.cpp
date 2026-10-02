@@ -246,7 +246,7 @@ FEngineEffectResult ApplyEngineClearBackbufferEffect(SDL_Renderer* renderer) {
 }
 
 FEngineEffectResult ApplyEngineWorldRenderEffect(entt::registry& registry, SystemManager& systemManager) {
-    systemManager.renderAll(registry);
+    systemManager.renderEnabled(registry);
 
     return { .effect = EEngineEffect::RenderWorldSystems, .applied = true };
 }

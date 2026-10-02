@@ -4,8 +4,15 @@
 #include <entt/entt.hpp>
 #include <memory>
 #include <stack>
+#include <cstdint>
+#include <string>
 
 namespace game {
+
+struct FAppFlowRuntimeState {
+    std::string currentState;
+    std::uint64_t transitionCount{0};
+};
 
 /**
  * Lightweight high-level app-flow state machine.
@@ -22,29 +29,33 @@ class GameStateMachine {
 public:
     void pushState(std::unique_ptr<FBaseState> newState, entt::registry& reg) {
         if (!stateStack.empty()) {
-            stateStack.top()->OnExit();
+            stateStack.top()->OnExit(reg);
         }
         stateStack.push(std::move(newState));
-        stateStack.top()->OnEnter();
+        stateStack.top()->OnEnter(reg);
     }
 
     void switchState(std::unique_ptr<FBaseState> newState, entt::registry& reg) {
         if (!stateStack.empty()) {
-            stateStack.top()->OnExit();
+            stateStack.top()->OnExit(reg);
             stateStack.pop();
         }
         stateStack.push(std::move(newState));
-        stateStack.top()->OnEnter();
+        stateStack.top()->OnEnter(reg);
     }
 
-    EStateTransition update(float dt) {
+    EStateTransition update(entt::registry& reg, float dt) {
         if (stateStack.empty()) return EStateTransition::None;
-        return stateStack.top()->Update(dt);
+        return stateStack.top()->Update(reg, dt);
     }
 
-    void popState() {
+    [[nodiscard]] std::string_view getCurrentStateName() const noexcept {
+        return stateStack.empty() ? std::string_view{} : stateStack.top()->GetName();
+    }
+
+    void popState(entt::registry& reg) {
         if (!stateStack.empty()) {
-            stateStack.top()->OnExit();
+            stateStack.top()->OnExit(reg);
             stateStack.pop();
         }
     }

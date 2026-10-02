@@ -1,17 +1,22 @@
 #include "FHubState.h"
+#include "core/InputState.h"
 
-void FHubState::OnEnter()
+void FHubState::OnEnter(entt::registry& Registry)
 {
-    // Initialize this app-flow state.
+    (void)Registry;
 }
 
-void FHubState::OnExit()
+void FHubState::OnExit(entt::registry& Registry)
 {
-    // Cleanup this app-flow state.
+    (void)Registry;
 }
 
-EStateTransition FHubState::Update(float DeltaTime)
+EStateTransition FHubState::Update(entt::registry& Registry, float DeltaTime)
 {
-    // TODO: Handle input to transition to the next app-flow state.
+    (void)DeltaTime;
+    const auto* input = Registry.ctx().find<game::FInputState>();
+    if (!input) return EStateTransition::None;
+    if (input->isActionPressed(game::EInputAction::Confirm)) return EStateTransition::ToBattle;
+    if (input->isActionPressed(game::EInputAction::Cancel)) return EStateTransition::ToTitle;
     return EStateTransition::None;
 }
