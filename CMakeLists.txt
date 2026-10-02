@@ -26,6 +26,7 @@ target_include_directories(game01P PRIVATE "src")
 
 target_compile_options(game01P PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/EHsc>
+	$<$<CXX_COMPILER_ID:MSVC>:/utf-8>
 )
 
 find_package(SDL3 CONFIG REQUIRED)
@@ -53,6 +54,7 @@ target_link_libraries( game01P
 )
 
 set_property(TARGET game01P PROPERTY CXX_STANDARD 23)
+set_property(TARGET game01P PROPERTY CXX_STANDARD_REQUIRED ON)
 
 if (WIN32)
 	add_custom_command(TARGET game01P POST_BUILD
@@ -64,4 +66,3 @@ if (WIN32)
 endif()
 
 
-# TODO: Add tests and install targets if needed.
