@@ -1,4 +1,5 @@
 #include "debug/DebugOverlay.h"
+#include "debug/TurnDemo.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -168,6 +169,7 @@ void RenderDebugOverlay(entt::registry& registry, const Time& frameTime, const S
     ZoneScopedN("RenderDebugOverlay");
     RenderEngineStats(registry, frameTime, systemManager);
     RenderEntityInspector(registry);
+    RenderTurnDemo(registry);
 }
 
 } // namespace game

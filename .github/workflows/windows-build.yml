@@ -37,16 +37,24 @@ jobs:
         shell: pwsh
         run: .\vcpkg\vcpkg.exe install --triplet $env:VCPKG_TARGET_TRIPLET
 
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build/windows -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build ${{ matrix.configuration }}
         shell: pwsh
-        run: .\scripts\check-windows.ps1 -Configuration ${{ matrix.configuration }}
+        run: |
+          cmake --build build/windows --config ${{ matrix.configuration }} --target game01P --parallel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Stage build artifacts
         shell: pwsh
         run: |
           $artifactDir = "artifacts/windows-${{ matrix.configuration }}"
           New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
-          Copy-Item -Path "build/windows/${{ matrix.configuration }}/*.exe" -Destination $artifactDir -ErrorAction Stop
+          Copy-Item -Path "build/windows/${{ matrix.configuration }}/game01P.exe" -Destination $artifactDir -ErrorAction Stop
           Copy-Item -Path "build/windows/${{ matrix.configuration }}/*.dll" -Destination $artifactDir -ErrorAction SilentlyContinue
 
       - name: Upload Windows artifact
