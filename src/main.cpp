@@ -15,6 +15,7 @@
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/factory/FScene.h"
+#include "gameplay/GameplayServices.h"
 #include <cstdlib>
 
 namespace {
@@ -89,7 +90,8 @@ int main(int argc, char* argv[])
     engine.setOverlayRenderer(game::RenderDebugOverlay);
 
     game::FScene startupScene(engine.getRegistry(), "Stage0Startup");
-    if (!LoadStage0Definitions(startupScene)) {
+    if (!LoadStage0Definitions(startupScene) ||
+        !game::gameplay::FGameplayServices::Initialize(engine.getRegistry())) {
         startupScene.Unload();
         engine.shutdown();
         return EXIT_FAILURE;
@@ -100,6 +102,7 @@ int main(int argc, char* argv[])
     startupScene.Unload();
     game::ShutdownTurnDemo(engine.getRegistry());
     game::ShutdownTurnRuntime(engine.getRegistry());
+    game::gameplay::FGameplayServices::Shutdown(engine.getRegistry());
     engine.shutdown();
     return EXIT_SUCCESS;
 }
