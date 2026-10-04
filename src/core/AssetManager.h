@@ -13,9 +13,8 @@
 
 namespace game {
 
-/// The file boundary (R25/R23): the only place in the project that knows an asset id maps to a file on
-/// disk, that JSON exists, and that decoding can fail. Gameplay, rendering and systems talk about asset
-/// ids and typed rows instead, so swapping JSON for a packed binary format later touches this file only.
+/// The file boundary (R25/R23): maps logical asset ids to root-based paths and caches immutable JSON
+/// documents. PNG decoding stays in FResourceManager; gameplay and systems do not manipulate paths.
 ///
 /// Lives in the EnTT context as a service. Parsing happens once per id; every later request returns the
 /// same immutable document.
@@ -31,8 +30,8 @@ struct FAssetManager {
     /// unknown or unreadable — the reason is in the log, not in the return value (R19).
     [[nodiscard]] std::shared_ptr<const FAssetDigest> digest(std::string_view assetId) const;
 
-    /// The on-disk path an id would resolve to, or nullopt when no root has it. Diagnostic/tooling use.
-    [[nodiscard]] std::optional<std::string> resolvePath(std::string_view assetId) const;
+    /// The on-disk path an id and extension resolve to; extension defaults to .json.
+    [[nodiscard]] std::optional<std::string> resolvePath(std::string_view assetId, std::string_view extension = ".json") const;
 
     /// Drops every cached document. Exists so a reload/debug path does not need the manager rebuilt.
     void clearCache();

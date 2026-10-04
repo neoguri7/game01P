@@ -60,8 +60,8 @@ set_property(TARGET game01P PROPERTY CXX_STANDARD_REQUIRED ON)
 
 add_custom_command(TARGET game01P POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy_directory
-		"${CMAKE_CURRENT_SOURCE_DIR}/assets/data"
-		"$<TARGET_FILE_DIR:game01P>/assets/data"
+		"${CMAKE_CURRENT_SOURCE_DIR}/assets"
+		"$<TARGET_FILE_DIR:game01P>/assets"
 )
 
 if (WIN32)
@@ -72,5 +72,4 @@ if (WIN32)
 		COMMAND_EXPAND_LISTS
 	)
 endif()
-
 

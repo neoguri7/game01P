@@ -3,6 +3,7 @@
 #include "core/Logger.h"
 #include "debug/DebugOverlay.h"
 #include "debug/TurnDemo.h"
+#include "core/AnimationLibrary.h"
 #include "ecs/systems/AnimationSystem.h"
 #include "ecs/systems/CollisionSystem.h"
 #include "ecs/systems/DebugPrimitiveRenderSystem.h"
@@ -88,6 +89,11 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
+    if (!game::FAnimationLibrary::Initialize(engine.getRegistry())) {
+        engine.shutdown();
+        return EXIT_FAILURE;
+    }
+
     RegisterSystems(engine.getSystemManager());
     engine.getSystemManager().onAllSystemsRegistered(engine.getRegistry());
     engine.setOverlayRenderer(game::RenderDebugOverlay);
@@ -96,11 +102,16 @@ int main(int argc, char* argv[])
     game::FScene startupScene(engine.getRegistry(), "Stage0Startup");
     if (!LoadStage0Definitions(startupScene)) {
         startupScene.Unload();
+        game::FAnimationLibrary::Shutdown(engine.getRegistry());
+        engine.shutdown();
+        return EXIT_FAILURE;
+    }
 
     // Composition root owns the gameplay wiring (R21/R5): content is loaded once here, and unusable
     // content stops the boot instead of degrading into a half-working run (R19).
     if (!game::gameplay::FGameplayServices::Initialize(engine.getRegistry())) {
-
+        startupScene.Unload();
+        game::FAnimationLibrary::Shutdown(engine.getRegistry());
         engine.shutdown();
         return EXIT_FAILURE;
     }
@@ -113,6 +124,7 @@ int main(int argc, char* argv[])
     game::ShutdownTurnRuntime(engine.getRegistry());
 
     game::gameplay::FGameplayServices::Shutdown(engine.getRegistry());
+    game::FAnimationLibrary::Shutdown(engine.getRegistry());
 
     engine.shutdown();
     return EXIT_SUCCESS;

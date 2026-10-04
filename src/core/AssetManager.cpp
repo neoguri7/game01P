@@ -60,12 +60,17 @@ std::shared_ptr<const FAssetDigest> FAssetManager::digest(std::string_view asset
     return loaded;
 }
 
-std::optional<std::string> FAssetManager::resolvePath(std::string_view assetId) const {
+std::optional<std::string> FAssetManager::resolvePath(std::string_view assetId, std::string_view extension) const {
+    std::string suffix{extension};
+    if (!suffix.empty() && suffix.front() != '.') {
+        suffix.insert(suffix.begin(), '.');
+    }
+
     for (const std::string& root : roots_) {
         std::string candidate = root;
         candidate += '/';
         candidate.append(assetId);
-        candidate += ".json";
+        candidate += suffix;
 
         // Existence is tested by opening, so this boundary needs no filesystem library (R25).
         std::ifstream probe{candidate, std::ios::binary};

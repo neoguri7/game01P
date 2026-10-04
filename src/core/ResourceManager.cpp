@@ -1,57 +1,113 @@
 #include "core/ResourceManager.h"
 
 #include "SDL3_image/SDL_image.h"
-#include <tracy/Tracy.hpp>
-
+#include "core/AssetManager.h"
 #include "core/Logger.h"
 
-void FResourceManager::init(SDL_Renderer* r) {
-    ZoneScopedN("ResourceManager::init");
-    renderer = r;
+#include <tracy/Tracy.hpp>
+
+#include <limits>
+#include <utility>
+
+namespace game {
+
+void FResourceManager::init(SDL_Renderer* renderer) {
+    ZoneScopedN("FResourceManager::init");
+    renderer_ = renderer;
+    if (renderer_ == nullptr) {
+        LOG_ERROR("ResourceManager cannot load textures without an SDL renderer.");
+        return;
+    }
     LOG_INFO("ResourceManager ready.");
 }
 
-SDL_Texture* FResourceManager::tryLoadTexture(const std::string& filePath) {
-    ZoneScopedN("ResourceManager::tryLoadTexture");
-    if (filePath.empty()) return nullptr;
-    if (auto it = textures.find(filePath); it != textures.end()) {
-        return it->second;
+std::optional<FTextureId> FResourceManager::loadTexture(
+    const FAssetManager& assets,
+    std::string_view assetId,
+    SDL_ScaleMode scaleMode) {
+    ZoneScopedN("FResourceManager::loadTexture");
+    if (assetId.empty()) {
+        LOG_ERROR("Cannot load a texture with an empty asset id.");
+        return std::nullopt;
     }
-    if (failedTextures.contains(filePath)) return nullptr;
+    if (renderer_ == nullptr) {
+        LOG_ERROR("Cannot load texture '{}' because ResourceManager has no renderer.", assetId);
+        return std::nullopt;
+    }
 
-    ZoneNamedN(loadZone, "LoadFromDiskAndGPU", true);
-    SDL_Surface* surface = IMG_Load(filePath.c_str());
-    if (!surface) {
-        LOG_ERROR("IMG_Load failed: {} ({})", filePath, SDL_GetError());
-        failedTextures.insert(filePath);
-        return nullptr;
+    const std::string key = cacheKey(assetId, scaleMode);
+    if (const auto found = textureIds_.find(key); found != textureIds_.end()) {
+        return found->second;
     }
-    SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surface);
+    if (failedTextures_.contains(key)) {
+        return std::nullopt;
+    }
+
+    const std::optional<std::string> path = assets.resolvePath(assetId, ".png");
+    if (!path) {
+        LOG_ERROR("PNG texture '{}' was not found in any asset root.", assetId);
+        failedTextures_.insert(key);
+        return std::nullopt;
+    }
+
+    ZoneNamedN(loadZone, "LoadPngToGpu", true);
+    SDL_Surface* surface = IMG_Load(path->c_str());
+    if (surface == nullptr) {
+        LOG_ERROR("IMG_Load failed for '{}' ({}).", *path, SDL_GetError());
+        failedTextures_.insert(key);
+        return std::nullopt;
+    }
+
+    const int width = surface->w;
+    const int height = surface->h;
+    SDL_Texture* rawTexture = SDL_CreateTextureFromSurface(renderer_, surface);
     SDL_DestroySurface(surface);
-
-    if (!tex) {
-        LOG_ERROR("Texture creation failed for {} ({})", filePath, SDL_GetError());
-        failedTextures.insert(filePath);
-        return nullptr;
+    if (rawTexture == nullptr) {
+        LOG_ERROR("Texture creation failed for '{}' ({}).", *path, SDL_GetError());
+        failedTextures_.insert(key);
+        return std::nullopt;
     }
 
-    textures[filePath] = tex;
-    failedTextures.erase(filePath);
-    return tex;
+    FTexturePtr texture{rawTexture};
+    if (!SDL_SetTextureScaleMode(texture.get(), scaleMode)) {
+        LOG_ERROR("Setting scale mode failed for '{}' ({}).", *path, SDL_GetError());
+        failedTextures_.insert(key);
+        return std::nullopt;
+    }
+
+    if (textures_.size() >= static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())) {
+        LOG_ERROR("Texture handle capacity exhausted while loading '{}'.", assetId);
+        return std::nullopt;
+    }
+
+    const FTextureId id{static_cast<std::uint32_t>(textures_.size() + 1)};
+    std::shared_ptr<SDL_Texture> ownedTexture{texture.release(), FTextureDeleter{}};
+    const FTextureInfo info{ownedTexture.get(), width, height};
+    textures_.push_back(FTextureEntry{std::move(ownedTexture), info});
+    textureIds_.emplace(key, id);
+    failedTextures_.erase(key);
+    return id;
 }
 
-SDL_Texture* FResourceManager::getTexture(const std::string& filePath) const {
-    if (auto it = textures.find(filePath); it != textures.end()) {
-        return it->second;
+const FTextureInfo* FResourceManager::find(FTextureId id) const noexcept {
+    if (!id || id.value > textures_.size()) {
+        return nullptr;
     }
-    return nullptr;
+    return &textures_[id.value - 1].info;
 }
 
 void FResourceManager::clear() {
-    ZoneScoped;
-    for (auto& [k, t] : textures) {
-        SDL_DestroyTexture(t);
-    }
-    textures.clear();
-    failedTextures.clear();
+    ZoneScopedN("FResourceManager::clear");
+    textures_.clear();
+    textureIds_.clear();
+    failedTextures_.clear();
 }
+
+std::string FResourceManager::cacheKey(std::string_view assetId, SDL_ScaleMode scaleMode) {
+    std::string key{assetId};
+    key.push_back('\0');
+    key.push_back(static_cast<char>(scaleMode));
+    return key;
+}
+
+} // namespace game

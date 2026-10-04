@@ -14,7 +14,7 @@
 #include "core/SystemManager.h"
 #include "core/Time.h"
 #include "states/GameStateMachine.h"
-#include "ecs/components/FAnimation.h"
+#include "ecs/components/FAnimator.h"
 #include "ecs/components/FCamera.h"
 #include "ecs/components/FCollider.h"
 #include "ecs/components/FDebugPrimitive.h"
@@ -73,8 +73,9 @@ void RenderEntityComponents(entt::registry& registry, entt::entity entity) {
     }
 
     if (registry.all_of<FSprite>(entity)) {
-        auto& sprite = registry.get<FSprite>(entity);
-        ImGui::Text("    Sprite: %s", sprite.texturePath.c_str());
+        const auto& sprite = registry.get<FSprite>(entity);
+        ImGui::Text("    Sprite: texture=%u size=%.0fx%.0f",
+                    sprite.texture.value, sprite.width, sprite.height);
     }
 
     if (registry.all_of<FCamera>(entity)) {
@@ -94,12 +95,12 @@ void RenderEntityComponents(entt::registry& registry, entt::entity entity) {
         ImGui::Text("    Layer: %d", collider.collisionLayer);
     }
 
-    if (registry.all_of<FAnimation>(entity)) {
-        auto& animation = registry.get<FAnimation>(entity);
-        ImGui::Text("    Anim: %s (frame %d/%zu)",
-                    animation.playing ? "playing" : "stopped",
-                    animation.currentFrame,
-                    animation.frames.size());
+    if (registry.all_of<FAnimator>(entity)) {
+        const auto& animation = registry.get<FAnimator>(entity);
+        ImGui::Text("    Anim: %s (clip=%u frame=%u)",
+                    animation.playing ? "playing" : (animation.finished ? "finished" : "stopped"),
+                    animation.clip.value,
+                    animation.frame);
     }
 
     if (registry.all_of<FText>(entity)) {
