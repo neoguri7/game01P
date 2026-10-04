@@ -72,3 +72,7 @@ scripts/remote-windows.env
 *.rej
 *.swp
 *.swo
+
+# Pipeline-generated sprite output (derived; regenerate locally with `assetgen`).
+# Force-add a curated sheet with: git add -f assets/sprites/<character>/<file>.png
+assets/sprites/

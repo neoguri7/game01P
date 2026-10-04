@@ -11,11 +11,14 @@
 #include "ecs/systems/GridSelectSystem.h"
 #include "ecs/systems/MoveSystem.h"
 #include "ecs/systems/SpriteRenderSystem.h"
+
 #include "ecs/systems/Stage0BattleSystem.h"
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/factory/FScene.h"
+
 #include "gameplay/GameplayServices.h"
+
 #include <cstdlib>
 
 namespace {
@@ -89,20 +92,28 @@ int main(int argc, char* argv[])
     engine.getSystemManager().onAllSystemsRegistered(engine.getRegistry());
     engine.setOverlayRenderer(game::RenderDebugOverlay);
 
+
     game::FScene startupScene(engine.getRegistry(), "Stage0Startup");
-    if (!LoadStage0Definitions(startupScene) ||
-        !game::gameplay::FGameplayServices::Initialize(engine.getRegistry())) {
+    if (!LoadStage0Definitions(startupScene)) {
         startupScene.Unload();
+
+    // Composition root owns the gameplay wiring (R21/R5): content is loaded once here, and unusable
+    // content stops the boot instead of degrading into a half-working run (R19).
+    if (!game::gameplay::FGameplayServices::Initialize(engine.getRegistry())) {
+
         engine.shutdown();
         return EXIT_FAILURE;
     }
 
     engine.run();
 
+
     startupScene.Unload();
     game::ShutdownTurnDemo(engine.getRegistry());
     game::ShutdownTurnRuntime(engine.getRegistry());
+
     game::gameplay::FGameplayServices::Shutdown(engine.getRegistry());
+
     engine.shutdown();
     return EXIT_SUCCESS;
 }
