@@ -9,7 +9,7 @@ struct FAnimator {
     FAnimClipId clip{};
     double frameTime{};
     std::uint32_t frame{};
-    bool playing{true};
+    bool playing{};
     bool loop{true};
     bool finished{};
 };

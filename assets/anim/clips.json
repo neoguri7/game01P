@@ -1,4 +1,16 @@
 {
   "schema_version": 1,
-  "clips": []
+  "clips": [
+    {
+      "id": "animation_check",
+      "image": "sprites/animation_check",
+      "frame_w": 16,
+      "frame_h": 16,
+      "row": 0,
+      "start": 0,
+      "count": 4,
+      "fps": 4,
+      "loop": true
+    }
+  ]
 }

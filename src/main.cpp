@@ -1,9 +1,12 @@
+#include "core/AnimationLibrary.h"
 #include "core/Engine.h"
 #include "core/JsonLoader.h"
 #include "core/Logger.h"
 #include "debug/DebugOverlay.h"
 #include "debug/TurnDemo.h"
-#include "core/AnimationLibrary.h"
+#include "ecs/AnimationFunctions.h"
+#include "ecs/components/FPosition.h"
+#include "ecs/components/FSprite.h"
 #include "ecs/systems/AnimationSystem.h"
 #include "ecs/systems/CollisionSystem.h"
 #include "ecs/systems/DebugPrimitiveRenderSystem.h"
@@ -12,15 +15,14 @@
 #include "ecs/systems/GridSelectSystem.h"
 #include "ecs/systems/MoveSystem.h"
 #include "ecs/systems/SpriteRenderSystem.h"
-
 #include "ecs/systems/Stage0BattleSystem.h"
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/factory/FScene.h"
-
 #include "gameplay/GameplayServices.h"
 
 #include <cstdlib>
+#include <optional>
 
 namespace {
 
@@ -79,6 +81,28 @@ bool LoadStage0Definitions(game::FScene& scene)
     return true;
 }
 
+bool AddAnimationCheckSprite(game::FScene& scene, entt::registry& registry)
+{
+    const game::FAnimationLibrary* library = game::FAnimationLibrary::Find(registry);
+    const std::optional<game::FAnimClipId> clip = library
+        ? library->findClip("animation_check")
+        : std::nullopt;
+    if (!clip) {
+        LOG_ERROR("Animation check clip was not loaded.");
+        return false;
+    }
+
+    const std::optional<entt::entity> entity = scene.CreateEntity();
+    if (!entity) {
+        LOG_ERROR("Could not create the animation check entity.");
+        return false;
+    }
+
+    scene.Emplace<FPosition>(*entity, FPosition{64.0f, 64.0f});
+    scene.Emplace<game::FSprite>(*entity, game::FSprite{.width = 128.0f, .height = 128.0f});
+    return game::ecs::PlayAnimation(registry, *entity, *clip);
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -89,43 +113,43 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
-    if (!game::FAnimationLibrary::Initialize(engine.getRegistry())) {
+    game::FScene startupScene(engine.getRegistry(), "Stage0Startup");
+    const auto shutdown = [&] {
+        startupScene.Unload();
+        game::ShutdownTurnDemo(engine.getRegistry());
+        game::ShutdownTurnRuntime(engine.getRegistry());
+        game::gameplay::FGameplayServices::Shutdown(engine.getRegistry());
+        game::FAnimationLibrary::Shutdown(engine.getRegistry());
         engine.shutdown();
+    };
+
+    if (!game::FAnimationLibrary::Initialize(engine.getRegistry())) {
+        shutdown();
         return EXIT_FAILURE;
     }
 
     RegisterSystems(engine.getSystemManager());
     engine.getSystemManager().onAllSystemsRegistered(engine.getRegistry());
     engine.setOverlayRenderer(game::RenderDebugOverlay);
-
-
-    game::FScene startupScene(engine.getRegistry(), "Stage0Startup");
     if (!LoadStage0Definitions(startupScene)) {
-        startupScene.Unload();
-        game::FAnimationLibrary::Shutdown(engine.getRegistry());
-        engine.shutdown();
+        shutdown();
+        return EXIT_FAILURE;
+    }
+
+    if (!AddAnimationCheckSprite(startupScene, engine.getRegistry())) {
+        shutdown();
         return EXIT_FAILURE;
     }
 
     // Composition root owns the gameplay wiring (R21/R5): content is loaded once here, and unusable
     // content stops the boot instead of degrading into a half-working run (R19).
     if (!game::gameplay::FGameplayServices::Initialize(engine.getRegistry())) {
-        startupScene.Unload();
-        game::FAnimationLibrary::Shutdown(engine.getRegistry());
-        engine.shutdown();
+        shutdown();
         return EXIT_FAILURE;
     }
 
     engine.run();
 
-
-    startupScene.Unload();
-    game::ShutdownTurnDemo(engine.getRegistry());
-    game::ShutdownTurnRuntime(engine.getRegistry());
-
-    game::gameplay::FGameplayServices::Shutdown(engine.getRegistry());
-    game::FAnimationLibrary::Shutdown(engine.getRegistry());
-
-    engine.shutdown();
+    shutdown();
     return EXIT_SUCCESS;
 }

@@ -5,6 +5,7 @@
 namespace game {
 
 struct FSprite {
+    // AnimationSystem owns these fields while the entity has an FAnimator.
     FTextureId texture{};
     FSourceRect source{};
     float width{32.0f};

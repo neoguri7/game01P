@@ -42,6 +42,10 @@ std::optional<FTextureId> FResourceManager::loadTexture(
     if (failedTextures_.contains(key)) {
         return std::nullopt;
     }
+    if (nextTextureId_ > static_cast<std::uint64_t>(std::numeric_limits<std::uint32_t>::max())) {
+        LOG_ERROR("Texture handle capacity exhausted while loading '{}'.", assetId);
+        return std::nullopt;
+    }
 
     const std::optional<std::string> path = assets.resolvePath(assetId, ".png");
     if (!path) {
@@ -75,25 +79,28 @@ std::optional<FTextureId> FResourceManager::loadTexture(
         return std::nullopt;
     }
 
-    if (textures_.size() >= static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())) {
-        LOG_ERROR("Texture handle capacity exhausted while loading '{}'.", assetId);
-        return std::nullopt;
-    }
-
-    const FTextureId id{static_cast<std::uint32_t>(textures_.size() + 1)};
-    std::shared_ptr<SDL_Texture> ownedTexture{texture.release(), FTextureDeleter{}};
-    const FTextureInfo info{ownedTexture.get(), width, height};
-    textures_.push_back(FTextureEntry{std::move(ownedTexture), info});
+    const FTextureId id{static_cast<std::uint32_t>(nextTextureId_++)};
+    const FTextureInfo info{texture.get(), width, height};
+    textures_.emplace(id.value, FTextureEntry{std::move(texture), info});
     textureIds_.emplace(key, id);
     failedTextures_.erase(key);
     return id;
 }
 
 const FTextureInfo* FResourceManager::find(FTextureId id) const noexcept {
-    if (!id || id.value > textures_.size()) {
+    if (!id) {
         return nullptr;
     }
-    return &textures_[id.value - 1].info;
+    const auto found = textures_.find(id.value);
+    return found == textures_.end() ? nullptr : &found->second.info;
+}
+
+std::optional<FTextureSize> FResourceManager::findSize(FTextureId id) const noexcept {
+    const FTextureInfo* info = find(id);
+    if (info == nullptr) {
+        return std::nullopt;
+    }
+    return FTextureSize{info->width, info->height};
 }
 
 void FResourceManager::clear() {

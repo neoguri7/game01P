@@ -71,7 +71,12 @@ bool ValidatePositiveDurations(const std::vector<double>& durations) {
 
 bool FAnimationLibrary::Initialize(entt::registry& registry, std::string_view assetId) {
     ZoneScopedN("FAnimationLibrary::Initialize");
-    if (registry.ctx().contains<FAnimationLibrary>()) {
+    if (const FAnimationLibrary* existing = registry.ctx().find<FAnimationLibrary>()) {
+        if (existing->assetId_ != assetId) {
+            LOG_ERROR("AnimationLibrary is already initialized from '{}'; cannot initialize '{}'.",
+                      existing->assetId_, assetId);
+            return false;
+        }
         return true;
     }
 
@@ -134,10 +139,10 @@ bool FAnimationLibrary::Initialize(entt::registry& registry, std::string_view as
             LOG_ERROR("Animation clip '{}': could not load sprite sheet '{}'.", clipId, imageId);
             return false;
         }
-        const FTextureInfo* texture = resources->find(*textureId);
-        if (texture == nullptr
-            || static_cast<std::int64_t>(sheetRow + std::int64_t{1}) * frameHeight > texture->height
-            || static_cast<std::int64_t>(startColumn + std::int64_t{frameCount}) * frameWidth > texture->width) {
+        const std::optional<FTextureSize> textureSize = resources->findSize(*textureId);
+        if (!textureSize
+            || static_cast<std::int64_t>(sheetRow + std::int64_t{1}) * frameHeight > textureSize->height
+            || static_cast<std::int64_t>(startColumn + std::int64_t{frameCount}) * frameWidth > textureSize->width) {
             LOG_ERROR("Animation clip '{}': frame grid exceeds sprite sheet '{}'.", clipId, imageId);
             return false;
         }
@@ -172,6 +177,7 @@ bool FAnimationLibrary::Initialize(entt::registry& registry, std::string_view as
         library.clips_.push_back(std::move(clip));
     }
 
+    library.assetId_ = assetId;
     registry.ctx().emplace<FAnimationLibrary>(std::move(library));
     LOG_INFO("AnimationLibrary ready ({} clip(s)).", rows->size());
     return true;
@@ -188,7 +194,7 @@ const FAnimationLibrary* FAnimationLibrary::Find(const entt::registry& registry)
 }
 
 std::optional<FAnimClipId> FAnimationLibrary::findClip(std::string_view id) const {
-    const auto found = ids_.find(std::string{id});
+    const auto found = ids_.find(id);
     if (found == ids_.end()) {
         return std::nullopt;
     }

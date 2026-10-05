@@ -4,6 +4,8 @@
 
 #include <entt/entt.hpp>
 
+#include <cstddef>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -35,8 +37,17 @@ public:
     [[nodiscard]] const FAnimClip* get(FAnimClipId id) const noexcept;
 
 private:
+    struct FStringHash {
+        using is_transparent = void;
+
+        [[nodiscard]] std::size_t operator()(std::string_view value) const noexcept {
+            return std::hash<std::string_view>{}(value);
+        }
+    };
+
+    std::string assetId_;
     std::vector<FAnimClip> clips_;
-    std::unordered_map<std::string, FAnimClipId> ids_;
+    std::unordered_map<std::string, FAnimClipId, FStringHash, std::equal_to<>> ids_;
 };
 
 } // namespace game

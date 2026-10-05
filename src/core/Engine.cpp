@@ -223,6 +223,7 @@ void Engine::applyEngineShutdownSdlEffect() {
 void Engine::shutdownContextServices() {
     // Shutdown order mirrors dependencies: renderer-backed resources are cleared
     // before renderer ctx removal and before SDL_Renderer destruction.
+    // The composition root must shut down FAnimationLibrary before this clear because clips retain texture handles.
     if (auto* rm = registry.ctx().find<FResourceManager>()) {
         rm->clear();
     }

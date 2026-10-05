@@ -11,6 +11,7 @@ Testing/
 .ninja_deps
 .ninja_log
 docs/
+docs
 
 .codex
 .codex/
@@ -74,5 +75,9 @@ scripts/remote-windows.env
 *.swo
 
 # Pipeline-generated sprite output (derived; regenerate locally with `assetgen`).
-# Force-add a curated sheet with: git add -f assets/sprites/<character>/<file>.png
-assets/sprites/
+# Keep generated output ignored while allowing the curated animation check sheet.
+assets/sprites/*
+!assets/sprites/animation_check.png
+
+# Local codebase-index cache/config (not committed).
+.codebase-index/
