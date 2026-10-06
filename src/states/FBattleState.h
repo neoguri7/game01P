@@ -17,4 +17,5 @@ public:
 
 private:
     std::unique_ptr<game::FScene> scene;
+    bool battleReady{false};
 };

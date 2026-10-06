@@ -34,6 +34,10 @@ public:
     void shutdown();
     void setOverlayRenderer(std::function<void(entt::registry&, const Time&, const SystemManager&)> renderer);
 
+    /// Debug/automation: GAME01P_START=battle switches straight into the battle state. Called by the
+    /// composition root after gameplay content is loaded, so the battle sees a ready content registry.
+    void applyStartupStateOverride();
+
     // Public getters for extreme modifiability
     [[nodiscard]] entt::registry& getRegistry() noexcept { return registry; }
     [[nodiscard]] const entt::registry& getRegistry() const noexcept { return registry; }

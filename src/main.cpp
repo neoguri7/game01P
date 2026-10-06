@@ -8,7 +8,10 @@
 #include "ecs/components/FPosition.h"
 #include "ecs/components/FSprite.h"
 #include "ecs/systems/AnimationSystem.h"
+#include "ecs/systems/ActionResolverSystem.h"
 #include "ecs/systems/CollisionSystem.h"
+#include "ecs/systems/CombatHudSystem.h"
+#include "ecs/systems/CombatOutcomeSystem.h"
 #include "ecs/systems/DebugPrimitiveRenderSystem.h"
 #include "ecs/systems/GridCameraSystem.h"
 #include "ecs/systems/GridRenderSystem.h"
@@ -16,6 +19,7 @@
 #include "ecs/systems/MoveSystem.h"
 #include "ecs/systems/SpriteRenderSystem.h"
 #include "ecs/systems/Stage0BattleSystem.h"
+#include "ecs/systems/TurnFlowSystem.h"
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/factory/FScene.h"
@@ -35,10 +39,14 @@ void RegisterSystems(game::SystemManager& systems)
     systems.addSystem<game::ecs::SpriteRenderSystem>();
     systems.addSystem<game::TurnDemoSystem>();
     systems.addSystem<game::ecs::TurnSystem>();
+    systems.addSystem<game::ecs::TurnFlowSystem>();
+    systems.addSystem<game::ecs::ActionResolverSystem>();
+    systems.addSystem<game::ecs::CombatOutcomeSystem>();
     systems.addSystem<game::ecs::Stage0BattleSystem>();
     systems.addSystem<game::ecs::GridCameraSystem>();
     systems.addSystem<game::ecs::GridSelectSystem>();
     systems.addSystem<game::ecs::GridRenderSystem>();
+    systems.addSystem<game::ecs::CombatHudSystem>();
 }
 
 bool LoadStage0Definitions(game::FScene& scene)
@@ -69,15 +77,7 @@ bool LoadStage0Definitions(game::FScene& scene)
         return false;
     }
 
-    const auto equipmentDocument = game::FJsonLoader::Load("assets/data/equipment.json");
-    if (!equipmentDocument) return false;
-    const auto equipment = game::FEntityFactory::CreateEquipment(*equipmentDocument);
-    if (!equipment) {
-        LOG_ERROR("Equipment factory failed: {}", equipment.error().message);
-        return false;
-    }
-
-    LOG_INFO("Stage 0 data loaded and factories created unit, skill, room, and equipment definitions.");
+    LOG_INFO("Stage 0 data loaded and factories created unit, skill, and room definitions.");
     return true;
 }
 
@@ -147,6 +147,8 @@ int main(int argc, char* argv[])
         shutdown();
         return EXIT_FAILURE;
     }
+
+    engine.applyStartupStateOverride();
 
     engine.run();
 

@@ -1,5 +1,5 @@
 {
-  "_comment": "프로토타입 행: id·수치(max_health, speed, ap_cost, range)는 스키마 검증용 잠정값이며 design §4 확정 수치가 아니다(미결). 확정 수치는 밸런싱 단계에서 이 파일만 고쳐 정한다.",
+  "_comment": "프로토타입 행: id·수치(max_health, speed, attack, ap_cost, range)는 스키마 검증용 잠정값이며 design §4 확정 수치가 아니다(미결). 확정 수치는 밸런싱 단계에서 이 파일만 고쳐 정한다.",
   "schema_version": 1,
   "units": [
     {
@@ -7,7 +7,10 @@
       "display_name": "Proto Melee",
       "max_health": 120,
       "speed": 4,
-      "skills": ["proto_cleave", "proto_guard"]
+      "move_ap": 1,
+      "skill_ap": 2,
+      "attack": 6,
+      "skills": ["skill.strike"]
     },
     {
       "id": "proto_ranged",
@@ -16,8 +19,19 @@
       "speed": 6,
       "move_ap": 1,
       "skill_ap": 2,
-      "skills": ["proto_shot"],
+      "attack": 4,
+      "skills": ["skill.bolt"],
       "sprite": "units/proto_ranged"
+    },
+    {
+      "id": "proto_imp",
+      "display_name": "임프",
+      "max_health": 40,
+      "speed": 5,
+      "move_ap": 1,
+      "skill_ap": 2,
+      "attack": 3,
+      "skills": ["skill.strike"]
     }
   ]
 }

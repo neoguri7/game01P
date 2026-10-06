@@ -12,8 +12,8 @@ project ("game01P")
 
 # Recursively find all source and header files in the src directory.
 # CONFIGURE_DEPENDS ensures CMake re-runs if files are added or removed.
-file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS 
-    "src/*.cpp" 
+file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS
+    "src/*.cpp"
     "src/*.h"
     "src/*.hpp"
 )
@@ -42,9 +42,9 @@ find_package(nlohmann_json CONFIG REQUIRED)
 
 target_include_directories(game01P PRIVATE ${MINIAUDIO_INCLUDE_DIRS})
 
-target_link_libraries( game01P 
-	PRIVATE 
-		SDL3::SDL3 
+target_link_libraries( game01P
+	PRIVATE
+		SDL3::SDL3
 		EnTT::EnTT
 		glm::glm
 		imgui::imgui

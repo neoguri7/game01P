@@ -6,6 +6,8 @@
 #include "imgui/backends/imgui_impl_sdlrenderer3.h"
 #include <tracy/Tracy.hpp>
 
+#include <string_view>
+
 #include "core/AssetManager.h"
 #include "core/AudioManager.h"
 #include "core/EngineAbility.h"
@@ -88,6 +90,15 @@ bool Engine::applyEngineInitializeAbility(const FEngineAbilityRequest& request, 
 
 void Engine::setOverlayRenderer(std::function<void(entt::registry&, const Time&, const SystemManager&)> renderer) {
     overlayRenderer = std::move(renderer);
+}
+
+void Engine::applyStartupStateOverride() {
+    const char* requestedStart = SDL_getenv("GAME01P_START"); // boundary: env key
+    if (requestedStart == nullptr || std::string_view(requestedStart) != "battle") {
+        return;
+    }
+    LOG_INFO("Debug start: switching to the battle state.");
+    applyStateTransition(EStateTransition::ToBattle);
 }
 
 void Engine::initializeContextServices() {

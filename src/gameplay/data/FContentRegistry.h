@@ -2,7 +2,10 @@
 
 #include "core/AssetManager.h"
 #include "core/data/FContentTable.h"
+#include "gameplay/data/FEquipmentContent.h"
+#include "gameplay/data/FRuneContent.h"
 #include "gameplay/data/FSkillContent.h"
+#include "gameplay/data/FStatusContent.h"
 #include "gameplay/data/FUnitContent.h"
 
 #include <optional>
@@ -14,6 +17,9 @@ namespace game::gameplay {
 struct FContentRegistry {
     FContentTable<FUnitContent> units;
     FContentTable<FSkillContent> skills;
+    FContentTable<FRuneContent> runes;       // docs/design/skill-rune-equipment.md §3
+    FContentTable<FStatusContent> statuses;  // docs/design/skill-rune-equipment.md §4
+    FContentTable<FEquipmentContent> equipment; // docs/design/skill-rune-equipment.md §5
 
     /// Loads and validates every gameplay asset. Nullopt means "content is unusable" and the reason is
     /// already logged — a broken asset must stop the boot, not surface as a missing skill mid-fight

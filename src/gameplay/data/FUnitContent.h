@@ -20,6 +20,9 @@ struct FUnitContent {
     int skillAp{0};    // design §4: 스킬 AP (잠정 2)
     std::vector<std::string> skillIds; // design §5: 거점에서 유저가 고르는 해금 스킬 목록
     std::string spriteId;              // presentation id; nothing resolves it yet
+
+    // docs/design/skill-rune-equipment.md §6: 피해 = max(1, attack + power) 잠정식이 쓰는 기본 공격력.
+    int attack{0};
 };
 
 /// Field order IS the projection order FContentLoader uses (R22).
@@ -34,6 +37,7 @@ inline constexpr FContentField kUnitFields[] = {
     {"skill_ap", EContentFieldType::Number, false},  // boundary: asset key
     {"skills", EContentFieldType::IdArray, false},   // boundary: asset key
     {"sprite", EContentFieldType::Text, false},      // boundary: asset key
+    {"attack", EContentFieldType::Number, false},    // boundary: asset key
 };
 
 inline constexpr std::size_t kUnitFieldId = 0;
@@ -44,8 +48,9 @@ inline constexpr std::size_t kUnitFieldMoveAp = 4;
 inline constexpr std::size_t kUnitFieldSkillAp = 5;
 inline constexpr std::size_t kUnitFieldSkills = 6;
 inline constexpr std::size_t kUnitFieldSprite = 7;
+inline constexpr std::size_t kUnitFieldAttack = 8;
 
-static_assert(std::size(kUnitFields) == 8, "kUnitFields and the kUnitField* indices drifted apart");
+static_assert(std::size(kUnitFields) == 9, "kUnitFields and the kUnitField* indices drifted apart");
 
 /// Projects one validated row into a unit. Cannot fail: FContentLoader already rejected wrong types and
 /// missing required keys, which is why this stays a straight field-by-field copy (R22).

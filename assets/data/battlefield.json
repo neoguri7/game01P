@@ -1,4 +1,5 @@
 {
+  "_comment": "첫 전투 배치. unit = units.json 콘텐츠 유닛, skills = 장착 스킬+룬(런 스코프). 첫 슬라이스는 이동 없이 인접 배치로 전투 파이프라인을 검증한다.",
   "schema_version": 1,
   "width": 8,
   "height": 8,
@@ -6,11 +7,49 @@
   "origin_x": 0,
   "origin_y": 0,
   "units": [
-    { "id": "party.a", "display_name": "A", "faction": "party", "grid_x": 0, "grid_y": 5 },
-    { "id": "party.b", "display_name": "B", "faction": "party", "grid_x": 1, "grid_y": 5 },
-    { "id": "party.c", "display_name": "C", "faction": "party", "grid_x": 2, "grid_y": 5 },
-    { "id": "party.d", "display_name": "D", "faction": "party", "grid_x": 3, "grid_y": 5 },
-    { "id": "enemy.a", "display_name": "EA", "faction": "enemy", "grid_x": 5, "grid_y": 2 },
-    { "id": "enemy.b", "display_name": "EB", "faction": "enemy", "grid_x": 6, "grid_y": 2 }
+    {
+      "id": "party.a",
+      "display_name": "A",
+      "faction": "party",
+      "grid_x": 0,
+      "grid_y": 5,
+      "unit": "proto_ranged",
+      "skills": [
+        { "skill": "skill.bolt", "runes": ["rune.fire", "rune.spread", "rune.power"] }
+      ]
+    },
+    {
+      "id": "party.b",
+      "display_name": "B",
+      "faction": "party",
+      "grid_x": 0,
+      "grid_y": 6,
+      "unit": "proto_melee",
+      "skills": [
+        { "skill": "skill.strike" }
+      ]
+    },
+    {
+      "id": "enemy.a",
+      "display_name": "임프 A",
+      "faction": "enemy",
+      "grid_x": 1,
+      "grid_y": 5,
+      "unit": "proto_imp",
+      "skills": [
+        { "skill": "skill.strike" }
+      ]
+    },
+    {
+      "id": "enemy.b",
+      "display_name": "임프 B",
+      "faction": "enemy",
+      "grid_x": 1,
+      "grid_y": 6,
+      "unit": "proto_imp",
+      "skills": [
+        { "skill": "skill.strike" }
+      ]
+    }
   ]
 }

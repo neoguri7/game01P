@@ -1,0 +1,24 @@
+{
+  "_comment": "룬 1차 세트: 축별 최소 1종. docs/design/skill-rune-equipment.md §3. 축별 개수 제한(속성 2/형태 1/강화 고유만)은 메커니즘 슬라이스에서 강제한다.",
+  "schema_version": 1,
+  "runes": [
+    {
+      "id": "rune.fire",
+      "display_name": "화염의 룬",
+      "axis": "element",
+      "status_on_hit": "status.burn"
+    },
+    {
+      "id": "rune.spread",
+      "display_name": "확산의 룬",
+      "axis": "form",
+      "shape_override": "spread"
+    },
+    {
+      "id": "rune.power",
+      "display_name": "위력의 룬",
+      "axis": "enhance",
+      "power_delta": 2
+    }
+  ]
+}

@@ -1,6 +1,24 @@
 {
+  "_comment": "장비 1차 세트: 스탯 전용, 직업 구분 없음, 어픽스/레어리티 없음. docs/design/skill-rune-equipment.md §5. 전역 +N 강화는 메커니즘 슬라이스의 장비 강화에서 다룬다.",
   "schema_version": 1,
-  "id": "stage0.demo_equipment",
-  "display_name": "Demo Equipment",
-  "slot": "prototype"
+  "items": [
+    {
+      "id": "eq.iron_sword",
+      "display_name": "무쇠 검",
+      "slot": "weapon",
+      "attack": 3
+    },
+    {
+      "id": "eq.oak_shield",
+      "display_name": "참나무 방패",
+      "slot": "offhand",
+      "max_health": 5
+    },
+    {
+      "id": "eq.swift_boots",
+      "display_name": "신속의 장화",
+      "slot": "boots",
+      "move_ap": 1
+    }
+  ]
 }

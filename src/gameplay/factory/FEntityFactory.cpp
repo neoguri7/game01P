@@ -11,6 +11,7 @@
 #include "ecs/components/FFaction.h"
 #include "ecs/components/FLayer.h"
 #include "ecs/components/FPosition.h"
+#include "ecs/components/FSkillLoadout.h"
 #include "ecs/components/FTag.h"
 #include "gameplay/grid/FGridTypes.h"
 
@@ -69,6 +70,50 @@ std::expected<float, FFactoryError> ReadFloat(const nlohmann::json& document, co
         return std::unexpected(FFactoryError{ std::string("field '") + key + "' must be a valid number" });
     }
     return static_cast<float>(number);
+}
+
+std::expected<std::string, FFactoryError> ReadOptionalString(const nlohmann::json& document, const char* key) {
+    const auto value = document.find(key);
+    if (value == document.end()) {
+        return std::string{};
+    }
+    if (!value->is_string() || value->get_ref<const std::string&>().empty()) {
+        return std::unexpected(FFactoryError{ std::string("optional field '") + key + "' must be a non-empty string" });
+    }
+    return value->get<std::string>();
+}
+
+/// Optional per-placement loadout: `"skills": [ { "skill": "...", "runes": ["..."] } ]`.
+/// docs/design/skill-rune-equipment.md §3: runes attach to a skill, multiple per skill.
+std::expected<std::vector<FSkillSlot>, FFactoryError> ReadSkillSlots(const nlohmann::json& document) {
+    std::vector<FSkillSlot> skills;
+    const auto skillsIt = document.find("skills");
+    if (skillsIt == document.end()) {
+        return skills;
+    }
+    if (!skillsIt->is_array()) {
+        return std::unexpected(FFactoryError{ "field 'skills' must be an array" });
+    }
+    for (const auto& entry : *skillsIt) {
+        auto skillId = ReadString(entry, "skill");
+        if (!skillId) return std::unexpected(skillId.error());
+        FSkillSlot slot;
+        slot.skillId = std::move(*skillId);
+        const auto runesIt = entry.find("runes");
+        if (runesIt != entry.end()) {
+            if (!runesIt->is_array()) {
+                return std::unexpected(FFactoryError{ "field 'runes' must be an array" });
+            }
+            for (const auto& rune : *runesIt) {
+                if (!rune.is_string() || rune.get_ref<const std::string&>().empty()) {
+                    return std::unexpected(FFactoryError{ "'runes' entries must be non-empty strings" });
+                }
+                slot.runeIds.push_back(rune.get<std::string>());
+            }
+        }
+        skills.push_back(std::move(slot));
+    }
+    return skills;
 }
 
 std::expected<FUnitDefinition, FFactoryError> ReadUnitDefinition(const nlohmann::json& document) {
@@ -165,15 +210,22 @@ std::expected<FBattlefieldData, FFactoryError> FEntityFactory::CreateBattlefield
             return std::unexpected(FFactoryError{ "multiple units occupy the same battlefield cell" });
         }
 
-        battlefield.units.push_back({
-            std::move(definition->id),
-            std::move(definition->displayName),
-            definition->faction,
-            {*x, *y}
-        });
+        auto unitTemplate = ReadOptionalString(unit, "unit");
+        if (!unitTemplate) return std::unexpected(unitTemplate.error());
+        auto skills = ReadSkillSlots(unit);
+        if (!skills) return std::unexpected(skills.error());
+
+        FUnitPlacement placement;
+        placement.id = std::move(definition->id);
+        placement.displayName = std::move(definition->displayName);
+        placement.faction = definition->faction;
+        placement.cell = {*x, *y};
+        placement.unitTemplateId = std::move(*unitTemplate);
+        placement.skills = std::move(*skills);
+        battlefield.units.push_back(std::move(placement));
     }
 
-    for (const auto& placement : battlefield.units) {
+    for (auto& placement : battlefield.units) {
         const auto entity = scene.CreateEntity();
         if (!entity) return std::unexpected(FFactoryError{ "scene refused battlefield unit creation" });
 
@@ -192,6 +244,7 @@ std::expected<FBattlefieldData, FFactoryError> FEntityFactory::CreateBattlefield
         } else {
             scene.Emplace<FEnemy>(*entity);
         }
+        placement.entity = *entity;
     }
 
     return battlefield;

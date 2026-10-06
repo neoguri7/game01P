@@ -1,0 +1,42 @@
+{
+  "_comment": "상태이상 1차 세트. docs/design/skill-rune-equipment.md §4. 수치는 잠정값이며 밸런싱 단계에서 이 파일만 고쳐 정한다.",
+  "schema_version": 1,
+  "statuses": [
+    {
+      "id": "status.burn",
+      "display_name": "화상",
+      "kind": "dot",
+      "magnitude": 3,
+      "duration_turns": 3
+    },
+    {
+      "id": "status.freeze",
+      "display_name": "빙결",
+      "kind": "control",
+      "magnitude": 0,
+      "duration_turns": 2,
+      "speed_pct": 50
+    },
+    {
+      "id": "status.paralyze",
+      "display_name": "마비",
+      "kind": "control",
+      "magnitude": 50,
+      "duration_turns": 2
+    },
+    {
+      "id": "status.buff",
+      "display_name": "강화",
+      "kind": "stat",
+      "magnitude": 2,
+      "duration_turns": 3
+    },
+    {
+      "id": "status.debuff",
+      "display_name": "약화",
+      "kind": "stat",
+      "magnitude": -2,
+      "duration_turns": 3
+    }
+  ]
+}

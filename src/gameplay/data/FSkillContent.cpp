@@ -12,6 +12,15 @@ FSkillContent decodeSkill(const FContentRow& row) {
     skill.range = row.integer(kSkillFieldRange, 1); // fallback: 잠정값 1 (design §4 확정 잠정치 인접값)
 
     skill.tags = row.textArray(kSkillFieldTags);
+
+    // docs/design/skill-rune-equipment.md §2: 나머지 필드는 베이스 스킬의 최소 표현이며 값은 데이터가 정한다.
+    skill.power = row.integer(kSkillFieldPower, 0);
+    skill.shape = row.text(kSkillFieldShape);
+    if (skill.shape.empty()) skill.shape = "single";
+    skill.areaRadius = row.integer(kSkillFieldAreaRadius, 0);
+    skill.target = row.text(kSkillFieldTarget);
+    if (skill.target.empty()) skill.target = "enemy";
+    skill.appliesStatus = row.text(kSkillFieldAppliesStatus);
     return skill;
 }
 

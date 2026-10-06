@@ -17,6 +17,7 @@ FUnitContent decodeUnit(const FContentRow& row) {
 
     unit.skillIds = row.textArray(kUnitFieldSkills);
     unit.spriteId = row.text(kUnitFieldSprite);
+    unit.attack = row.integer(kUnitFieldAttack, 0);
     return unit;
 }
 

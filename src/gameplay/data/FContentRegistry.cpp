@@ -7,16 +7,53 @@
 
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace game::gameplay {
 namespace {
 
 // 미결(design §4): 이동/스킬 AP와 사거리 최종 수치는 밸런싱 단계에서 정한다 — 지금은 잠정값을 data가
-// 공급한다. 스키마는 확정된 항목만 담고, 미확정 항목(파벌, 장비, 룬, 이벤트 룸)은 이 슬라이스에서
-// 필드로 만들지 않는다.
+// 공급한다. 스키마는 확정된 항목만 담고, 미확정 항목(파벌, 이벤트 룸)은 이 슬라이스에서 필드로 만들지 않는다.
 constexpr FContentSchema kUnitSchema{"data/units", "units", "id", 1, std::span<const FContentField>{kUnitFields}};
 constexpr FContentSchema kSkillSchema{"data/skills", "skills", "id", 1, std::span<const FContentField>{kSkillFields}};
+constexpr FContentSchema kRuneSchema{"data/runes", "runes", "id", 1, std::span<const FContentField>{kRuneFields}};
+constexpr FContentSchema kStatusSchema{"data/statuses", "statuses", "id", 1, std::span<const FContentField>{kStatusFields}};
+constexpr FContentSchema kEquipmentSchema{"data/equipment", "items", "id", 1, std::span<const FContentField>{kEquipmentFields}};
+
+/// Loads one asset and projects every row. False means the asset was unusable and the reason is logged.
+template <typename TRow, typename TDecode>
+[[nodiscard]] bool loadTable(
+    const FAssetManager& assets, const FContentSchema& schema, FContentTable<TRow>& table, TDecode decode) {
+    const std::optional<std::vector<FContentRow>> rows = FContentLoader::load(assets, schema);
+    if (!rows) {
+        return false;
+    }
+    table.rows.reserve(rows->size());
+    for (const FContentRow& row : *rows) {
+        table.rows.push_back(decode(row));
+    }
+    return true;
+}
+
+/// Shape ids shared by skills and form runes (docs/design/skill-rune-equipment.md §3.2): a form rune
+/// replaces the skill's shape, so both sides must speak the same vocabulary.
+[[nodiscard]] bool isKnownShape(std::string_view shape) {
+    return shape == "single" || shape == "spread" || shape == "pierce" || shape == "zone";
+}
+
+/// Skill target side (docs/design/skill-rune-equipment.md §2): who the skill may be aimed at.
+[[nodiscard]] bool isKnownTarget(std::string_view target) {
+    return target == "enemy" || target == "ally" || target == "self" || target == "cell";
+}
+
+[[nodiscard]] bool isKnownRuneAxis(std::string_view axis) {
+    return axis == kRuneAxisElement || axis == kRuneAxisForm || axis == kRuneAxisEnhance;
+}
+
+[[nodiscard]] bool isKnownStatusKind(std::string_view kind) {
+    return kind == kStatusKindDot || kind == kStatusKindControl || kind == kStatusKindStat;
+}
 
 } // namespace
 
@@ -25,26 +62,54 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
 
     FContentRegistry registry;
 
-    const std::optional<std::vector<FContentRow>> unitRows = FContentLoader::load(assets, kUnitSchema);
-    if (!unitRows) {
+    if (!loadTable(assets, kUnitSchema, registry.units, decodeUnit)) {
         return std::nullopt;
     }
-    registry.units.rows.reserve(unitRows->size());
-    for (const FContentRow& row : *unitRows) {
-        registry.units.rows.push_back(decodeUnit(row));
-    }
-
-    const std::optional<std::vector<FContentRow>> skillRows = FContentLoader::load(assets, kSkillSchema);
-    if (!skillRows) {
+    if (!loadTable(assets, kSkillSchema, registry.skills, decodeSkill)) {
         return std::nullopt;
     }
-    registry.skills.rows.reserve(skillRows->size());
-    for (const FContentRow& row : *skillRows) {
-        registry.skills.rows.push_back(decodeSkill(row));
+    if (!loadTable(assets, kRuneSchema, registry.runes, decodeRune)) {
+        return std::nullopt;
+    }
+    if (!loadTable(assets, kStatusSchema, registry.statuses, decodeStatus)) {
+        return std::nullopt;
+    }
+    if (!loadTable(assets, kEquipmentSchema, registry.equipment, decodeEquipment)) {
+        return std::nullopt;
     }
 
-    // Cross-table references are checked here, in the one place that owns both tables (R22): a typo in
-    // units.json must fail the boot instead of becoming a silent no-op the first time that skill is used.
+    // A row's own vocabulary is checked here, not by the generic loader: `shape`/`axis`/`kind` are
+    // closed sets that gameplay code switches on, so an unknown value must fail the boot (R19) instead
+    // of falling through a switch mid-fight.
+    for (const FSkillContent& skill : registry.skills.rows) {
+        if (!isKnownShape(skill.shape)) {
+            LOG_ERROR("content: skill '{}' has unknown shape '{}'.", skill.id, skill.shape);
+            return std::nullopt;
+        }
+        if (!isKnownTarget(skill.target)) {
+            LOG_ERROR("content: skill '{}' has unknown target '{}'.", skill.id, skill.target);
+            return std::nullopt;
+        }
+    }
+    for (const FRuneContent& rune : registry.runes.rows) {
+        if (!isKnownRuneAxis(rune.axis)) {
+            LOG_ERROR("content: rune '{}' has unknown axis '{}'.", rune.id, rune.axis);
+            return std::nullopt;
+        }
+        if (!rune.shapeOverride.empty() && !isKnownShape(rune.shapeOverride)) {
+            LOG_ERROR("content: rune '{}' has unknown shape_override '{}'.", rune.id, rune.shapeOverride);
+            return std::nullopt;
+        }
+    }
+    for (const FStatusContent& status : registry.statuses.rows) {
+        if (!isKnownStatusKind(status.kind)) {
+            LOG_ERROR("content: status '{}' has unknown kind '{}'.", status.id, status.kind);
+            return std::nullopt;
+        }
+    }
+
+    // Cross-table references are checked here, in the one place that owns all tables (R22): a typo in an
+    // asset must fail the boot instead of becoming a silent no-op the first time that row is used.
     for (const FUnitContent& unit : registry.units.rows) {
         for (const std::string& skillId : unit.skillIds) {
             if (registry.skills.find(skillId) == nullptr) {
@@ -53,8 +118,22 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
             }
         }
     }
+    for (const FSkillContent& skill : registry.skills.rows) {
+        if (!skill.appliesStatus.empty() && registry.statuses.find(skill.appliesStatus) == nullptr) {
+            LOG_ERROR("content: skill '{}' references unknown status '{}'.", skill.id, skill.appliesStatus);
+            return std::nullopt;
+        }
+    }
+    for (const FRuneContent& rune : registry.runes.rows) {
+        if (!rune.statusOnHit.empty() && registry.statuses.find(rune.statusOnHit) == nullptr) {
+            LOG_ERROR("content: rune '{}' references unknown status '{}'.", rune.id, rune.statusOnHit);
+            return std::nullopt;
+        }
+    }
 
-    LOG_INFO("content ready: {} unit(s), {} skill(s).", registry.units.rows.size(), registry.skills.rows.size());
+    LOG_INFO("content ready: {} unit(s), {} skill(s), {} rune(s), {} status(es), {} equipment.",
+             registry.units.rows.size(), registry.skills.rows.size(), registry.runes.rows.size(),
+             registry.statuses.rows.size(), registry.equipment.rows.size());
     return registry;
 }
 
