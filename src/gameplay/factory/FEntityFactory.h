@@ -32,9 +32,6 @@ public:
     [[nodiscard]] static std::expected<FRoomDefinition, FFactoryError> CreateRoom(
         const nlohmann::json& document
     );
-    [[nodiscard]] static std::expected<FEquipmentDefinition, FFactoryError> CreateEquipment(
-        const nlohmann::json& document
-    );
 };
 
 } // namespace game

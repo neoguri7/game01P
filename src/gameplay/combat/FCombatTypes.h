@@ -47,14 +47,42 @@ struct FCombatLog {
     }
 };
 
+/// Battle RNG (xorshift32). Deterministic on purpose: an auto-battle verification run
+/// (GAME01P_START=battle + GAME01P_AUTOPLAY=1) must reproduce the same fight from the same seed.
+/// 런 시드 연동은 미결(정본 §11) — 지금은 고정 시드.
+struct FBattleRng {
+    std::uint32_t state{0x9e3779b9u};
+
+    [[nodiscard]] std::uint32_t next() {
+        state ^= state << 13;
+        state ^= state >> 17;
+        state ^= state << 5;
+        return state;
+    }
+
+    /// 0..99
+    [[nodiscard]] int rollPercent() { return static_cast<int>(next() % 100u); }
+
+    [[nodiscard]] bool rollChance(int percent) {
+        if (percent <= 0) {
+            return false;
+        }
+        if (percent >= 100) {
+            return true;
+        }
+        return rollPercent() < percent;
+    }
+};
+
 /// Per-battle bookkeeping owned by the battle state (FBattleState creates and clears it with the rest of
 /// the battle-scoped context): the last turn serial an enemy action was scheduled for (player turns are
 /// scheduled by the HUD, so only auto actions need this guard). `autoPlay` is a debug switch (env
 /// `GAME01P_AUTOPLAY=1`): both sides fight automatically so the combat pipeline can be verified from the
-/// log without input.
+/// log without input. `rng` is battle-scoped so status rolls do not leak between fights.
 struct FCombatRuntime {
     std::uint64_t scheduledTurnSerial{0};
     bool autoPlay{false};
+    FBattleRng rng;
 };
 
 } // namespace game

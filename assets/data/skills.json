@@ -1,5 +1,5 @@
 {
-  "_comment": "베이스 스킬 7종(무속성). docs/design/skill-rune-progression.md §2. 수치(ap_cost/power/range)는 잠정값이며 밸런싱 단계에서 이 파일만 고쳐 정한다.",
+  "_comment": "베이스 스킬 7종(무속성). docs/design/skill-rune-progression.md §2. 태그는 룬 장착 조건(§3.2)의 입력이며, 수치(ap_cost/power/range)는 잠정값이다.",
   "schema_version": 1,
   "skills": [
     {
@@ -11,7 +11,7 @@
       "shape": "single",
       "area_radius": 0,
       "target": "enemy",
-      "tags": ["Melee"]
+      "tags": ["Melee", "Attack"]
     },
     {
       "id": "skill.arrow",
@@ -22,7 +22,7 @@
       "shape": "single",
       "area_radius": 0,
       "target": "enemy",
-      "tags": ["Projectile"]
+      "tags": ["Projectile", "Attack"]
     },
     {
       "id": "skill.bolt",
@@ -33,7 +33,7 @@
       "shape": "single",
       "area_radius": 0,
       "target": "enemy",
-      "tags": ["Projectile", "Magic"]
+      "tags": ["Projectile", "Spell"]
     },
     {
       "id": "skill.heal",
@@ -44,7 +44,7 @@
       "shape": "single",
       "area_radius": 0,
       "target": "ally",
-      "tags": ["Heal"]
+      "tags": ["Heal", "Spell"]
     },
     {
       "id": "skill.fog",
@@ -56,7 +56,7 @@
       "area_radius": 1,
       "target": "cell",
       "applies_status": "status.debuff",
-      "tags": ["Area"]
+      "tags": ["Area", "Spell"]
     },
     {
       "id": "skill.buff",
@@ -80,7 +80,7 @@
       "area_radius": 0,
       "target": "enemy",
       "applies_status": "status.debuff",
-      "tags": ["Support"]
+      "tags": ["Support", "Spell"]
     }
   ]
 }

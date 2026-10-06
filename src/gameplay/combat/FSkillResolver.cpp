@@ -8,13 +8,28 @@
 namespace game {
 namespace {
 
-void addStatus(std::vector<std::string>& statuses, const std::string& statusId) {
+void addStatus(std::vector<FResolvedStatus>& statuses, const std::string& statusId) {
     if (statusId.empty()) {
         return;
     }
-    if (std::ranges::find(statuses, statusId) == statuses.end()) {
-        statuses.push_back(statusId);
+    if (std::ranges::find(statuses, statusId, &FResolvedStatus::statusId) == statuses.end()) {
+        statuses.push_back(FResolvedStatus{statusId, 0, 0});
     }
+}
+
+[[nodiscard]] bool hasTag(const std::vector<std::string>& tags, const std::string& tag) {
+    return std::ranges::find(tags, tag) != tags.end();
+}
+
+[[nodiscard]] std::string joinTags(const std::vector<std::string>& tags) {
+    std::string joined;
+    for (const std::string& tag : tags) {
+        if (!joined.empty()) {
+            joined += ", ";
+        }
+        joined += tag;
+    }
+    return joined;
 }
 
 } // namespace
@@ -46,6 +61,21 @@ FResolvedSkill ResolveSkill(
         resolved.areaRadius += rune->areaRadiusDelta;
         powerDelta += rune->powerDelta;
         resolved.runeIds.push_back(rune->id);
+    }
+
+    // Status deltas are summed in a second pass so the numbers do not depend on rune order either
+    // (§3.2 fixes tag order-independence; keeping the numeric side order-free is one less rule to hold).
+    for (const gameplay::FRuneContent* rune : runes) {
+        if (rune == nullptr || (rune->statusDurationDelta == 0 && rune->statusMagnitudeDelta == 0)) {
+            continue;
+        }
+        for (FResolvedStatus& status : resolved.statuses) {
+            if (!rune->statusId.empty() && rune->statusId != status.statusId) {
+                continue;
+            }
+            status.durationDelta += rune->statusDurationDelta;
+            status.magnitudeDelta += rune->statusMagnitudeDelta;
+        }
     }
 
     // docs/design/skill-rune-progression.md §3.3: 강화 룬의 총 위력 증가 상한 = 기본 대비 +100% (잠정).
@@ -96,18 +126,71 @@ std::vector<FGridPosition> ComputeSkillCells(const FResolvedSkill& skill, const 
             }
         }
     } else if (skill.shape == "pierce") {
-        // No pierce rune exists in data yet; the target cell alone keeps the action well-defined until
-        // the line is implemented. The resolver logs the notice for the battle feed.
+        // 관통 직선은 전투 완성 슬라이스에서 구현한다(정본 §3.3 rune.pierce). 그때까지 대상 셀 하나로
+        // 처리해 액션이 정의되게 유지한다.
     }
     return cells;
 }
 
+std::optional<std::string> CheckRuneTagRequirements(
+    const gameplay::FSkillContent& skill,
+    const std::vector<const gameplay::FRuneContent*>& runes) {
+    // 고정점: adds_tags는 조건 없이 부여되므로 한 번의 합집합으로 충분하다.
+    std::vector<std::string> effective = skill.tags;
+    for (const gameplay::FRuneContent* rune : runes) {
+        if (rune == nullptr) {
+            continue;
+        }
+        for (const std::string& tag : rune->addsTags) {
+            if (!hasTag(effective, tag)) {
+                effective.push_back(tag);
+            }
+        }
+    }
+
+    for (const gameplay::FRuneContent* rune : runes) {
+        if (rune == nullptr) {
+            continue;
+        }
+        for (const std::string& tag : rune->requiresAllTags) {
+            if (!hasTag(effective, tag)) {
+                return "rune '" + rune->id + "' requires tag '" + tag + "'";
+            }
+        }
+        if (!rune->requiresAnyTags.empty()) {
+            bool satisfied = false;
+            for (const std::string& tag : rune->requiresAnyTags) {
+                if (hasTag(effective, tag)) {
+                    satisfied = true;
+                    break;
+                }
+            }
+            if (!satisfied) {
+                return "rune '" + rune->id + "' requires one of [" + joinTags(rune->requiresAnyTags) + "]";
+            }
+        }
+        for (const std::string& tag : rune->excludesTags) {
+            if (hasTag(effective, tag)) {
+                return "rune '" + rune->id + "' cannot be used with tag '" + tag + "'";
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<std::string> ValidateSkillSlot(
     const FSkillSlot& slot, const gameplay::FContentRegistry& content) {
+    const gameplay::FSkillContent* skill = content.skills.find(slot.skillId);
+    if (skill == nullptr) {
+        return "unknown skill '" + slot.skillId + "'";
+    }
+
     int elementCount = 0;
     bool hasFormRune = false;
     std::vector<std::string> seen;
+    std::vector<const gameplay::FRuneContent*> runes;
     seen.reserve(slot.runeIds.size());
+    runes.reserve(slot.runeIds.size());
     for (const std::string& runeId : slot.runeIds) {
         const gameplay::FRuneContent* rune = content.runes.find(runeId);
         if (rune == nullptr) {
@@ -117,6 +200,7 @@ std::optional<std::string> ValidateSkillSlot(
             return "rune '" + runeId + "' is attached twice";
         }
         seen.push_back(runeId);
+        runes.push_back(rune);
 
         if (rune->axis == gameplay::kRuneAxisElement) {
             if (++elementCount > 2) {
@@ -129,6 +213,10 @@ std::optional<std::string> ValidateSkillSlot(
             hasFormRune = true;
         }
         // enhance: uniqueness is covered by the duplicate check above (고유 강화만).
+    }
+
+    if (const std::optional<std::string> tagProblem = CheckRuneTagRequirements(*skill, runes)) {
+        return tagProblem;
     }
     return std::nullopt;
 }

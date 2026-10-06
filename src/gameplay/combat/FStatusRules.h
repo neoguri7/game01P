@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "ecs/components/FActiveStatuses.h"
+#include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/data/FStatusContent.h"
 
@@ -15,14 +16,23 @@ struct FStatusTickResult {
     bool skipTurn{false};
 };
 
-/// 중첩 = 갱신: reapplying an already-active status refreshes its duration (never stacks a second entry).
-void ApplyStatus(FActiveStatuses& active, const gameplay::FStatusContent& status);
+/// 중첩 = 갱신: reapplying refreshes the duration (never stacks a second entry) and takes the latest
+/// magnitude. Rune deltas (§3.3) arrive from FResolvedStatus; this is the only place they are folded
+/// into the status definition values.
+void ApplyStatus(
+    FActiveStatuses& active,
+    const gameplay::FStatusContent& status,
+    int durationDelta = 0,
+    int magnitudeDelta = 0);
 
 /// Ticks every active status once, decrements durations, and expires finished effects.
-/// 마비의 확률 판정(50%)은 RNG 결정 슬라이스에서 붙인다 — 지금은 control = 행동 불가로 처리한다.
+/// Control statuses roll their effective magnitude as an action-fail chance (빙결은 magnitude 0 = 항상
+/// 행동 불가) on the battle RNG; the roll must be reproducible for auto-battle verification, so the RNG
+/// is passed in instead of owned here.
 [[nodiscard]] FStatusTickResult TickStatuses(
     FActiveStatuses& active,
-    const std::vector<const gameplay::FStatusContent*>& definitions);
+    const std::vector<const gameplay::FStatusContent*>& definitions,
+    FBattleRng& rng);
 
 /// Sum of `stat` kind magnitudes (버프/디버프). Damage calculation adds this to the attacker's attack.
 [[nodiscard]] int StatusAttackModifier(

@@ -13,6 +13,13 @@ FRuneContent decodeRune(const FContentRow& row) {
     rune.apDelta = row.integer(kRuneFieldApDelta, 0);
     rune.rangeDelta = row.integer(kRuneFieldRangeDelta, 0);
     rune.areaRadiusDelta = row.integer(kRuneFieldAreaRadiusDelta, 0);
+    rune.requiresAllTags = row.textArray(kRuneFieldRequiresAllTags);
+    rune.requiresAnyTags = row.textArray(kRuneFieldRequiresAnyTags);
+    rune.excludesTags = row.textArray(kRuneFieldExcludesTags);
+    rune.addsTags = row.textArray(kRuneFieldAddsTags);
+    rune.statusId = row.text(kRuneFieldStatusId);
+    rune.statusDurationDelta = row.integer(kRuneFieldStatusDurationDelta, 0);
+    rune.statusMagnitudeDelta = row.integer(kRuneFieldStatusMagnitudeDelta, 0);
     return rune;
 }
 

@@ -268,14 +268,4 @@ std::expected<FRoomDefinition, FFactoryError> FEntityFactory::CreateRoom(const n
     return FRoomDefinition{ std::move(*id), std::move(*displayName), std::move(*roomType) };
 }
 
-std::expected<FEquipmentDefinition, FFactoryError> FEntityFactory::CreateEquipment(const nlohmann::json& document) {
-    auto id = ReadString(document, "id");
-    if (!id) return std::unexpected(id.error());
-    auto displayName = ReadString(document, "display_name");
-    if (!displayName) return std::unexpected(displayName.error());
-    auto slot = ReadString(document, "slot");
-    if (!slot) return std::unexpected(slot.error());
-    return FEquipmentDefinition{ std::move(*id), std::move(*displayName), std::move(*slot) };
-}
-
 } // namespace game

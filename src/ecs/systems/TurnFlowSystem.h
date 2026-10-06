@@ -61,7 +61,7 @@ struct TurnFlowSystem {
         // Turn start: status tick (docs/design/skill-rune-progression.md §4).
         if (auto* active = registry.try_get<FActiveStatuses>(actor); active && !active->effects.empty()) {
             const std::vector<const gameplay::FStatusContent*> definitions = CollectStatuses(*active, *content);
-            const FStatusTickResult tick = TickStatuses(*active, definitions);
+            const FStatusTickResult tick = TickStatuses(*active, definitions, combat->rng);
             if (tick.damage > 0) {
                 if (log) log->push(UnitDisplayName(registry, actor) + " 상태 피해 " + std::to_string(tick.damage));
                 if (ApplyDamageToUnit(registry, actor, tick.damage) && log) {

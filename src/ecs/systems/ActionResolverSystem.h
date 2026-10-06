@@ -24,7 +24,7 @@
 namespace game::ecs {
 
 /// Applies queued battle actions: validates the actor, AP, target side and range, then resolves the
-/// skill through the rune pipeline (docs/design/skill-rune-progression.md §3/§6) onto every affected
+/// skill through the rune pipeline (docs/design/skill-rune-progression.md §3/§8) onto every affected
 /// target. Movement joins in a later slice.
 struct ActionResolverSystem {
     void update(entt::registry& registry, float /*deltaTime*/) {
@@ -162,11 +162,11 @@ private:
             if (died) {
                 continue;
             }
-            for (const std::string& statusId : resolved->statuses) {
-                const gameplay::FStatusContent* status = content.statuses.find(statusId);
-                if (status == nullptr) continue;
+            for (const FResolvedStatus& status : resolved->statuses) {
+                const gameplay::FStatusContent* definition = content.statuses.find(status.statusId);
+                if (definition == nullptr) continue;
                 if (auto* active = registry.try_get<FActiveStatuses>(target)) {
-                    ApplyStatus(*active, *status);
+                    ApplyStatus(*active, *definition, status.durationDelta, status.magnitudeDelta);
                 }
             }
         }

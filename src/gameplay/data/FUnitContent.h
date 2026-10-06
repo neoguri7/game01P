@@ -21,7 +21,7 @@ struct FUnitContent {
     std::vector<std::string> skillIds; // design §5: 거점에서 유저가 고르는 해금 스킬 목록
     std::string spriteId;              // presentation id; nothing resolves it yet
 
-    // docs/design/skill-rune-progression.md §6: 피해 = max(1, attack + power) 잠정식이 쓰는 기본 공격력.
+    // docs/design/skill-rune-progression.md §8: 피해 = max(1, attack + power) 잠정식이 쓰는 기본 공격력.
     int attack{0};
 };
 

@@ -12,8 +12,17 @@
 
 namespace game {
 
-/// A base skill after every attached rune has been applied (docs/design/skill-rune-progression.md §3, §6).
-/// This is the "베이스 + 룬" stage of the pipeline; equipment and later layers consume this, never the raw
+/// One status the resolved skill applies, with the rune-driven deltas already summed
+/// (docs/design/skill-rune-progression.md §3.3/§4). The combat layer adds these to the status
+/// definition when the effect is applied.
+struct FResolvedStatus {
+    std::string statusId;
+    int durationDelta{0};
+    int magnitudeDelta{0};
+};
+
+/// A base skill after every attached rune has been applied (docs/design/skill-rune-progression.md §3, §8).
+/// This is the "베이스 + 룬" stage of the pipeline; the run-growth stage consumes this, never the raw
 /// authored row.
 struct FResolvedSkill {
     std::string skillId;
@@ -23,13 +32,14 @@ struct FResolvedSkill {
     std::string shape{"single"};
     int areaRadius{0};
     std::string target{"enemy"};
-    std::vector<std::string> statuses; // base skill + element runes; applied on hit, in order
-    std::vector<std::string> runeIds;  // provenance for tooltips/diagnostics
+    std::vector<FResolvedStatus> statuses; // base skill + element runes, with enhance-rune deltas
+    std::vector<std::string> runeIds;      // provenance for tooltips/diagnostics
 };
 
 /// Applies runes in order: form runes replace the shape, element runes add a status, enhance runes move
-/// the numbers. Clamps keep the result inside the designed floor (ap >= 1, range >= 1, radius >= 0) and
-/// the design's provisional ceiling (총 위력 증가는 기본 대비 +100% 이내, §3.3).
+/// the numbers and the status deltas. Clamps keep the result inside the designed floor (ap >= 1,
+/// range >= 1, radius >= 0) and the design's provisional ceiling (총 위력 증가는 기본 대비 +100% 이내, §3.3).
+/// Tag legality is not re-checked here: ValidateSkillSlot owns that gate, exactly like rune existence.
 [[nodiscard]] FResolvedSkill ResolveSkill(
     const gameplay::FSkillContent& skill,
     const std::vector<const gameplay::FRuneContent*>& runes);
@@ -42,14 +52,22 @@ struct FResolvedSkill {
 
 /// Every cell a resolved skill affects, given the primary target cell: single = the target cell alone,
 /// spread = the target plus its orthogonal neighbors, zone = all cells within areaRadius (Manhattan),
-/// pierce = the target cell alone (lines are not implemented yet; no pierce rune exists in data).
+/// pierce = the target cell alone until the line shape lands in the combat-completion slice.
 [[nodiscard]] std::vector<FGridPosition> ComputeSkillCells(
     const FResolvedSkill& skill, const FGridPosition& center);
 
-/// Checks the per-skill rune limits (docs/design/skill-rune-progression.md §3): at most 2 element runes and
-/// distinct, at most 1 form rune, enhance runes unique, and every id must exist. Returns the failure
-/// reason; nullopt when the loadout is legal. Authored loadouts are validated at battle setup so an
-/// illegal build fails before the fight instead of silently losing runes mid-action.
+/// 서포트젬식 태그 판정 (docs/design/skill-rune-progression.md §3.2). 유효 태그 집합
+/// T = 베이스 스킬 태그 ∪ 장착된 모든 룬의 adds_tags. 모든 룬이 requires_all ⊆ T,
+/// requires_any ∩ T ≠ ∅, excludes ∩ T = ∅를 만족해야 한다. 실패 사유를 돌려주고, 통과면 nullopt.
+[[nodiscard]] std::optional<std::string> CheckRuneTagRequirements(
+    const gameplay::FSkillContent& skill,
+    const std::vector<const gameplay::FRuneContent*>& runes);
+
+/// Checks the per-skill rune limits (docs/design/skill-rune-progression.md §3): at most 2 element runes
+/// and distinct, at most 1 form rune, enhance runes unique, every id must exist, and the §3.2 tag rules
+/// must pass. Returns the failure reason; nullopt when the loadout is legal. Authored loadouts are
+/// validated at battle setup so an illegal build fails before the fight instead of silently losing runes
+/// mid-action.
 [[nodiscard]] std::optional<std::string> ValidateSkillSlot(
     const FSkillSlot& slot, const gameplay::FContentRegistry& content);
 

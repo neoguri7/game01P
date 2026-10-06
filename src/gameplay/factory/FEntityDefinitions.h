@@ -30,10 +30,4 @@ struct FRoomDefinition {
     std::string roomType;
 };
 
-struct FEquipmentDefinition {
-    std::string id;
-    std::string displayName;
-    std::string slot;
-};
-
 } // namespace game

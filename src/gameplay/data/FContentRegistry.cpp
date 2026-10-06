@@ -19,7 +19,6 @@ constexpr FContentSchema kUnitSchema{"data/units", "units", "id", 1, std::span<c
 constexpr FContentSchema kSkillSchema{"data/skills", "skills", "id", 1, std::span<const FContentField>{kSkillFields}};
 constexpr FContentSchema kRuneSchema{"data/runes", "runes", "id", 1, std::span<const FContentField>{kRuneFields}};
 constexpr FContentSchema kStatusSchema{"data/statuses", "statuses", "id", 1, std::span<const FContentField>{kStatusFields}};
-constexpr FContentSchema kEquipmentSchema{"data/equipment", "items", "id", 1, std::span<const FContentField>{kEquipmentFields}};
 
 /// Loads one asset and projects every row. False means the asset was unusable and the reason is logged.
 template <typename TRow, typename TDecode>
@@ -74,9 +73,6 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
     if (!loadTable(assets, kStatusSchema, registry.statuses, decodeStatus)) {
         return std::nullopt;
     }
-    if (!loadTable(assets, kEquipmentSchema, registry.equipment, decodeEquipment)) {
-        return std::nullopt;
-    }
 
     // A row's own vocabulary is checked here, not by the generic loader: `shape`/`axis`/`kind` are
     // closed sets that gameplay code switches on, so an unknown value must fail the boot (R19) instead
@@ -129,11 +125,15 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
             LOG_ERROR("content: rune '{}' references unknown status '{}'.", rune.id, rune.statusOnHit);
             return std::nullopt;
         }
+        if (!rune.statusId.empty() && registry.statuses.find(rune.statusId) == nullptr) {
+            LOG_ERROR("content: rune '{}' references unknown status_id '{}'.", rune.id, rune.statusId);
+            return std::nullopt;
+        }
     }
 
-    LOG_INFO("content ready: {} unit(s), {} skill(s), {} rune(s), {} status(es), {} equipment.",
+    LOG_INFO("content ready: {} unit(s), {} skill(s), {} rune(s), {} status(es).",
              registry.units.rows.size(), registry.skills.rows.size(), registry.runes.rows.size(),
-             registry.statuses.rows.size(), registry.equipment.rows.size());
+             registry.statuses.rows.size());
     return registry;
 }
 

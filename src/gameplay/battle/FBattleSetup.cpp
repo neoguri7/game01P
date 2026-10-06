@@ -57,8 +57,9 @@ bool SetupCombatUnits(
                           placement.id, slot.skillId);
                 return false;
             }
-            // Rune limits are part of the build rules (docs/design/skill-rune-progression.md §3), so an
-            // illegal authored loadout stops the battle here instead of losing runes silently mid-fight.
+            // Rune limits and tag rules are part of the build rules
+            // (docs/design/skill-rune-progression.md §3), so an illegal authored loadout stops the battle
+            // here instead of losing runes silently mid-fight.
             if (const std::optional<std::string> problem = ValidateSkillSlot(slot, content)) {
                 LOG_ERROR("battle: placement '{}' has an invalid rune loadout for skill '{}': {}.",
                           placement.id, slot.skillId, *problem);
