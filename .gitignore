@@ -13,6 +13,7 @@ Testing/
 docs/
 docs
 
+
 .codex
 .codex/
 .agents
@@ -83,3 +84,11 @@ assets/sprites/*
 .codebase-index/
 
 .cortexkit/
+
+# Local Python asset-tool environment and bytecode.
+tools/pixellab/.venv/
+tools/pixellab/__pycache__/
+
+tools/
+tools/*
+style.md
