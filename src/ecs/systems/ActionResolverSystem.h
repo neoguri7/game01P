@@ -1,7 +1,6 @@
 #pragma once
 
 #include <algorithm>
-#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -21,8 +20,6 @@
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
-#include "gameplay/grid/FGridQuery.h"
-#include "gameplay/grid/FGridTypes.h"
 
 namespace game::ecs {
 
@@ -115,34 +112,14 @@ private:
         const gameplay::FSkillContent* skillRow = content.skills.find(slot->skillId);
         const std::string skillName = skillRow != nullptr ? skillRow->displayName : slot->skillId;
 
-        // Affected cells by shape. pierce is not implemented yet (no pierce rune exists in data).
-        std::vector<FGridPosition> cells{*targetCell};
-        if (resolved->shape == "spread") {
-            for (const FGridPosition& neighbor : OrthogonalNeighbors(*targetCell)) {
-                cells.push_back(neighbor);
-            }
-        } else if (resolved->shape == "zone") {
-            const int radius = std::max(1, resolved->areaRadius);
-            for (int dy = -radius; dy <= radius; ++dy) {
-                for (int dx = -radius; dx <= radius; ++dx) {
-                    if (dx == 0 && dy == 0) continue;
-                    if (std::abs(dx) + std::abs(dy) > radius) continue;
-                    cells.push_back(FGridPosition{targetCell->x + dx, targetCell->y + dy});
-                }
-            }
-        } else if (resolved->shape == "pierce") {
+        if (resolved->shape == "pierce") {
             Reject(log, "관통 형태는 아직 구현되지 않아 단일 대상으로 처리한다");
         }
 
-        std::vector<entt::entity> affected;
-        for (const FGridPosition& cell : cells) {
-            const entt::entity occupant = FindGridOccupant(registry, cell.x, cell.y);
-            if (occupant == entt::null || !IsAlive(registry, occupant)) continue;
-            if (registry.all_of<FPartyMember>(occupant) != affectsParty) continue;
-            if (std::ranges::find(affected, occupant) == affected.end()) {
-                affected.push_back(occupant);
-            }
-        }
+        // Shape semantics live in gameplay/combat so the resolver, the HUD and later slices share one
+        // definition of what a skill affects (docs/design/skill-rune-equipment.md §3.2).
+        const std::vector<FGridPosition> cells = ComputeSkillCells(*resolved, *targetCell);
+        const std::vector<entt::entity> affected = FindUnitsOnCells(registry, cells, affectsParty);
 
         int attack = stats->attack;
         if (const auto* active = registry.try_get<FActiveStatuses>(actor); active && !active->effects.empty()) {
@@ -165,7 +142,7 @@ private:
                 }
             } else if (resolved->power > 0) {
                 const int damage = ComputeDamage(attack, resolved->power);
-                died = ApplyDamageToUnit(registry, target, damage, log);
+                died = ApplyDamageToUnit(registry, target, damage);
                 if (log) {
                     std::string line = actorName + "의 " + skillName + " → " + targetName + " "
                         + std::to_string(damage) + " 피해";
@@ -174,6 +151,9 @@ private:
                     }
                     if (died) line += " — 처치";
                     log->push(std::move(line));
+                    if (died) {
+                        log->push(targetName + " 쓰러짐!");
+                    }
                 }
             } else if (log && !resolved->statuses.empty()) {
                 log->push(actorName + "의 " + skillName + " → " + targetName + " 상태 부여");

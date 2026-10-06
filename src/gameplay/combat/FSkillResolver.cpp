@@ -1,6 +1,9 @@
 #include "gameplay/combat/FSkillResolver.h"
 
 #include <algorithm>
+#include <cstdlib>
+
+#include "gameplay/grid/FGridTypes.h"
 
 namespace game {
 namespace {
@@ -75,6 +78,59 @@ std::optional<FResolvedSkill> ResolveSkillSlot(
         }
     }
     return ResolveSkill(*skill, runes);
+}
+
+std::vector<FGridPosition> ComputeSkillCells(const FResolvedSkill& skill, const FGridPosition& center) {
+    std::vector<FGridPosition> cells{center};
+    if (skill.shape == "spread") {
+        for (const FGridPosition& neighbor : OrthogonalNeighbors(center)) {
+            cells.push_back(neighbor);
+        }
+    } else if (skill.shape == "zone") {
+        const int radius = std::max(1, skill.areaRadius);
+        for (int dy = -radius; dy <= radius; ++dy) {
+            for (int dx = -radius; dx <= radius; ++dx) {
+                if (dx == 0 && dy == 0) continue;
+                if (std::abs(dx) + std::abs(dy) > radius) continue;
+                cells.push_back(FGridPosition{center.x + dx, center.y + dy});
+            }
+        }
+    } else if (skill.shape == "pierce") {
+        // No pierce rune exists in data yet; the target cell alone keeps the action well-defined until
+        // the line is implemented. The resolver logs the notice for the battle feed.
+    }
+    return cells;
+}
+
+std::optional<std::string> ValidateSkillSlot(
+    const FSkillSlot& slot, const gameplay::FContentRegistry& content) {
+    int elementCount = 0;
+    bool hasFormRune = false;
+    std::vector<std::string> seen;
+    seen.reserve(slot.runeIds.size());
+    for (const std::string& runeId : slot.runeIds) {
+        const gameplay::FRuneContent* rune = content.runes.find(runeId);
+        if (rune == nullptr) {
+            return "unknown rune '" + runeId + "'";
+        }
+        if (std::ranges::find(seen, runeId) != seen.end()) {
+            return "rune '" + runeId + "' is attached twice";
+        }
+        seen.push_back(runeId);
+
+        if (rune->axis == gameplay::kRuneAxisElement) {
+            if (++elementCount > 2) {
+                return "more than 2 element runes";
+            }
+        } else if (rune->axis == gameplay::kRuneAxisForm) {
+            if (hasFormRune) {
+                return "more than 1 form rune";
+            }
+            hasFormRune = true;
+        }
+        // enhance: uniqueness is covered by the duplicate check above (고유 강화만).
+    }
+    return std::nullopt;
 }
 
 } // namespace game

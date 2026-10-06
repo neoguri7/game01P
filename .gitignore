@@ -81,3 +81,5 @@ assets/sprites/*
 
 # Local codebase-index cache/config (not committed).
 .codebase-index/
+
+.cortexkit/

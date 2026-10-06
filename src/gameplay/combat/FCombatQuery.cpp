@@ -1,5 +1,6 @@
 #include "gameplay/combat/FCombatQuery.h"
 
+#include <algorithm>
 #include <limits>
 
 #include "ecs/components/FDead.h"
@@ -9,6 +10,7 @@
 #include "ecs/components/FTag.h"
 #include "gameplay/combat/FCombatRules.h"
 #include "gameplay/factory/FEntityDefinitions.h"
+#include "gameplay/grid/FGridQuery.h"
 
 namespace game {
 
@@ -64,6 +66,24 @@ entt::entity FindNearestAlive(entt::registry& registry, entt::entity from, bool 
         }
     }
     return best;
+}
+
+std::vector<entt::entity> FindUnitsOnCells(
+    entt::registry& registry, const std::vector<FGridPosition>& cells, bool partySide) {
+    std::vector<entt::entity> units;
+    for (const FGridPosition& cell : cells) {
+        const entt::entity occupant = FindGridOccupant(registry, cell.x, cell.y);
+        if (occupant == entt::null || !IsAlive(registry, occupant)) {
+            continue;
+        }
+        if (registry.all_of<FPartyMember>(occupant) != partySide) {
+            continue;
+        }
+        if (std::ranges::find(units, occupant) == units.end()) {
+            units.push_back(occupant);
+        }
+    }
+    return units;
 }
 
 } // namespace game

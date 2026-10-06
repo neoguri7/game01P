@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "ecs/components/FGridPosition.h"
 #include "ecs/components/FSkillLoadout.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/data/FRuneContent.h"
@@ -38,5 +39,18 @@ struct FResolvedSkill {
 [[nodiscard]] std::optional<FResolvedSkill> ResolveSkillSlot(
     const FSkillSlot& slot,
     const gameplay::FContentRegistry& content);
+
+/// Every cell a resolved skill affects, given the primary target cell: single = the target cell alone,
+/// spread = the target plus its orthogonal neighbors, zone = all cells within areaRadius (Manhattan),
+/// pierce = the target cell alone (lines are not implemented yet; no pierce rune exists in data).
+[[nodiscard]] std::vector<FGridPosition> ComputeSkillCells(
+    const FResolvedSkill& skill, const FGridPosition& center);
+
+/// Checks the per-skill rune limits (docs/design/skill-rune-equipment.md §3): at most 2 element runes and
+/// distinct, at most 1 form rune, enhance runes unique, and every id must exist. Returns the failure
+/// reason; nullopt when the loadout is legal. Authored loadouts are validated at battle setup so an
+/// illegal build fails before the fight instead of silently losing runes mid-action.
+[[nodiscard]] std::optional<std::string> ValidateSkillSlot(
+    const FSkillSlot& slot, const gameplay::FContentRegistry& content);
 
 } // namespace game

@@ -121,17 +121,35 @@ struct CombatHudSystem {
                                                 resolved->statuses.empty() ? "" : " | 상태 부여");
                         }
                         ImGui::SeparatorText("대상");
-                        for (const auto target : registry.view<FEnemy, FHealth, FGridPosition>()) {
+                        // One button per target, side read from the caster's perspective — the same rule
+                        // ActionResolverSystem enforces: "ally"/"self" list the caster's side ("self" only
+                        // the caster), "enemy"/"cell" the other side ("cell" uses enemy units as anchors
+                        // until grid-cell picking exists).
+                        const auto drawTarget = [&](entt::entity target) {
                             if (!IsAlive(registry, target)) {
-                                continue;
+                                return;
                             }
-                            const auto& cell = registry.get<FGridPosition>(target);
-                            const auto& health = registry.get<FHealth>(target);
+                            const auto* cell = registry.try_get<FGridPosition>(target);
+                            const auto* health = registry.try_get<FHealth>(target);
+                            if (cell == nullptr || health == nullptr) {
+                                return;
+                            }
                             const std::string label = UnitDisplayName(registry, target) + " ("
-                                + std::to_string(cell.x) + "," + std::to_string(cell.y) + ") HP "
-                                + std::to_string(health.current) + "/" + std::to_string(health.max);
+                                + std::to_string(cell->x) + "," + std::to_string(cell->y) + ") HP "
+                                + std::to_string(health->current) + "/" + std::to_string(health->max);
                             if (ImGui::Button(label.c_str())) {
                                 queue->pending.push_back(FActionRequest{actor, target, slot.skillId});
+                            }
+                        };
+                        if (resolved->target == "self") {
+                            drawTarget(actor);
+                        } else if (resolved->target == "ally") {
+                            for (const auto target : registry.view<FPartyMember, FHealth, FGridPosition>()) {
+                                drawTarget(target);
+                            }
+                        } else {
+                            for (const auto target : registry.view<FEnemy, FHealth, FGridPosition>()) {
+                                drawTarget(target);
                             }
                         }
                     }

@@ -1,6 +1,7 @@
 #include "gameplay/battle/FBattleSetup.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include "core/Logger.h"
@@ -11,6 +12,7 @@
 #include "ecs/components/FSpeed.h"
 #include "ecs/components/FStats.h"
 #include "ecs/components/FTurnParticipant.h"
+#include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
 
 namespace game {
@@ -53,6 +55,13 @@ bool SetupCombatUnits(
             if (content.skills.find(slot.skillId) == nullptr) {
                 LOG_ERROR("battle: placement '{}' references unknown skill '{}'.",
                           placement.id, slot.skillId);
+                return false;
+            }
+            // Rune limits are part of the build rules (docs/design/skill-rune-equipment.md §3), so an
+            // illegal authored loadout stops the battle here instead of losing runes silently mid-fight.
+            if (const std::optional<std::string> problem = ValidateSkillSlot(slot, content)) {
+                LOG_ERROR("battle: placement '{}' has an invalid rune loadout for skill '{}': {}.",
+                          placement.id, slot.skillId, *problem);
                 return false;
             }
         }

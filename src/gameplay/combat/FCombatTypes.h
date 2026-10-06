@@ -47,10 +47,11 @@ struct FCombatLog {
     }
 };
 
-/// Per-battle bookkeeping owned by TurnFlowSystem: the last turn serial an enemy action was scheduled
-/// for. (Player turns are scheduled by the HUD, so only enemies need this guard.)
-/// `autoPlay` is a debug switch (env `GAME01P_AUTOPLAY=1`): both sides fight automatically so the
-/// combat pipeline can be verified from the log without input.
+/// Per-battle bookkeeping owned by the battle state (FBattleState creates and clears it with the rest of
+/// the battle-scoped context): the last turn serial an enemy action was scheduled for (player turns are
+/// scheduled by the HUD, so only auto actions need this guard). `autoPlay` is a debug switch (env
+/// `GAME01P_AUTOPLAY=1`): both sides fight automatically so the combat pipeline can be verified from the
+/// log without input.
 struct FCombatRuntime {
     std::uint64_t scheduledTurnSerial{0};
     bool autoPlay{false};

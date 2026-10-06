@@ -5,12 +5,10 @@
 #include "ecs/components/FDead.h"
 #include "ecs/components/FHealth.h"
 #include "ecs/components/FTurnParticipant.h"
-#include "gameplay/combat/FCombatQuery.h"
-#include "gameplay/combat/FCombatTypes.h"
 
 namespace game {
 
-bool ApplyDamageToUnit(entt::registry& registry, entt::entity target, int amount, FCombatLog* log) {
+bool ApplyDamageToUnit(entt::registry& registry, entt::entity target, int amount) {
     auto* health = registry.try_get<FHealth>(target);
     if (health == nullptr) {
         return false;
@@ -24,9 +22,6 @@ bool ApplyDamageToUnit(entt::registry& registry, entt::entity target, int amount
     if (!registry.all_of<FDead>(target)) {
         registry.emplace<FDead>(target);
         registry.remove<FTurnParticipant>(target);
-        if (log != nullptr) {
-            log->push(UnitDisplayName(registry, target) + " 쓰러짐!");
-        }
     }
     return true;
 }

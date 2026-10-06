@@ -1,8 +1,11 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include <entt/entt.hpp>
+
+#include "ecs/components/FGridPosition.h"
 
 namespace game {
 
@@ -18,5 +21,10 @@ namespace game {
 /// Nearest living unit on `partySide` measured in grid distance (Manhattan). entt::null when none.
 /// Ties resolve to the first unit in view order; determinism of the AI is not promised yet.
 [[nodiscard]] entt::entity FindNearestAlive(entt::registry& registry, entt::entity from, bool partySide);
+
+/// Living units of `partySide` standing on any of `cells`, each listed once. Empty cells, dead units and
+/// units of the other side are ignored.
+[[nodiscard]] std::vector<entt::entity> FindUnitsOnCells(
+    entt::registry& registry, const std::vector<FGridPosition>& cells, bool partySide);
 
 } // namespace game
