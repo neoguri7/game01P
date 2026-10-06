@@ -121,9 +121,11 @@ private:
         const std::vector<FGridPosition> cells = ComputeSkillCells(*resolved, *targetCell);
         const std::vector<entt::entity> affected = FindUnitsOnCells(registry, cells, affectsParty);
 
-        int attack = stats->attack;
+        // §1.1: 공격 항은 damage_type이 고른다. 버프/디버프(stat 상태)는 어느 쪽 공격 항에도 더해진다.
+        const bool magical = resolved->damageType == gameplay::kDamageTypeMagical;
+        int offense = magical ? stats->magicAttack : stats->attack;
         if (const auto* active = registry.try_get<FActiveStatuses>(actor); active && !active->effects.empty()) {
-            attack += StatusAttackModifier(*active, CollectStatuses(*active, content));
+            offense += StatusAttackModifier(*active, CollectStatuses(*active, content));
         }
 
         for (const entt::entity target : affected) {
@@ -131,17 +133,23 @@ private:
             bool died = false;
 
             if (targetsOwnSide) {
-                // Support skills: power is the heal amount (docs/design/skill-rune-progression.md §2, 힐).
-                if (auto* health = registry.try_get<FHealth>(target); health && resolved->power > 0) {
+                // Support skills: 회복량 = 마법공격력 + power (docs/design/skill-rune-progression.md §8, 잠정).
+                const int heal = std::max(0, stats->magicAttack + resolved->power);
+                if (auto* health = registry.try_get<FHealth>(target); health && heal > 0) {
                     const int before = health->current;
-                    health->current = std::min(health->max, health->current + resolved->power);
+                    health->current = std::min(health->max, health->current + heal);
                     if (log && health->current > before) {
                         log->push(actorName + "의 " + skillName + " → " + targetName + " "
                                   + std::to_string(health->current - before) + " 회복");
                     }
                 }
             } else if (resolved->power > 0) {
-                const int damage = ComputeDamage(attack, resolved->power);
+                // §1.1: 감소 항도 damage_type이 고른다(물리: 방어력, 마법: 마법방어력).
+                int defense = 0;
+                if (const auto* targetStats = registry.try_get<FStats>(target)) {
+                    defense = magical ? targetStats->magicDefense : targetStats->defense;
+                }
+                const int damage = ComputeDamage(offense, resolved->power, defense);
                 died = ApplyDamageToUnit(registry, target, damage);
                 if (log) {
                     std::string line = actorName + "의 " + skillName + " → " + targetName + " "
@@ -153,6 +161,17 @@ private:
                     log->push(std::move(line));
                     if (died) {
                         log->push(targetName + " 쓰러짐!");
+                    }
+                }
+                // §3.3 흡혈: 피해를 준 공격자의 HP를 회복한다(대상이 쓰러져도 적용).
+                if (resolved->lifeOnHit > 0) {
+                    if (auto* actorHealth = registry.try_get<FHealth>(actor);
+                        actorHealth != nullptr && actorHealth->current > 0) {
+                        const int before = actorHealth->current;
+                        actorHealth->current = std::min(actorHealth->max, actorHealth->current + resolved->lifeOnHit);
+                        if (log && actorHealth->current > before) {
+                            log->push(actorName + " 흡혈 +" + std::to_string(actorHealth->current - before));
+                        }
                     }
                 }
             } else if (log && !resolved->statuses.empty()) {

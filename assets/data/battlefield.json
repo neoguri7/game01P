@@ -1,5 +1,5 @@
 {
-  "_comment": "첫 전투 배치. unit = units.json 콘텐츠 유닛, skills = 장착 스킬+룬(런 스코프). 룬은 태그 규칙(정본 §3.2)을 통과해야 하며, 위반 시 전투 셋업이 실패한다. 첫 슬라이스는 이동 없이 인접 배치로 전투 파이프라인을 검증한다.",
+  "_comment": "첫 전투 배치(개편 3차: 3 클래스 vs 3 적). unit = units.json 콘텐츠 유닛, skills = 장착 스킬+룬(런 스코프). 룬은 소켓 수와 태그 규칙(정본 §3)을 통과해야 하며, 위반 시 전투 셋업이 실패한다. 이동 미구현이라 전원 인접 배치로 검증한다.",
   "schema_version": 1,
   "width": 8,
   "height": 8,
@@ -8,47 +8,74 @@
   "origin_y": 0,
   "units": [
     {
-      "id": "party.a",
-      "display_name": "A",
+      "id": "party.warrior",
+      "display_name": "전사",
       "faction": "party",
       "grid_x": 0,
       "grid_y": 5,
-      "unit": "proto_ranged",
+      "unit": "char.warrior",
       "skills": [
-        { "skill": "skill.bolt", "runes": ["rune.fire", "rune.zone", "rune.power", "rune.ember"] }
+        { "skill": "skill.cleave", "runes": ["rune.fire", "rune.power", "rune.leech"] },
+        { "skill": "skill.strike" }
       ]
     },
     {
-      "id": "party.b",
-      "display_name": "B",
+      "id": "party.archer",
+      "display_name": "궁수",
       "faction": "party",
       "grid_x": 0,
       "grid_y": 6,
-      "unit": "proto_melee",
+      "unit": "char.archer",
       "skills": [
-        { "skill": "skill.strike", "runes": ["rune.spread", "rune.power"] }
+        { "skill": "skill.arrow", "runes": ["rune.multishot", "rune.fire", "rune.range"] },
+        { "skill": "skill.volley", "runes": ["rune.power"] }
       ]
     },
     {
-      "id": "enemy.a",
-      "display_name": "임프 A",
+      "id": "party.mage",
+      "display_name": "법사",
+      "faction": "party",
+      "grid_x": 0,
+      "grid_y": 7,
+      "unit": "char.mage",
+      "skills": [
+        { "skill": "skill.bolt", "runes": ["rune.lightning", "rune.shock", "rune.duration"] },
+        { "skill": "skill.fog", "runes": ["rune.area", "rune.duration"] },
+        { "skill": "skill.heal", "runes": ["rune.power"] },
+        { "skill": "skill.buff", "runes": ["rune.duration"] }
+      ]
+    },
+    {
+      "id": "enemy.imp",
+      "display_name": "임프",
       "faction": "enemy",
       "grid_x": 1,
       "grid_y": 5,
-      "unit": "proto_imp",
+      "unit": "enemy.imp",
       "skills": [
         { "skill": "skill.strike" }
       ]
     },
     {
-      "id": "enemy.b",
-      "display_name": "임프 B",
+      "id": "enemy.imp_archer",
+      "display_name": "임프 궁수",
       "faction": "enemy",
       "grid_x": 1,
       "grid_y": 6,
-      "unit": "proto_imp",
+      "unit": "enemy.imp_archer",
       "skills": [
-        { "skill": "skill.strike" }
+        { "skill": "skill.arrow" }
+      ]
+    },
+    {
+      "id": "enemy.imp_shaman",
+      "display_name": "임프 주술사",
+      "faction": "enemy",
+      "grid_x": 1,
+      "grid_y": 7,
+      "unit": "enemy.imp_shaman",
+      "skills": [
+        { "skill": "skill.bolt" }
       ]
     }
   ]

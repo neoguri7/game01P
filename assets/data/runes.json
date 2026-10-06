@@ -1,100 +1,113 @@
 {
-  "_comment": "룬 세트(개편 2차, 서포트젬 모방). docs/design/skill-rune-progression.md §3. 태그 규칙(requires_all/requires_any/excludes/adds)은 고정점으로 판정하며, 수치는 잠정값이다.",
+  "_comment": "개편 3차: 서포트젬식 룬 16종. 축(속성/형태/강화)은 폐기 — 제한은 스킬별 룬 소켓(rune_sockets) + 태그(고정점) + 중복 금지가 담당한다. 수치는 잠정값이다.",
   "schema_version": 1,
   "runes": [
     {
       "id": "rune.fire",
-      "display_name": "화염의 룬",
-      "axis": "element",
+      "display_name": "화염 추가 피해",
       "status_on_hit": "status.burn",
+      "power_delta": 1,
+      "requires_any_tags": ["Attack", "Spell"],
       "excludes_tags": ["Heal", "Support"],
       "adds_tags": ["Fire"]
     },
     {
       "id": "rune.cold",
-      "display_name": "냉기의 룬",
-      "axis": "element",
+      "display_name": "냉기 추가 피해",
       "status_on_hit": "status.freeze",
+      "power_delta": 1,
+      "requires_any_tags": ["Attack", "Spell"],
       "excludes_tags": ["Heal", "Support"],
       "adds_tags": ["Cold"]
     },
     {
       "id": "rune.lightning",
-      "display_name": "전기의 룬",
-      "axis": "element",
+      "display_name": "전기 추가 피해",
       "status_on_hit": "status.paralyze",
+      "power_delta": 1,
+      "requires_any_tags": ["Attack", "Spell"],
       "excludes_tags": ["Heal", "Support"],
       "adds_tags": ["Lightning"]
     },
     {
-      "id": "rune.spread",
-      "display_name": "확산의 룬",
-      "axis": "form",
+      "id": "rune.multishot",
+      "display_name": "다중 사격",
       "shape_override": "spread",
-      "requires_all_tags": ["Attack"]
+      "requires_all_tags": ["Projectile"]
     },
     {
       "id": "rune.pierce",
-      "display_name": "관통의 룬",
-      "axis": "form",
+      "display_name": "관통",
       "shape_override": "pierce",
       "requires_all_tags": ["Projectile"]
     },
     {
       "id": "rune.zone",
-      "display_name": "장판의 룬",
-      "axis": "form",
+      "display_name": "장판",
       "shape_override": "zone",
-      "requires_all_tags": ["Spell"]
+      "requires_all_tags": ["Spell"],
+      "adds_tags": ["Zone"]
+    },
+    {
+      "id": "rune.area",
+      "display_name": "범위 확대",
+      "area_radius_delta": 1,
+      "requires_all_tags": ["Zone"]
+    },
+    {
+      "id": "rune.concentrated",
+      "display_name": "집중",
+      "area_radius_delta": -1,
+      "power_delta": 3,
+      "requires_all_tags": ["Zone"]
     },
     {
       "id": "rune.power",
-      "display_name": "위력의 룬",
-      "axis": "enhance",
+      "display_name": "위력",
       "power_delta": 2
     },
     {
-      "id": "rune.frugal",
-      "display_name": "절약의 룬",
-      "axis": "enhance",
+      "id": "rune.swift",
+      "display_name": "신속",
       "ap_delta": -1
     },
     {
       "id": "rune.range",
-      "display_name": "사거리의 룬",
-      "axis": "enhance",
+      "display_name": "사거리",
       "range_delta": 1
     },
     {
       "id": "rune.duration",
-      "display_name": "지속의 룬",
-      "axis": "enhance",
-      "requires_any_tags": ["Fire", "Cold", "Lightning"],
-      "status_duration_delta": 1
+      "display_name": "지속",
+      "status_duration_delta": 1,
+      "requires_any_tags": ["Duration", "Fire", "Cold", "Lightning"]
     },
     {
       "id": "rune.ember",
-      "display_name": "연소의 룬",
-      "axis": "enhance",
+      "display_name": "연소",
       "requires_all_tags": ["Fire"],
       "status_id": "status.burn",
       "status_magnitude_delta": 2
     },
     {
       "id": "rune.frostbite",
-      "display_name": "혹한의 룬",
-      "axis": "enhance",
+      "display_name": "혹한",
       "requires_all_tags": ["Cold"],
       "status_id": "status.freeze",
       "status_duration_delta": 1
     },
     {
       "id": "rune.shock",
-      "display_name": "감전의 룬",
-      "axis": "enhance",
+      "display_name": "감전",
       "requires_all_tags": ["Lightning"],
       "status_id": "status.paralyze",
       "status_magnitude_delta": 20
+    },
+    {
+      "id": "rune.leech",
+      "display_name": "흡혈",
+      "life_on_hit": 2,
+      "requires_any_tags": ["Attack"]
     }
   ]
 }

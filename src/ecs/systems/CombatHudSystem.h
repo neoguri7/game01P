@@ -10,6 +10,7 @@
 #include "ecs/components/FGridPosition.h"
 #include "ecs/components/FHealth.h"
 #include "ecs/components/FSkillLoadout.h"
+#include "ecs/components/FStats.h"
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FCombatTypes.h"
@@ -54,6 +55,11 @@ struct CombatHudSystem {
             const auto& health = registry.get<FHealth>(entity);
             const bool alive = IsAlive(registry, entity);
             ImGui::Text("%s %d/%d", UnitDisplayName(registry, entity).c_str(), health.current, health.max);
+            if (const auto* stats = registry.try_get<FStats>(entity)) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("공%d 마%d 방%d 마방%d", stats->attack, stats->magicAttack,
+                                    stats->defense, stats->magicDefense);
+            }
             if (const auto* points = registry.try_get<FActionPoints>(entity)) {
                 ImGui::SameLine();
                 ImGui::TextDisabled("(이동 %d/%d, 스킬 %d/%d)", points->move, points->moveMax,
@@ -116,8 +122,9 @@ struct CombatHudSystem {
                         const FSkillSlot& slot = loadout->slots[selectedSkill];
                         const auto resolved = ResolveSkillSlot(slot, *content);
                         if (resolved) {
-                            ImGui::TextDisabled("형태 %s | 사거리 %d | 위력 %d%s", resolved->shape.c_str(),
+                            ImGui::TextDisabled("형태 %s | 사거리 %d | 위력 %d | %s%s", resolved->shape.c_str(),
                                                 resolved->range, resolved->power,
+                                                resolved->damageType == gameplay::kDamageTypeMagical ? "마법" : "물리",
                                                 resolved->statuses.empty() ? "" : " | 상태 부여");
                         }
                         ImGui::SeparatorText("대상");

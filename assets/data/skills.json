@@ -1,5 +1,5 @@
 {
-  "_comment": "베이스 스킬 7종(무속성). docs/design/skill-rune-progression.md §2. 태그는 룬 장착 조건(§3.2)의 입력이며, 수치(ap_cost/power/range)는 잠정값이다.",
+  "_comment": "개편 3차: 클래스별 베이스 스킬 9종. damage_type(physical/magical)과 rune_sockets(PoE 소켓)가 추가되었다. 태그는 룬 장착 조건(정본 §3.2)의 입력이며 수치는 잠정값이다.",
   "schema_version": 1,
   "skills": [
     {
@@ -11,7 +11,22 @@
       "shape": "single",
       "area_radius": 0,
       "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 3,
       "tags": ["Melee", "Attack"]
+    },
+    {
+      "id": "skill.cleave",
+      "display_name": "회전베기",
+      "ap_cost": 2,
+      "power": 3,
+      "range": 1,
+      "shape": "spread",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 3,
+      "tags": ["Melee", "Attack", "AoE"]
     },
     {
       "id": "skill.arrow",
@@ -22,7 +37,22 @@
       "shape": "single",
       "area_radius": 0,
       "target": "enemy",
-      "tags": ["Projectile", "Attack"]
+      "damage_type": "physical",
+      "rune_sockets": 3,
+      "tags": ["Bow", "Attack", "Projectile"]
+    },
+    {
+      "id": "skill.volley",
+      "display_name": "연사",
+      "ap_cost": 2,
+      "power": 2,
+      "range": 3,
+      "shape": "spread",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 3,
+      "tags": ["Bow", "Attack", "Projectile"]
     },
     {
       "id": "skill.bolt",
@@ -33,18 +63,9 @@
       "shape": "single",
       "area_radius": 0,
       "target": "enemy",
-      "tags": ["Projectile", "Spell"]
-    },
-    {
-      "id": "skill.heal",
-      "display_name": "힐",
-      "ap_cost": 2,
-      "power": 4,
-      "range": 3,
-      "shape": "single",
-      "area_radius": 0,
-      "target": "ally",
-      "tags": ["Heal", "Spell"]
+      "damage_type": "magical",
+      "rune_sockets": 3,
+      "tags": ["Spell", "Projectile"]
     },
     {
       "id": "skill.fog",
@@ -56,7 +77,22 @@
       "area_radius": 1,
       "target": "cell",
       "applies_status": "status.debuff",
-      "tags": ["Area", "Spell"]
+      "damage_type": "magical",
+      "rune_sockets": 3,
+      "tags": ["Spell", "AoE", "Duration", "Zone"]
+    },
+    {
+      "id": "skill.heal",
+      "display_name": "힐",
+      "ap_cost": 2,
+      "power": 4,
+      "range": 3,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "ally",
+      "damage_type": "magical",
+      "rune_sockets": 3,
+      "tags": ["Spell", "Heal"]
     },
     {
       "id": "skill.buff",
@@ -68,7 +104,8 @@
       "area_radius": 0,
       "target": "ally",
       "applies_status": "status.buff",
-      "tags": ["Support"]
+      "rune_sockets": 3,
+      "tags": ["Support", "Duration"]
     },
     {
       "id": "skill.debuff",
@@ -80,7 +117,9 @@
       "area_radius": 0,
       "target": "enemy",
       "applies_status": "status.debuff",
-      "tags": ["Support", "Spell"]
+      "damage_type": "magical",
+      "rune_sockets": 3,
+      "tags": ["Spell", "Curse", "Support"]
     }
   ]
 }

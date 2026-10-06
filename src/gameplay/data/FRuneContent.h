@@ -10,18 +10,18 @@
 namespace game::gameplay {
 
 /// One rune as authored in `assets/data/runes.json`. Runes are the support-gem layer
-/// (docs/design/skill-rune-progression.md §3): an element rune applies a status on hit, a form rune
-/// replaces the skill's shape, an enhance rune moves numbers or status values.
+/// (docs/design/skill-rune-progression.md §3): they attach to a skill's rune sockets and modify it —
+/// added elemental damage, shape changes, area/duration/power changes, leech.
 ///
+/// 3차 개편: 축(속성/형태/강화)은 폐기. 제한은 소켓 수 + 태그 규칙 + 중복 금지가 담당한다.
 /// Tag rules are strict (§3.2): a rune may only be attached when its `requires_*` tags are satisfied by
 /// the skill's effective tag set (base tags ∪ tags added by attached runes) and its `excludes` tags are
 /// absent from that set.
 struct FRuneContent {
     std::string id;
     std::string displayName;
-    std::string axis;          // "element" | "form" | "enhance"
-    std::string statusOnHit;   // element: status id applied on hit (empty = none)
-    std::string shapeOverride; // form: shape id that replaces the skill's shape (empty = keep)
+    std::string statusOnHit;   // element rune: status id applied on hit (empty = none)
+    std::string shapeOverride; // form rune: shape id that replaces the skill's shape (empty = keep)
     int powerDelta{0};         // enhance: addition to skill power
     int apDelta{0};            // enhance: addition to skill AP cost
     int rangeDelta{0};         // enhance: addition to skill range
@@ -37,6 +37,9 @@ struct FRuneContent {
     std::string statusId;        // 보정 대상 상태 id (비면 전체)
     int statusDurationDelta{0};  // 지속 +N
     int statusMagnitudeDelta{0}; // 강도 +N (마비는 확률 %p)
+
+    // §3.3 흡혈: 피해를 준 공격자의 HP를 명중당 N 회복한다.
+    int lifeOnHit{0};
 };
 
 /// Field order IS the projection order FContentLoader uses (R22).
@@ -45,7 +48,6 @@ struct FRuneContent {
 inline constexpr FContentField kRuneFields[] = {
     {"id", EContentFieldType::Text, true},               // boundary: asset key
     {"display_name", EContentFieldType::Text, true},     // boundary: asset key
-    {"axis", EContentFieldType::Text, true},             // boundary: asset key
     {"status_on_hit", EContentFieldType::Id, false},     // boundary: asset key
     {"shape_override", EContentFieldType::Text, false},  // boundary: asset key
     {"power_delta", EContentFieldType::Number, false},   // boundary: asset key
@@ -59,32 +61,27 @@ inline constexpr FContentField kRuneFields[] = {
     {"status_id", EContentFieldType::Id, false},              // boundary: asset key
     {"status_duration_delta", EContentFieldType::Number, false},  // boundary: asset key
     {"status_magnitude_delta", EContentFieldType::Number, false}, // boundary: asset key
+    {"life_on_hit", EContentFieldType::Number, false},            // boundary: asset key
 };
 
 inline constexpr std::size_t kRuneFieldId = 0;
 inline constexpr std::size_t kRuneFieldDisplayName = 1;
-inline constexpr std::size_t kRuneFieldAxis = 2;
-inline constexpr std::size_t kRuneFieldStatusOnHit = 3;
-inline constexpr std::size_t kRuneFieldShapeOverride = 4;
-inline constexpr std::size_t kRuneFieldPowerDelta = 5;
-inline constexpr std::size_t kRuneFieldApDelta = 6;
-inline constexpr std::size_t kRuneFieldRangeDelta = 7;
-inline constexpr std::size_t kRuneFieldAreaRadiusDelta = 8;
-inline constexpr std::size_t kRuneFieldRequiresAllTags = 9;
-inline constexpr std::size_t kRuneFieldRequiresAnyTags = 10;
-inline constexpr std::size_t kRuneFieldExcludesTags = 11;
-inline constexpr std::size_t kRuneFieldAddsTags = 12;
-inline constexpr std::size_t kRuneFieldStatusId = 13;
-inline constexpr std::size_t kRuneFieldStatusDurationDelta = 14;
-inline constexpr std::size_t kRuneFieldStatusMagnitudeDelta = 15;
+inline constexpr std::size_t kRuneFieldStatusOnHit = 2;
+inline constexpr std::size_t kRuneFieldShapeOverride = 3;
+inline constexpr std::size_t kRuneFieldPowerDelta = 4;
+inline constexpr std::size_t kRuneFieldApDelta = 5;
+inline constexpr std::size_t kRuneFieldRangeDelta = 6;
+inline constexpr std::size_t kRuneFieldAreaRadiusDelta = 7;
+inline constexpr std::size_t kRuneFieldRequiresAllTags = 8;
+inline constexpr std::size_t kRuneFieldRequiresAnyTags = 9;
+inline constexpr std::size_t kRuneFieldExcludesTags = 10;
+inline constexpr std::size_t kRuneFieldAddsTags = 11;
+inline constexpr std::size_t kRuneFieldStatusId = 12;
+inline constexpr std::size_t kRuneFieldStatusDurationDelta = 13;
+inline constexpr std::size_t kRuneFieldStatusMagnitudeDelta = 14;
+inline constexpr std::size_t kRuneFieldLifeOnHit = 15;
 
 static_assert(std::size(kRuneFields) == 16, "kRuneFields and the kRuneField* indices drifted apart");
-
-/// The three rune axes (docs/design/skill-rune-progression.md §3). Kept as strings because they cross the
-/// JSON boundary; FContentRegistry rejects any other value at boot.
-inline constexpr std::string_view kRuneAxisElement = "element";
-inline constexpr std::string_view kRuneAxisForm = "form";
-inline constexpr std::string_view kRuneAxisEnhance = "enhance";
 
 /// Projects one validated row into a rune. Cannot fail (R22): wrong types were rejected at load.
 [[nodiscard]] FRuneContent decodeRune(const FContentRow& row);

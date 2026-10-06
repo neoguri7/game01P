@@ -68,7 +68,8 @@ bool SetupCombatUnits(
         }
 
         const int maxHealth = static_cast<int>(unit->maxHealth);
-        registry.emplace<FStats>(placement.entity, FStats{unit->attack});
+        registry.emplace<FStats>(placement.entity,
+                                FStats{unit->attack, unit->magicAttack, unit->defense, unit->magicDefense});
         registry.emplace<FHealth>(placement.entity, FHealth{maxHealth, maxHealth});
         registry.emplace<FActionPoints>(placement.entity,
                                         FActionPoints{unit->moveAp, unit->moveAp, unit->skillAp, unit->skillAp});

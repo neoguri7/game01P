@@ -45,6 +45,7 @@ FResolvedSkill ResolveSkill(
     resolved.shape = skill.shape;
     resolved.areaRadius = skill.areaRadius;
     resolved.target = skill.target;
+    resolved.damageType = skill.damageType;
     addStatus(resolved.statuses, skill.appliesStatus);
 
     int powerDelta = 0;
@@ -59,6 +60,7 @@ FResolvedSkill ResolveSkill(
         resolved.apCost += rune->apDelta;
         resolved.range += rune->rangeDelta;
         resolved.areaRadius += rune->areaRadiusDelta;
+        resolved.lifeOnHit += rune->lifeOnHit;
         powerDelta += rune->powerDelta;
         resolved.runeIds.push_back(rune->id);
     }
@@ -117,7 +119,8 @@ std::vector<FGridPosition> ComputeSkillCells(const FResolvedSkill& skill, const 
             cells.push_back(neighbor);
         }
     } else if (skill.shape == "zone") {
-        const int radius = std::max(1, skill.areaRadius);
+        // §3.3 집중 룬이 반경을 0까지 낮출 수 있다 — 그때는 대상 셀 하나만 남는다.
+        const int radius = std::max(0, skill.areaRadius);
         for (int dy = -radius; dy <= radius; ++dy) {
             for (int dx = -radius; dx <= radius; ++dx) {
                 if (dx == 0 && dy == 0) continue;
@@ -185,8 +188,11 @@ std::optional<std::string> ValidateSkillSlot(
         return "unknown skill '" + slot.skillId + "'";
     }
 
-    int elementCount = 0;
-    bool hasFormRune = false;
+    // §3.1: 소켓 수가 유일한 수량 제한이다(축 폐기). 중복 금지는 아래 루프가 담당한다.
+    if (slot.runeIds.size() > static_cast<std::size_t>(skill->runeSockets)) {
+        return "more than " + std::to_string(skill->runeSockets) + " runes (socket limit)";
+    }
+
     std::vector<std::string> seen;
     std::vector<const gameplay::FRuneContent*> runes;
     seen.reserve(slot.runeIds.size());
@@ -201,18 +207,6 @@ std::optional<std::string> ValidateSkillSlot(
         }
         seen.push_back(runeId);
         runes.push_back(rune);
-
-        if (rune->axis == gameplay::kRuneAxisElement) {
-            if (++elementCount > 2) {
-                return "more than 2 element runes";
-            }
-        } else if (rune->axis == gameplay::kRuneAxisForm) {
-            if (hasFormRune) {
-                return "more than 1 form rune";
-            }
-            hasFormRune = true;
-        }
-        // enhance: uniqueness is covered by the duplicate check above (고유 강화만).
     }
 
     if (const std::optional<std::string> tagProblem = CheckRuneTagRequirements(*skill, runes)) {

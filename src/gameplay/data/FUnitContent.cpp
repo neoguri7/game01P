@@ -17,7 +17,13 @@ FUnitContent decodeUnit(const FContentRow& row) {
 
     unit.skillIds = row.textArray(kUnitFieldSkills);
     unit.spriteId = row.text(kUnitFieldSprite);
+    unit.className = row.text(kUnitFieldClass);
+
+    // docs/design/skill-rune-progression.md §1.1: 스탯 6종. 값은 데이터가 정한다.
     unit.attack = row.integer(kUnitFieldAttack, 0);
+    unit.magicAttack = row.integer(kUnitFieldMagicAttack, 0);
+    unit.defense = row.integer(kUnitFieldDefense, 0);
+    unit.magicDefense = row.integer(kUnitFieldMagicDefense, 0);
     return unit;
 }
 

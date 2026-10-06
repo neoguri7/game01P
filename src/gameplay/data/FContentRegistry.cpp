@@ -46,8 +46,10 @@ template <typename TRow, typename TDecode>
     return target == "enemy" || target == "ally" || target == "self" || target == "cell";
 }
 
-[[nodiscard]] bool isKnownRuneAxis(std::string_view axis) {
-    return axis == kRuneAxisElement || axis == kRuneAxisForm || axis == kRuneAxisEnhance;
+/// Skill damage types (docs/design/skill-rune-progression.md §1.1). Empty is allowed for skills that
+/// never deal damage; otherwise the value is a closed set the damage rule switches on.
+[[nodiscard]] bool isKnownDamageType(std::string_view damageType) {
+    return damageType.empty() || damageType == kDamageTypePhysical || damageType == kDamageTypeMagical;
 }
 
 [[nodiscard]] bool isKnownStatusKind(std::string_view kind) {
@@ -86,12 +88,16 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
             LOG_ERROR("content: skill '{}' has unknown target '{}'.", skill.id, skill.target);
             return std::nullopt;
         }
-    }
-    for (const FRuneContent& rune : registry.runes.rows) {
-        if (!isKnownRuneAxis(rune.axis)) {
-            LOG_ERROR("content: rune '{}' has unknown axis '{}'.", rune.id, rune.axis);
+        if (!isKnownDamageType(skill.damageType)) {
+            LOG_ERROR("content: skill '{}' has unknown damage_type '{}'.", skill.id, skill.damageType);
             return std::nullopt;
         }
+        if (skill.runeSockets < 0) {
+            LOG_ERROR("content: skill '{}' has negative rune_sockets {}.", skill.id, skill.runeSockets);
+            return std::nullopt;
+        }
+    }
+    for (const FRuneContent& rune : registry.runes.rows) {
         if (!rune.shapeOverride.empty() && !isKnownShape(rune.shapeOverride)) {
             LOG_ERROR("content: rune '{}' has unknown shape_override '{}'.", rune.id, rune.shapeOverride);
             return std::nullopt;

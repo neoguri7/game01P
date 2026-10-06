@@ -6,7 +6,6 @@ FRuneContent decodeRune(const FContentRow& row) {
     FRuneContent rune;
     rune.id = row.text(kRuneFieldId);
     rune.displayName = row.text(kRuneFieldDisplayName);
-    rune.axis = row.text(kRuneFieldAxis);
     rune.statusOnHit = row.text(kRuneFieldStatusOnHit);
     rune.shapeOverride = row.text(kRuneFieldShapeOverride);
     rune.powerDelta = row.integer(kRuneFieldPowerDelta, 0);
@@ -20,6 +19,7 @@ FRuneContent decodeRune(const FContentRow& row) {
     rune.statusId = row.text(kRuneFieldStatusId);
     rune.statusDurationDelta = row.integer(kRuneFieldStatusDurationDelta, 0);
     rune.statusMagnitudeDelta = row.integer(kRuneFieldStatusMagnitudeDelta, 0);
+    rune.lifeOnHit = row.integer(kRuneFieldLifeOnHit, 0);
     return rune;
 }
 

@@ -21,6 +21,11 @@ FSkillContent decodeSkill(const FContentRow& row) {
     skill.target = row.text(kSkillFieldTarget);
     if (skill.target.empty()) skill.target = "enemy";
     skill.appliesStatus = row.text(kSkillFieldAppliesStatus);
+
+    // §1.1/§3.1: 피해 유형과 룬 소켓 수. 비어 있으면 물리(무피해 스킬은 계산에 쓰이지 않는다).
+    skill.damageType = row.text(kSkillFieldDamageType);
+    if (skill.damageType.empty()) skill.damageType = std::string(kDamageTypePhysical);
+    skill.runeSockets = row.integer(kSkillFieldRuneSockets, 3); // fallback: 잠정값 3 (정본 §10)
     return skill;
 }
 

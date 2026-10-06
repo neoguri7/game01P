@@ -5,8 +5,8 @@
 
 namespace game {
 
-int ComputeDamage(int attack, int power) {
-    return std::max(kMinimumDamage, attack + power);
+int ComputeDamage(int offense, int power, int defense) {
+    return std::max(kMinimumDamage, offense + power - defense);
 }
 
 int GridDistance(const FGridPosition& from, const FGridPosition& to) {

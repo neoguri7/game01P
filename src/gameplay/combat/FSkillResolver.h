@@ -32,6 +32,8 @@ struct FResolvedSkill {
     std::string shape{"single"};
     int areaRadius{0};
     std::string target{"enemy"};
+    std::string damageType{"physical"}; // §1.1: 물리/마법 — 피해 공식의 공격/방어 항을 고른다
+    int lifeOnHit{0};                   // §3.3 흡혈: 피해를 준 공격자의 HP 회복(명중당)
     std::vector<FResolvedStatus> statuses; // base skill + element runes, with enhance-rune deltas
     std::vector<std::string> runeIds;      // provenance for tooltips/diagnostics
 };
@@ -51,8 +53,9 @@ struct FResolvedSkill {
     const gameplay::FContentRegistry& content);
 
 /// Every cell a resolved skill affects, given the primary target cell: single = the target cell alone,
-/// spread = the target plus its orthogonal neighbors, zone = all cells within areaRadius (Manhattan),
-/// pierce = the target cell alone until the line shape lands in the combat-completion slice.
+/// spread = the target plus its orthogonal neighbors, zone = all cells within areaRadius (Manhattan,
+/// radius 0 = the center cell alone), pierce = the target cell alone until the line shape lands in the
+/// combat-completion slice.
 [[nodiscard]] std::vector<FGridPosition> ComputeSkillCells(
     const FResolvedSkill& skill, const FGridPosition& center);
 
@@ -63,11 +66,10 @@ struct FResolvedSkill {
     const gameplay::FSkillContent& skill,
     const std::vector<const gameplay::FRuneContent*>& runes);
 
-/// Checks the per-skill rune limits (docs/design/skill-rune-progression.md §3): at most 2 element runes
-/// and distinct, at most 1 form rune, enhance runes unique, every id must exist, and the §3.2 tag rules
-/// must pass. Returns the failure reason; nullopt when the loadout is legal. Authored loadouts are
-/// validated at battle setup so an illegal build fails before the fight instead of silently losing runes
-/// mid-action.
+/// Checks the build rules (docs/design/skill-rune-progression.md §3): the rune socket count
+/// (`skill.rune_sockets`), duplicate runes, every id must exist, and the §3.2 tag rules must pass.
+/// Returns the failure reason; nullopt when the loadout is legal. Authored loadouts are validated at
+/// battle setup so an illegal build fails before the fight instead of silently losing runes mid-action.
 [[nodiscard]] std::optional<std::string> ValidateSkillSlot(
     const FSkillSlot& slot, const gameplay::FContentRegistry& content);
 
