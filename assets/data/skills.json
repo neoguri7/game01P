@@ -1,5 +1,5 @@
 {
-  "_comment": "베이스 스킬 7종(무속성). docs/design/skill-rune-equipment.md §2. 수치(ap_cost/power/range)는 잠정값이며 밸런싱 단계에서 이 파일만 고쳐 정한다.",
+  "_comment": "베이스 스킬 7종(무속성). docs/design/skill-rune-progression.md §2. 수치(ap_cost/power/range)는 잠정값이며 밸런싱 단계에서 이 파일만 고쳐 정한다.",
   "schema_version": 1,
   "skills": [
     {

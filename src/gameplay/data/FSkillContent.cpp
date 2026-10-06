@@ -13,7 +13,7 @@ FSkillContent decodeSkill(const FContentRow& row) {
 
     skill.tags = row.textArray(kSkillFieldTags);
 
-    // docs/design/skill-rune-equipment.md §2: 나머지 필드는 베이스 스킬의 최소 표현이며 값은 데이터가 정한다.
+    // docs/design/skill-rune-progression.md §2: 나머지 필드는 베이스 스킬의 최소 표현이며 값은 데이터가 정한다.
     skill.power = row.integer(kSkillFieldPower, 0);
     skill.shape = row.text(kSkillFieldShape);
     if (skill.shape.empty()) skill.shape = "single";

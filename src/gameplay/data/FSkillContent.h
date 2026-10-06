@@ -19,7 +19,7 @@ struct FSkillContent {
     int range{0};  // 미결(design §4): 사거리 수치 — 칸 단위
     std::vector<std::string> tags; // 미결(design §5): 태그 세트 규모 미결 — 후보 목록에서만 고른다
 
-    // docs/design/skill-rune-equipment.md §2: 베이스 스킬은 무속성이며 룬이 형태/속성/수치를 덧씌운다.
+    // docs/design/skill-rune-progression.md §2: 베이스 스킬은 무속성이며 룬이 형태/속성/수치를 덧씌운다.
     int power{0};                  // 스킬 위력(피해/회복 기본값). 강화 룬이 power_delta로 올린다
     std::string shape{"single"};   // 단일/확산/관통/장판 — 형태 룬이 덮어쓴다
     int areaRadius{0};             // 범위 반경(칸). shape=="zone" 등에서 사용

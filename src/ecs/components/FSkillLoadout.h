@@ -6,7 +6,7 @@
 namespace game {
 
 /// One skill as a unit carries it, with the runes attached to that skill.
-/// docs/design/skill-rune-equipment.md §3: 룬은 스킬에 여러 개 장착된다(속성 ≤2, 형태 ≤1, 강화 고유만).
+/// docs/design/skill-rune-progression.md §3: 룬은 스킬에 여러 개 장착된다(속성 ≤2, 형태 ≤1, 강화 고유만).
 struct FSkillSlot {
     std::string skillId;
     std::vector<std::string> runeIds;

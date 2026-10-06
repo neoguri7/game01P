@@ -1,5 +1,5 @@
 {
-  "_comment": "룬 1차 세트: 축별 최소 1종. docs/design/skill-rune-equipment.md §3. 축별 개수 제한(속성 2/형태 1/강화 고유만)은 메커니즘 슬라이스에서 강제한다.",
+  "_comment": "룬 1차 세트: 축별 최소 1종. docs/design/skill-rune-progression.md §3. 축별 개수 제한(속성 2/형태 1/강화 고유만)은 메커니즘 슬라이스에서 강제한다.",
   "schema_version": 1,
   "runes": [
     {

@@ -18,7 +18,7 @@
 
 namespace game::ecs {
 
-/// The battle UI (docs/design/skill-rune-equipment.md 기반 최소 플레이 화면): turn order, party/enemy
+/// The battle UI (docs/design/skill-rune-progression.md 기반 최소 플레이 화면): turn order, party/enemy
 /// status, skill + target picking for the current party actor, the battle log and the result banner.
 /// It only queues requests; TurnFlowSystem/ActionResolverSystem own the rules.
 struct CombatHudSystem {

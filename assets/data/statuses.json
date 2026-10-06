@@ -1,5 +1,5 @@
 {
-  "_comment": "상태이상 1차 세트. docs/design/skill-rune-equipment.md §4. 수치는 잠정값이며 밸런싱 단계에서 이 파일만 고쳐 정한다.",
+  "_comment": "상태이상 1차 세트. docs/design/skill-rune-progression.md §4. 수치는 잠정값이며 밸런싱 단계에서 이 파일만 고쳐 정한다.",
   "schema_version": 1,
   "statuses": [
     {

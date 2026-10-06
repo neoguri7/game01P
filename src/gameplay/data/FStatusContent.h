@@ -9,7 +9,7 @@
 namespace game::gameplay {
 
 /// One status effect as authored in `assets/data/statuses.json`.
-/// docs/design/skill-rune-equipment.md §4: 화상(dot)/빙결·마비(control)/버프·디버프(stat), 중첩=갱신.
+/// docs/design/skill-rune-progression.md §4: 화상(dot)/빙결·마비(control)/버프·디버프(stat), 중첩=갱신.
 struct FStatusContent {
     std::string id;
     std::string displayName;
@@ -40,7 +40,7 @@ inline constexpr std::size_t kStatusFieldSpeedPct = 5;
 
 static_assert(std::size(kStatusFields) == 6, "kStatusFields and the kStatusField* indices drifted apart");
 
-/// The status kinds (docs/design/skill-rune-equipment.md §4). FContentRegistry rejects any other value.
+/// The status kinds (docs/design/skill-rune-progression.md §4). FContentRegistry rejects any other value.
 inline constexpr std::string_view kStatusKindDot = "dot";
 inline constexpr std::string_view kStatusKindControl = "control";
 inline constexpr std::string_view kStatusKindStat = "stat";

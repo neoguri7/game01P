@@ -48,7 +48,7 @@ FResolvedSkill ResolveSkill(
         resolved.runeIds.push_back(rune->id);
     }
 
-    // docs/design/skill-rune-equipment.md §3.3: 강화 룬의 총 위력 증가 상한 = 기본 대비 +100% (잠정).
+    // docs/design/skill-rune-progression.md §3.3: 강화 룬의 총 위력 증가 상한 = 기본 대비 +100% (잠정).
     // 하한은 0(위력은 음수가 될 수 없다). 상세 수치는 밸런싱 단계에서 데이터로만 조정한다.
     const int maxIncrease = std::max(0, skill.power);
     powerDelta = std::clamp(powerDelta, -std::max(0, skill.power), maxIncrease);

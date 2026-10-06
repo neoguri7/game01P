@@ -9,7 +9,7 @@
 namespace game {
 
 /// What one status tick at the start of the owner's turn produced.
-/// docs/design/skill-rune-equipment.md §4: 화상=턴당 피해, 빙결/마비=행동 제어, 버프/디버프=스탯 증감.
+/// docs/design/skill-rune-progression.md §4: 화상=턴당 피해, 빙결/마비=행동 제어, 버프/디버프=스탯 증감.
 struct FStatusTickResult {
     int damage{0};
     bool skipTurn{false};

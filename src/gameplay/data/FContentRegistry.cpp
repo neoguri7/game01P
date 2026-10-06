@@ -36,13 +36,13 @@ template <typename TRow, typename TDecode>
     return true;
 }
 
-/// Shape ids shared by skills and form runes (docs/design/skill-rune-equipment.md §3.2): a form rune
+/// Shape ids shared by skills and form runes (docs/design/skill-rune-progression.md §3.2): a form rune
 /// replaces the skill's shape, so both sides must speak the same vocabulary.
 [[nodiscard]] bool isKnownShape(std::string_view shape) {
     return shape == "single" || shape == "spread" || shape == "pierce" || shape == "zone";
 }
 
-/// Skill target side (docs/design/skill-rune-equipment.md §2): who the skill may be aimed at.
+/// Skill target side (docs/design/skill-rune-progression.md §2): who the skill may be aimed at.
 [[nodiscard]] bool isKnownTarget(std::string_view target) {
     return target == "enemy" || target == "ally" || target == "self" || target == "cell";
 }

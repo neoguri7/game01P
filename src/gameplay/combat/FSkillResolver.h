@@ -12,7 +12,7 @@
 
 namespace game {
 
-/// A base skill after every attached rune has been applied (docs/design/skill-rune-equipment.md §3, §6).
+/// A base skill after every attached rune has been applied (docs/design/skill-rune-progression.md §3, §6).
 /// This is the "베이스 + 룬" stage of the pipeline; equipment and later layers consume this, never the raw
 /// authored row.
 struct FResolvedSkill {
@@ -46,7 +46,7 @@ struct FResolvedSkill {
 [[nodiscard]] std::vector<FGridPosition> ComputeSkillCells(
     const FResolvedSkill& skill, const FGridPosition& center);
 
-/// Checks the per-skill rune limits (docs/design/skill-rune-equipment.md §3): at most 2 element runes and
+/// Checks the per-skill rune limits (docs/design/skill-rune-progression.md §3): at most 2 element runes and
 /// distinct, at most 1 form rune, enhance runes unique, and every id must exist. Returns the failure
 /// reason; nullopt when the loadout is legal. Authored loadouts are validated at battle setup so an
 /// illegal build fails before the fight instead of silently losing runes mid-action.

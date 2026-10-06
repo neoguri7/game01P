@@ -9,12 +9,12 @@
 namespace game::gameplay {
 
 /// One equipment as authored in `assets/data/equipment.json`. Stats only: no affixes, no rarity, no
-/// class restriction (docs/design/skill-rune-equipment.md §5). Numeric +N enhancement is applied later
+/// class restriction (docs/design/skill-rune-progression.md §5). Numeric +N enhancement is applied later
 /// by the equipment mechanism and is not part of the authored row.
 struct FEquipmentContent {
     std::string id;
     std::string displayName;
-    std::string slot; // "weapon" | "offhand" | "boots" (docs/design/skill-rune-equipment.md §5.2)
+    std::string slot; // "weapon" | "offhand" | "boots" (docs/design/skill-rune-progression.md §5.2)
     int attack{0};
     int maxHealth{0};
     int moveAp{0};

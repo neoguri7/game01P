@@ -10,7 +10,7 @@ namespace game::gameplay {
 
 /// One rune as authored in `assets/data/runes.json`. Runes modify a base skill: an element rune applies
 /// a status on hit, a form rune replaces the skill's shape, an enhance rune moves numbers.
-/// docs/design/skill-rune-equipment.md §3.
+/// docs/design/skill-rune-progression.md §3.
 struct FRuneContent {
     std::string id;
     std::string displayName;
@@ -50,7 +50,7 @@ inline constexpr std::size_t kRuneFieldAreaRadiusDelta = 8;
 
 static_assert(std::size(kRuneFields) == 9, "kRuneFields and the kRuneField* indices drifted apart");
 
-/// The three rune axes (docs/design/skill-rune-equipment.md §3). Kept as strings because they cross the
+/// The three rune axes (docs/design/skill-rune-progression.md §3). Kept as strings because they cross the
 /// JSON boundary; FContentRegistry rejects any other value at boot.
 inline constexpr std::string_view kRuneAxisElement = "element";
 inline constexpr std::string_view kRuneAxisForm = "form";

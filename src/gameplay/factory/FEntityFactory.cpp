@@ -84,7 +84,7 @@ std::expected<std::string, FFactoryError> ReadOptionalString(const nlohmann::jso
 }
 
 /// Optional per-placement loadout: `"skills": [ { "skill": "...", "runes": ["..."] } ]`.
-/// docs/design/skill-rune-equipment.md §3: runes attach to a skill, multiple per skill.
+/// docs/design/skill-rune-progression.md §3: runes attach to a skill, multiple per skill.
 std::expected<std::vector<FSkillSlot>, FFactoryError> ReadSkillSlots(const nlohmann::json& document) {
     std::vector<FSkillSlot> skills;
     const auto skillsIt = document.find("skills");

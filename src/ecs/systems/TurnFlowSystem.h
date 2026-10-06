@@ -58,7 +58,7 @@ struct TurnFlowSystem {
                       points->move, points->moveMax, points->skill, points->skillMax);
         }
 
-        // Turn start: status tick (docs/design/skill-rune-equipment.md §4).
+        // Turn start: status tick (docs/design/skill-rune-progression.md §4).
         if (auto* active = registry.try_get<FActiveStatuses>(actor); active && !active->effects.empty()) {
             const std::vector<const gameplay::FStatusContent*> definitions = CollectStatuses(*active, *content);
             const FStatusTickResult tick = TickStatuses(*active, definitions);

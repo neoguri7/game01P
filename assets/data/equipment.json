@@ -1,5 +1,5 @@
 {
-  "_comment": "장비 1차 세트: 스탯 전용, 직업 구분 없음, 어픽스/레어리티 없음. docs/design/skill-rune-equipment.md §5. 전역 +N 강화는 메커니즘 슬라이스의 장비 강화에서 다룬다.",
+  "_comment": "장비 1차 세트: 스탯 전용, 직업 구분 없음, 어픽스/레어리티 없음. docs/design/skill-rune-progression.md §5. 전역 +N 강화는 메커니즘 슬라이스의 장비 강화에서 다룬다.",
   "schema_version": 1,
   "items": [
     {

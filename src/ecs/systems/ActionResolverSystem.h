@@ -24,7 +24,7 @@
 namespace game::ecs {
 
 /// Applies queued battle actions: validates the actor, AP, target side and range, then resolves the
-/// skill through the rune pipeline (docs/design/skill-rune-equipment.md §3/§6) onto every affected
+/// skill through the rune pipeline (docs/design/skill-rune-progression.md §3/§6) onto every affected
 /// target. Movement joins in a later slice.
 struct ActionResolverSystem {
     void update(entt::registry& registry, float /*deltaTime*/) {
@@ -117,7 +117,7 @@ private:
         }
 
         // Shape semantics live in gameplay/combat so the resolver, the HUD and later slices share one
-        // definition of what a skill affects (docs/design/skill-rune-equipment.md §3.2).
+        // definition of what a skill affects (docs/design/skill-rune-progression.md §3.2).
         const std::vector<FGridPosition> cells = ComputeSkillCells(*resolved, *targetCell);
         const std::vector<entt::entity> affected = FindUnitsOnCells(registry, cells, affectsParty);
 
@@ -131,7 +131,7 @@ private:
             bool died = false;
 
             if (targetsOwnSide) {
-                // Support skills: power is the heal amount (docs/design/skill-rune-equipment.md §2, 힐).
+                // Support skills: power is the heal amount (docs/design/skill-rune-progression.md §2, 힐).
                 if (auto* health = registry.try_get<FHealth>(target); health && resolved->power > 0) {
                     const int before = health->current;
                     health->current = std::min(health->max, health->current + resolved->power);
