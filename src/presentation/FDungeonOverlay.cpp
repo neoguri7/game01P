@@ -8,6 +8,7 @@
 #include "ecs/components/FSkillLoadout.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "presentation/FDungeonArt.h"
+#include "presentation/FUiTheme.h"
 
 namespace game {
 namespace {
@@ -19,29 +20,29 @@ void Menu(entt::registry& registry) {
     const float tile = 64.f;
     const float left = w * .1f;
     const float top = h * .5f - 128;
+    // Drawn through ImGui's background list so the backdrop can be dimmed without dimming the preview.
+    auto* back = ImGui::GetBackgroundDrawList();
+    const auto place = [&](EDungeonSprite sprite, float x, float y) {
+        DrawDungeonImage(registry, sprite, back, {x, y}, {x + tile, y + tile});
+    };
+    for (float y = 0; y < h; y += tile) {
+        for (float x = 0; x < w; x += tile) place(EDungeonSprite::Backdrop, x, y);
+    }
+    back->AddRectFilled({0, 0}, {w, h}, IM_COL32(3, 5, 10, 190));
     for (int y = 0; y < 4; ++y) {
         for (int x = 0; x < 5; ++x) {
-            DrawDungeonSprite(registry, (y == 0 || x == 0 || x == 4) ? EDungeonSprite::Wall : EDungeonSprite::Floor,
-                              {left + x * tile, top + y * tile, tile, tile});
+            place((y == 0 || x == 0 || x == 4) ? EDungeonSprite::Wall : EDungeonSprite::Floor, left + x * tile, top + y * tile);
         }
     }
-    DrawDungeonSprite(registry, EDungeonSprite::Warrior, {left + 64, top + 128, 64, 64});
-    DrawDungeonSprite(registry, EDungeonSprite::Archer, {left + 128, top + 128, 64, 64});
-    DrawDungeonSprite(registry, EDungeonSprite::Mage, {left + 192, top + 128, 64, 64});
-    DrawDungeonSprite(registry, EDungeonSprite::Healer, {left + 128, top + 192, 64, 64});
-    DrawDungeonSprite(registry, EDungeonSprite::Imp, {left + 128, top + 64, 64, 64});
-
-    const auto flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBackground;
-    ImGui::SetNextWindowPos({w * .48f, h * .23f});
-    ImGui::SetNextWindowSize({w * .46f, 0});
-    ImGui::SetNextWindowScroll({0, 0});
-    ImGui::Begin("Ember dungeon", nullptr, flags | ImGuiWindowFlags_AlwaysAutoResize);
+    place(EDungeonSprite::Warrior, left + 64, top + 128);
+    place(EDungeonSprite::Archer, left + 128, top + 128);
+    place(EDungeonSprite::Mage, left + 192, top + 128);
+    place(EDungeonSprite::Healer, left + 128, top + 192);
+    place(EDungeonSprite::Imp, left + 128, top + 64);
+    ui::BeginPanel("Ember dungeon", {w * .46f, h * .2f}, {w * .5f, h * .56f});
     ImGui::TextDisabled("GRID TACTICS  /  ROGUELIKE PROTOTYPE");
     ImGui::Spacing();
-    ImGui::SetWindowFontScale(2.f);
-    ImGui::TextColored({1.f, .86f, .24f, 1.f}, "EMBER DUNGEON");
-    ImGui::SetWindowFontScale(1.f);
+    ui::HeadingText("EMBER DUNGEON", 44.f);
     ImGui::Spacing();
     ImGui::TextWrapped("Four adventurers. One more descent.\nMove carefully, combine skills with runes, and survive the guardian.");
     ImGui::Spacing();
@@ -52,18 +53,19 @@ void Menu(entt::registry& registry) {
     auto& request = registry.ctx().get<FMenuRequest>();
     const std::string begin = checkpoint.cleared > 0
         ? "BEGIN AT DUNGEON " + std::to_string(checkpoint.cleared + 1) : "BEGIN EXPEDITION";
-    if (ImGui::Button(begin.c_str(), {-1, 46})) request.value = EMenuRequest::Start;
-    if (checkpoint.cleared > 0 && ImGui::Button("Fresh expedition from dungeon 1", {-1, 32})) {
+    if (ui::Button(begin.c_str(), {-1, 52})) request.value = EMenuRequest::Start;
+    ImGui::Spacing();
+    if (checkpoint.cleared > 0 && ui::Button("Fresh expedition from dungeon 1", {-1, 36})) {
         request.value = EMenuRequest::Start;
         request.fresh = true;
     }
-    if (ImGui::Button("Quit", {-1, 30})) request.value = EMenuRequest::Quit;
+    if (ui::Button("Quit", {-1, 34})) request.value = EMenuRequest::Quit;
     if (!checkpoint.error.empty()) ImGui::TextColored({.9f, .31f, .31f, 1}, "%s", checkpoint.error.c_str());
     ImGui::Spacing();
     ImGui::TextDisabled("Mouse: move / target    WASD: one-cell move");
     ImGui::TextDisabled("1-4: skill    Space: end turn    Esc: abandon");
     ImGui::TextDisabled("` : developer overlay    No real-time pressure.");
-    ImGui::End();
+    ui::EndPanel();
 }
 
 void RunChoice(entt::registry& registry) {
@@ -73,14 +75,16 @@ void RunChoice(entt::registry& registry) {
         input && input->isActionPressed(EInputAction::Cancel)) ui.confirmAbandon = true;
     if (ui.confirmAbandon) {
         ImGui::OpenPopup("Abandon expedition?");
-        if (ImGui::BeginPopupModal("Abandon expedition?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::BeginPopupModal("Abandon expedition?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
+            ui::DecorateCurrentWindow();
+            ui::HeadingText("ABANDON EXPEDITION?", 22.f);
             ImGui::Text("Run growth and runes will be lost. Cleared checkpoints remain.");
-            if (ImGui::Button("Keep exploring", {220, 36})) {
+            if (ui::Button("Keep exploring", {220, 36})) {
                 ui.confirmAbandon = false;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Abandon", {160, 36})) {
+            if (ui::Button("Abandon", {160, 36})) {
                 run.abandonRequested = true;
                 ui.confirmAbandon = false;
                 ImGui::CloseCurrentPopup();
@@ -97,7 +101,8 @@ void RunChoice(entt::registry& registry) {
     ImGui::OpenPopup("Expedition choice");
     bool retry = false;
     if (ImGui::BeginPopupModal("Expedition choice", nullptr, ImGuiWindowFlags_AlwaysAutoResize |
-            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove)) {
+            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoTitleBar)) {
+        ui::DecorateCurrentWindow();
         const char* heading = run.phase == EDungeonPhase::Reward ? "ROOM SECURED" :
             run.phase == EDungeonPhase::Event ? "A QUIET SHRINE" :
             run.phase == EDungeonPhase::Camp ? "DUNGEON CLEARED / CAMP" : "EXPEDITION LOST";
@@ -105,7 +110,7 @@ void RunChoice(entt::registry& registry) {
                         run.phase == EDungeonPhase::Event ? EDungeonSprite::Shrine :
                         run.phase == EDungeonPhase::Camp ? EDungeonSprite::Stairs : EDungeonSprite::Guardian);
         ImGui::SameLine();
-        ImGui::TextColored({1, .86f, .24f, 1}, "%s", heading);
+        ui::HeadingText(heading, 26.f);
         ImGui::TextWrapped("%s", run.message.c_str());
         ImGui::Separator();
         if (run.phase == EDungeonPhase::Reward) {
@@ -115,7 +120,7 @@ void RunChoice(entt::registry& registry) {
                 "MIGHT  /  +" + std::to_string(DungeonBalance(registry, "reward_attack")) + " physical attack",
                 "FOCUS  /  +" + std::to_string(DungeonBalance(registry, "reward_magic")) + " magic attack"};
             for (int choice = 0; choice < 3; ++choice) {
-                if (ImGui::Button(labels[choice].c_str(), {-1, 42})) {
+                if (ui::Button(labels[choice].c_str(), {-1, 42})) {
                     ChooseDungeonReward(registry, choice);
                     ImGui::CloseCurrentPopup();
                 }
@@ -125,11 +130,11 @@ void RunChoice(entt::registry& registry) {
                 std::to_string(DungeonBalance(registry, "event_heal")) + " HP";
             const auto cacheLabel = "Open the cache  /  gain " +
                 std::to_string(DungeonBalance(registry, "event_materials")) + " materials";
-            if (ImGui::Button(restLabel.c_str(), {-1, 42})) {
+            if (ui::Button(restLabel.c_str(), {-1, 42})) {
                 ChooseDungeonEvent(registry, true);
                 ImGui::CloseCurrentPopup();
             }
-            if (ImGui::Button(cacheLabel.c_str(), {-1, 42})) {
+            if (ui::Button(cacheLabel.c_str(), {-1, 42})) {
                 ChooseDungeonEvent(registry, false);
                 ImGui::CloseCurrentPopup();
             }
@@ -191,25 +196,25 @@ void RunChoice(entt::registry& registry) {
                 " attack/+" + std::to_string(DungeonBalance(registry, "reward_magic")) + " magic, " +
                 std::to_string(DungeonBalance(registry, "camp_cost")) + " materials) & descend";
             ImGui::BeginDisabled(run.materials < DungeonBalance(registry, "camp_cost"));
-            if (ImGui::Button(reinforceLabel.c_str(), {-1, 42})) {
+            if (ui::Button(reinforceLabel.c_str(), {-1, 42})) {
                 LeaveDungeonCamp(registry, true);
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndDisabled();
-            if (ImGui::Button("Descend without reinforcement", {-1, 36})) {
+            if (ui::Button("Descend without reinforcement", {-1, 36})) {
                 LeaveDungeonCamp(registry, false);
                 ImGui::CloseCurrentPopup();
             }
-            if (ImGui::Button("End expedition at checkpoint", {-1, 30})) {
+            if (ui::Button("End expedition at checkpoint", {-1, 30})) {
                 run.abandonRequested = true;
                 ImGui::CloseCurrentPopup();
             }
         } else {
-            if (ImGui::Button("New expedition from checkpoint", {-1, 44})) {
+            if (ui::Button("New expedition from checkpoint", {-1, 44})) {
                 retry = true;
                 ImGui::CloseCurrentPopup();
             }
-            if (ImGui::Button("Return to camp", {-1, 32})) {
+            if (ui::Button("Return to camp", {-1, 32})) {
                 run.abandonRequested = true;
                 ImGui::CloseCurrentPopup();
             }
@@ -229,21 +234,7 @@ void InitializeDungeonUi(entt::registry& registry) {
     auto& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.ConfigNavCaptureKeyboard = false;
-    io.FontGlobalScale = 1.2f;
-    auto& style = ImGui::GetStyle();
-    style.WindowRounding = 4;
-    style.FrameRounding = 3;
-    style.WindowPadding = {18, 14};
-    style.ItemSpacing = {8, 7};
-    style.Colors[ImGuiCol_WindowBg] = {.075f, .08f, .11f, .98f};
-    style.Colors[ImGuiCol_PopupBg] = {.085f, .09f, .12f, 1.f};
-    style.Colors[ImGuiCol_ModalWindowDimBg] = {.015f, .02f, .035f, .65f};
-    style.Colors[ImGuiCol_Button] = {.17f, .22f, .31f, 1.f};
-    style.Colors[ImGuiCol_ButtonHovered] = {.25f, .36f, .5f, 1.f};
-    style.Colors[ImGuiCol_ButtonActive] = {.31f, .55f, 1.f, 1.f};
-    style.Colors[ImGuiCol_Header] = {.19f, .26f, .37f, 1.f};
-    style.Colors[ImGuiCol_HeaderHovered] = {.25f, .36f, .5f, 1.f};
-    style.Colors[ImGuiCol_Text] = {.9f, .9f, .86f, 1.f};
+    ui::ApplyTheme();
 }
 
 void RenderDungeonOverlay(entt::registry& registry, const Time& time, const SystemManager& systems) {

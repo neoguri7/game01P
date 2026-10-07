@@ -87,7 +87,7 @@ Ending an expedition at camp keeps the checkpoint, **not** a suspended build.
 neighbor at runtime. No existing PNG was used as a reference. The manifest
 records tool/job/seed provenance and rejected candidates. Family and repeated
 tile previews were checked before integration; these remain prototype art,
-not automatically approved style-reference images.
+not automatically approved style-reference images. The theme is **dark fantasy forest** with a Diablo-style HUD; fonts (Cinzel, Alegreya Sans, SIL OFL) live in `assets/fonts` and the shared look is implemented in `presentation/FUiTheme`.
 
 The historical CLI guide linked by the supplied style document is not present
 in this checkout. Assets were requested through PixelLab MCP with its explicit

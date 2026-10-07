@@ -32,6 +32,7 @@
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
+#include "presentation/FUiTheme.h"
 
 #include <cstdlib>
 #include <charconv>
@@ -196,6 +197,8 @@ int main(int argc, char* argv[])
             return EXIT_FAILURE;
         }
         game::InitializeDungeonUi(engine.getRegistry());
+    } else {
+        game::ui::ApplyTheme();
     }
 
     engine.applyStartupStateOverride();

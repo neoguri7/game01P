@@ -34,7 +34,8 @@ bool InitializeDungeonArt(entt::registry& registry) {
         "art/floor", "art/wall", "art/spikes", "art/chest", "art/stairs", "art/shrine",
         "art/warrior", "art/archer", "art/mage", "art/healer", "art/imp",
         "art/imp_archer", "art/imp_shaman", "art/guardian",
-        "art/floor_b", "art/floor_c", "art/wall_b", "art/backdrop"
+        "art/floor_b", "art/floor_c", "art/wall_b", "art/backdrop",
+        "art/icon_sword", "art/icon_bow", "art/icon_spell", "art/icon_boots"
     };
     const auto& assets = registry.ctx().get<FAssetManager>();
     auto& resources = registry.ctx().get<FResourceManager>();
@@ -91,6 +92,17 @@ void DrawDungeonIcon(entt::registry& registry, EDungeonSprite sprite) {
         return;
     }
     ImGui::Image(ImTextureRef{static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(texture->texture))}, {64, 64});
+}
+
+void DrawDungeonImage(entt::registry& registry, EDungeonSprite sprite, ImDrawList* draw,
+                      ImVec2 min, ImVec2 max, ImVec2 uvMin, ImVec2 uvMax, ImU32 tint) {
+    const auto* art = registry.ctx().find<FDungeonArt>();
+    const auto* resources = registry.ctx().find<FResourceManager>();
+    if (!art || !resources || !draw) return;
+    const auto* texture = resources->find(art->textures[static_cast<std::size_t>(sprite)]);
+    if (!texture) return;
+    draw->AddImage(ImTextureRef{static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(texture->texture))},
+                   min, max, uvMin, uvMax, tint);
 }
 
 } // namespace game

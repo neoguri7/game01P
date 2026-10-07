@@ -1,12 +1,14 @@
 # Game01P art style
 
-Style version: 3
+Style version: 4
 
 This is the source of truth for generated art. Read it before requesting an
 asset. There are **no approved reference images**. Do not automatically use
 existing PNGs as references.
 
 ## Overall art direction
+
+**Theme: dark fantasy forest.** Every tile, prop and UI surface belongs to one gloomy forest-ruin world: near-black green walls of twisted roots and mossy boulders, mossy fern/grass floors, thorn traps and a deep canopy backdrop. Desaturate and darken materials so units and grid feedback stay the brightest things on screen. The UI is Diablo-like: warm near-black stone panels, bronze/gold trim, blood-red life bars, Cinzel headings with Alegreya Sans body text, framed portraits and skill slots.
 
 Game01P is a compact, readable fantasy grid-tactics roguelike. Current content
 includes warriors, archers, mages, imps, spells, and dungeon rooms. Favor clear

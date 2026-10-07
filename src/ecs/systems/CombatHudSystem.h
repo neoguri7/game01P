@@ -24,6 +24,7 @@
 #include "gameplay/grid/FBattleLayout.h"
 #include "gameplay/grid/FGridQuery.h"
 #include "gameplay/grid/FGridSelection.h"
+#include "presentation/FUiTheme.h"
 
 namespace game::ecs {
 
@@ -47,16 +48,7 @@ struct CombatHudSystem {
             && registry.all_of<FPartyMember>(actor);
         DrawWorldHealth(registry, viewport, actor);
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 7.f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.f, 10.f));
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f);
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.055f, 0.10f, 0.095f, 0.96f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.43f, 0.43f, 0.27f, 0.8f));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.89f, 0.9f, 0.8f, 1.f));
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.17f, 0.26f, 0.23f, 1.f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.29f, 0.39f, 0.3f, 1.f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.39f, 0.43f, 0.27f, 1.f));
-        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.31f, 0.63f, 0.49f, 1.f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.f, 12.f));
 
         BeginPanel("Forest initiative", {8.f, 8.f}, {size.x - 16.f, layout.headerHeight - 16.f});
         ImGui::BeginGroup();
@@ -70,7 +62,7 @@ struct CombatHudSystem {
             const bool current = entry.entity == actor;
             const auto label = std::string(current ? "> " : "") + UnitDisplayName(registry, entry.entity);
             ImGui::BeginDisabled(!IsAlive(registry, entry.entity));
-            if (ImGui::Button(label.c_str(), {chipWidth, 36.f}) && selection) selection->selected = entry.entity;
+            if (ui::Button(label.c_str(), {chipWidth, 36.f}) && selection) selection->selected = entry.entity;
             ImGui::EndDisabled();
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s | Initiative %d%s", UnitDisplayName(registry, entry.entity).c_str(), entry.speed,
                 entry.state == ETurnEntryState::Completed ? " | Acted" : "");
@@ -104,7 +96,7 @@ struct CombatHudSystem {
         ImGui::TextWrapped("Select an action, then click a target in the clearing.");
         ImGui::TextDisabled("Wheel: zoom");
         ImGui::TextDisabled("WASD: pan");
-        if (ImGui::Button("Recenter", {-1.f, 25.f})) {
+        if (ui::Button("Recenter", {-1.f, 25.f})) {
             if (const auto* metrics = registry.ctx().find<FGridMetrics>()) {
                 for (const auto entity : registry.view<FCamera, FTag>()) {
                     if (registry.get<FTag>(entity).value == "battle_camera") registry.get<FCamera>(entity) = FitBattleCamera(*metrics, viewport);
@@ -144,7 +136,7 @@ struct CombatHudSystem {
         if (outcome->resolved) {
             ImGui::TextColored({0.83f, 0.74f, 0.46f, 1.f}, outcome->victory ? "VICTORY — CROSSING SECURED" : "DEFEAT — EXPEDITION LOST");
             ImGui::TextWrapped(outcome->victory ? "The path through the forest is open. Return to camp to prepare the next encounter." : "Return to camp and revise your party's skills and support runes.");
-            if (ImGui::Button("Return to camp", {180.f, 38.f})) outcome->exitRequested = true;
+            if (ui::Button("Return to camp", {180.f, 38.f})) outcome->exitRequested = true;
         } else if (snapshot.currentTurn) {
             const auto* ap = registry.try_get<FActionPoints>(actor);
             ImGui::Text("%s  |  Movement %d  |  Skill AP %d", UnitDisplayName(registry, actor).c_str(), ap ? ap->move : 0, ap ? ap->skill : 0);
@@ -182,7 +174,7 @@ struct CombatHudSystem {
                 }
             }
             ImGui::SameLine();
-            if (ImGui::Button("End turn", {buttonWidth, 65.f})) runtime->requests.push_back(FEndTurn{*snapshot.currentTurn});
+            if (ui::Button("End turn", {buttonWidth, 65.f})) runtime->requests.push_back(FEndTurn{*snapshot.currentTurn});
             ImGui::EndDisabled();
             if (combat->moveSelected) {
                 ImGui::TextDisabled("MOVE  |  Click a blue reachable cell. Movement AP is separate from skill AP.");
@@ -193,8 +185,7 @@ struct CombatHudSystem {
             }
         }
         ImGui::End();
-        ImGui::PopStyleColor(7);
-        ImGui::PopStyleVar(3);
+        ImGui::PopStyleVar();
     }
 
     [[nodiscard]] std::string name() const { return "CombatHudSystem"; }
@@ -204,7 +195,8 @@ private:
         ImGui::SetNextWindowPos(position, ImGuiCond_Always);
         ImGui::SetNextWindowSize(size, ImGuiCond_Always);
         ImGui::Begin(title, nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
-            | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse);
+            | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBackground);
+        ui::DrawPanel(ImGui::GetWindowDrawList(), position, {position.x + size.x, position.y + size.y});
     }
 
     static ImTextureID TextureId(const FTextureInfo* texture) {
@@ -222,8 +214,8 @@ private:
         auto* draw = ImGui::GetWindowDrawList();
         const bool hover = ImGui::IsItemHovered();
         const ImVec2 end{p.x + width, p.y + 65.f};
-        draw->AddRectFilled(p, end, ImGui::GetColorU32(hover ? ImGuiCol_ButtonHovered : ImGuiCol_Button), 4.f);
-        draw->AddRect(p, end, selected ? IM_COL32(231, 200, 118, 255) : IM_COL32(78, 99, 80, 255), 4.f, 0, selected ? 2.f : 1.f);
+        draw->AddRectFilled(p, end, ImGui::GetColorU32(hover ? ImGuiCol_ButtonHovered : ImGuiCol_Button));
+        draw->AddRect(p, end, selected ? ui::palette::kGoldBright : ui::palette::kBronze, 0.f, 0, 2.f);
         const auto* assets = registry.ctx().find<FAssetManager>();
         auto* resources = registry.ctx().find<FResourceManager>();
         if (assets && resources) {

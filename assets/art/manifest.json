@@ -36,7 +36,21 @@
       "32704f46-acb0-469f-babb-f4c48cb0765e",
       "5821834b-7b5e-4775-a78d-911b5f9b9274"
     ],
-    "forest": "Forest mode (default executable) now uses the same art set as Ember: units from art/*.png via units.json, forest_* props/ground, icon_* HUD icons. The old 32x32 locally drawn assets/generated/ set was removed. Rejected ground jobs: ce3d53ba-51a7-4a67-9f2c-d4d4486de6d8, 0c1fc44c-378a-4bb2-91f1-a9e9088a418c, 204ed345-62f6-49b8-879a-5a06585cd550, d3abcc44-34e2-4c70-bfdf-5359b64783ae (vignette borders), 3dcf3bef/bed0f1a7 kept only as noted."
+    "forest": "Forest mode (default executable) now uses the same art set as Ember: units from art/*.png via units.json, forest_* props/ground, icon_* HUD icons. The old 32x32 locally drawn assets/generated/ set was removed. Rejected ground jobs: ce3d53ba-51a7-4a67-9f2c-d4d4486de6d8, 0c1fc44c-378a-4bb2-91f1-a9e9088a418c, 204ed345-62f6-49b8-879a-5a06585cd550, d3abcc44-34e2-4c70-bfdf-5359b64783ae (vignette borders), 3dcf3bef/bed0f1a7 kept only as noted.",
+    "theme": "Dark fantasy forest (style v4): near-black green walls of roots and mossy boulders, mossy fern/grass floors, thorn traps, canopy backdrop. UI uses a Diablo-like stone/bronze/gold treatment with Cinzel headings and Alegreya Sans body (OFL fonts in assets/fonts).",
+    "tiles_v4_rejected": [
+      "c5e33797-9c34-456f-bb85-4bf51fc86fa8",
+      "4be50375-80a8-46f8-bb9c-9471534dc7b8",
+      "d9d376c8-c485-4330-8e59-c064fee5be68",
+      "a16677d9-decd-4038-829d-2c6710abf3f0",
+      "4d443f2a-fcd9-42ed-8079-3ec52c26063a",
+      "78be0081-8bd4-4bba-9862-25dbb2a26cd4",
+      "e8ac0f04-4cce-4fc7-a604-b7a356ea4a40",
+      "2b1cd302-0860-44fd-8c63-e6450efab7ab",
+      "6b068f5d-d56c-4e58-9eb8-c165f9577a63",
+      "a39754b2-7d78-4ea5-966b-d1c1c1d14a85",
+      "762e3913-fce7-4731-a83a-75ef4cdfbda8"
+    ]
   },
   "assets": [
     {
@@ -97,51 +111,56 @@
     },
     {
       "file": "floor.png",
-      "job_id": "f3c8805c-f3b6-4e70-a706-f80974df37f8",
-      "seed": 2201,
       "tool": "create_image_pixflux",
-      "transparent": false
+      "transparent": false,
+      "job_id": "d7180cb8-3f2e-4b20-8836-ac6184aa5aa3",
+      "seed": 4301,
+      "note": "ferns undergrowth, graded sat 0.7 / val 0.8"
     },
     {
       "file": "floor_b.png",
-      "job_id": "2fa97864-b879-4bac-b3d1-2f086b2c92dc",
-      "seed": 2203,
       "tool": "create_image_pixflux",
-      "transparent": false
+      "transparent": false,
+      "job_id": "5fb81cc0-fee0-4530-9cde-21da686127f3",
+      "seed": 4303,
+      "note": "short grass, graded"
     },
     {
       "file": "floor_c.png",
+      "transparent": false,
       "derived_from": "floor.png",
-      "note": "rotated 180 degrees",
-      "transparent": false
+      "note": "rotated 90 degrees, graded"
     },
     {
       "file": "wall.png",
-      "job_id": "3c5378bb-cddd-4ccb-8322-393cff9f095a",
-      "seed": 2232,
       "tool": "create_image_pixflux",
-      "transparent": false
+      "transparent": false,
+      "job_id": "8cd92c8c-887f-4a24-a101-055cdd69b359",
+      "seed": 4111,
+      "note": "black roots and thorns, graded"
     },
     {
       "file": "wall_b.png",
-      "job_id": "e8284b24-f36c-49de-aad3-94a4f9ac5a9c",
-      "seed": 2234,
       "tool": "create_image_pixflux",
-      "transparent": false
+      "transparent": false,
+      "job_id": "ebcb9bcf-3d40-4463-9555-5625514df910",
+      "seed": 4112,
+      "note": "mossy boulders"
     },
     {
       "file": "backdrop.png",
-      "job_id": "e4d47850-f2b0-4643-b1a7-d55c924c79b3",
-      "seed": 2411,
       "tool": "create_image_pixflux",
-      "transparent": false
+      "transparent": false,
+      "job_id": "15756dee-c0a2-4fcc-bfc2-6243a08a63b8",
+      "seed": 4141
     },
     {
       "file": "spikes.png",
-      "job_id": "7fffda3a-f6be-4c95-9464-67b55334964f",
-      "seed": 2321,
       "tool": "create_image_pixflux",
-      "transparent": false
+      "transparent": false,
+      "job_id": "c8166800-0d18-4611-a2e5-287b81d89a88",
+      "seed": 4131,
+      "note": "thorn ring trap"
     },
     {
       "file": "chest.png",
@@ -166,9 +185,10 @@
     },
     {
       "file": "forest_ground.png",
-      "note": "6x64 sheet: 4 ground variants (undergrowth job 04059723 + flips, clover job 8d9884ab darkened) + 2 path (job ed100eac, and rotated)",
       "transparent": false,
-      "tool": "create_image_pixflux"
+      "tool": "create_image_pixflux",
+      "job_id": "d7180cb8-3f2e-4b20-8836-ac6184aa5aa3",
+      "note": "6x64 sheet: ferns/grass floor variants + mirrored dirt-trail crop from job bad8c3df-1692-4254-b773-65e653636f27"
     },
     {
       "file": "forest_oak.png",
@@ -211,6 +231,18 @@
       "transparent": true,
       "seed": 3204,
       "tool": "create_image_pixflux"
+    }
+  ],
+  "fonts": [
+    {
+      "use": "headings",
+      "file": "fonts/Cinzel.ttf",
+      "license": "SIL OFL 1.1 (assets/fonts/OFL-Cinzel.txt)"
+    },
+    {
+      "use": "body (Alegreya Sans Medium)",
+      "file": "fonts/Alegreya.ttf",
+      "license": "SIL OFL 1.1 (assets/fonts/OFL-Alegreya.txt)"
     }
   ]
 }
