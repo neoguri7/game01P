@@ -33,19 +33,46 @@ void EmberGridRenderSystem::render(entt::registry& registry) {
         return SDL_FRect{point.x, point.y, grid->tileSize * camera.zoom, grid->tileSize * camera.zoom};
     };
     const auto first = rectFor({0, 0});
+    const SDL_FRect screen{0.f, 0.f, viewport.width, viewport.height};
+    for (float y = 0; y < screen.h; y += 64.f) {
+        for (float x = 0; x < screen.w; x += 64.f) {
+            DrawDungeonSprite(registry, EDungeonSprite::Backdrop, {x, y, 64.f, 64.f});
+        }
+    }
+    SDL_SetRenderDrawColor(renderer, 6, 8, 16, 150);
+    SDL_RenderFillRect(renderer, &screen);
+    for (int ring = 0; ring < 14; ++ring) {
+        const float inset = static_cast<float>(ring) * 6.f;
+        const SDL_FRect edge{inset, inset, screen.w - inset * 2.f, screen.h - inset * 2.f};
+        SDL_SetRenderDrawColor(renderer, 0, 0, 6, static_cast<Uint8>(90 - ring * 6));
+        SDL_RenderRect(renderer, &edge);
+        const SDL_FRect thick{inset + 1.f, inset + 1.f, edge.w - 2.f, edge.h - 2.f};
+        SDL_RenderRect(renderer, &thick);
+    }
+    for (int glow = 4; glow >= 1; --glow) {
+        const float pad = 8.f + static_cast<float>(glow) * 5.f;
+        const SDL_FRect halo{first.x - pad, first.y - pad, first.w * 8 + pad * 2, first.h * 8 + pad * 2};
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, static_cast<Uint8>(34 + (4 - glow) * 12));
+        SDL_RenderFillRect(renderer, &halo);
+    }
     SDL_FRect frame{first.x - 8, first.y - 8, first.w * 8 + 16, first.h * 8 + 16};
-    SDL_SetRenderDrawColor(renderer, 36, 38, 47, 255);
+    SDL_SetRenderDrawColor(renderer, 24, 22, 30, 255);
     SDL_RenderFillRect(renderer, &frame);
-    SDL_SetRenderDrawColor(renderer, 92, 88, 76, 255);
+    SDL_SetRenderDrawColor(renderer, 120, 104, 78, 255);
     SDL_RenderRect(renderer, &frame);
+    const SDL_FRect innerFrame{frame.x + 3, frame.y + 3, frame.w - 6, frame.h - 6};
+    SDL_SetRenderDrawColor(renderer, 58, 50, 44, 255);
+    SDL_RenderRect(renderer, &innerFrame);
     for (int y = 0; y < grid->height; ++y) {
         for (int x = 0; x < grid->width; ++x) {
             const auto rect = rectFor({x, y});
             DrawDungeonSprite(registry, terrain->at(x, y) == ETile::Wall ?
-                              EDungeonSprite::Wall : EDungeonSprite::Floor, rect);
+                              WallVariant(x, y) : FloorVariant(x, y), rect);
             if (terrain->at(x, y) == ETile::Trap) DrawDungeonSprite(registry, EDungeonSprite::Spikes, rect);
             if (terrain->at(x, y) != ETile::Wall) {
-                SDL_SetRenderDrawColor(renderer, 20, 20, 30, 35);
+                SDL_SetRenderDrawColor(renderer, 6, 8, 18, 40);
+                SDL_RenderFillRect(renderer, &rect);
+                SDL_SetRenderDrawColor(renderer, 10, 10, 20, 28);
                 SDL_RenderRect(renderer, &rect);
             }
         }

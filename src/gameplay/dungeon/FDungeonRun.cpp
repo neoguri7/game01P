@@ -14,6 +14,7 @@
 #include "ecs/components/FStats.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FRoomGenerator.h"
 #include "gameplay/factory/FEntityDefinitions.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/battle/FBattleSetup.h"
@@ -61,6 +62,78 @@ std::optional<std::string> ValidateCampSlot(
     return std::nullopt;
 }
 
+std::optional<gameplay::FIntRange> ParseRange(const nlohmann::json& generation, const char* key, int lowest) {
+    const auto found = generation.find(key);
+    if (found == generation.end() || !found->is_array() || found->size() != 2 ||
+        !(*found)[0].is_number_integer() || !(*found)[1].is_number_integer()) return std::nullopt;
+    const gameplay::FIntRange range{(*found)[0].get<int>(), (*found)[1].get<int>()};
+    if (range.min < lowest || range.max < range.min || range.max > 16) return std::nullopt;
+    return range;
+}
+
+std::optional<gameplay::FRoomGenConfig> ParseRoomGeneration(
+    const nlohmann::json& data, const gameplay::FContentRegistry& content) {
+    const auto generation = data.find("generation");
+    if (generation == data.end() || !generation->is_object()) return std::nullopt;
+    gameplay::FRoomGenConfig config;
+    try {
+        for (const auto& name : generation->at("room_names")) config.names.push_back(name.get<std::string>());
+        for (const auto& enemy : generation->at("enemies")) {
+            config.enemies.push_back({enemy.at("unit").get<std::string>(),
+                                      enemy.at("display_name").get<std::string>(),
+                                      enemy.at("weight").get<int>()});
+        }
+        config.bossUnit = generation->at("boss_unit").get<std::string>();
+        config.bossName = generation->at("boss_name").get<std::string>();
+    } catch (const nlohmann::json::exception&) {
+        return std::nullopt;
+    }
+    const auto enemyCount = ParseRange(*generation, "enemy_count", 1);
+    const auto obstacleCount = ParseRange(*generation, "obstacle_count", 0);
+    const auto trapCount = ParseRange(*generation, "trap_count", 0);
+    if (config.names.empty() || config.enemies.empty() || !enemyCount || !obstacleCount || !trapCount ||
+        enemyCount->max > 8 || !content.units.find(config.bossUnit)) return std::nullopt;
+    for (const auto& enemy : config.enemies) {
+        if (enemy.weight < 1 || !content.units.find(enemy.unit)) return std::nullopt;
+    }
+    config.enemyCount = *enemyCount;
+    config.obstacleCount = *obstacleCount;
+    config.trapCount = *trapCount;
+    return config;
+}
+
+std::vector<std::pair<int, int>> PartyCells(const nlohmann::json& party) {
+    std::vector<std::pair<int, int>> cells;
+    for (const auto& member : party) cells.emplace_back(member.at("grid_x").get<int>(), member.at("grid_y").get<int>());
+    return cells;
+}
+
+// Fills the 8x8 battlefield fields that every dungeon room shares.
+void FinishBattlefield(nlohmann::json& document, const nlohmann::json& data) {
+    document["width"] = 8; document["height"] = 8; document["tile_size"] = 64;
+    document["origin_x"] = 0; document["origin_y"] = 0;
+    document["move_range"] = data["balance"]["move_range"];
+    document["trap_damage"] = data["balance"]["trap_damage"];
+}
+
+nlohmann::json BuildRoomDocument(const nlohmann::json& data, const gameplay::FRoomGenConfig& config,
+                                 std::uint32_t seed, int depth, int room) {
+    const auto cells = PartyCells(data.at("party"));
+    const auto generated = gameplay::GenerateRoom(config, {seed, depth, room, room == 2, cells});
+    nlohmann::json document;
+    document["name"] = generated.name;
+    document["terrain"] = generated.terrain;
+    document["units"] = data.at("party");
+    int index = 1;
+    for (const auto& enemy : generated.enemies) {
+        document["units"].push_back({{"id", "enemy." + std::to_string(index++)},
+                                     {"display_name", enemy.displayName}, {"unit", enemy.unit},
+                                     {"faction", "enemy"}, {"grid_x", enemy.x}, {"grid_y", enemy.y}});
+    }
+    FinishBattlefield(document, data);
+    return document;
+}
+
 } // namespace
 
 int DungeonBalance(entt::registry& registry, const char* key) {
@@ -74,8 +147,8 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath) {
     try {
         if (!data.at("schema_version").is_number_integer() || data.at("schema_version") != 1 ||
             !data.at("party").is_array() || data.at("party").size() != 4 ||
-            !data.at("rooms").is_array() || data.at("rooms").size() != 3) {
-            LOG_ERROR("Dungeon needs schema version 1, four party members and three combat rooms.");
+            !data.at("generation").is_object()) {
+            LOG_ERROR("Dungeon needs schema version 1, four party members and a room generation block.");
             return false;
         }
         for (const char* key : {"move_range", "trap_damage", "reward_health", "reward_attack",
@@ -114,38 +187,25 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath) {
                 return false;
             }
         }
-        if (!content.units.find("enemy.guardian")) {
-            LOG_ERROR("Dungeon guardian unit definition is missing.");
+        const auto config = ParseRoomGeneration(data, content);
+        if (!config) {
+            LOG_ERROR("Dungeon generation needs room names, known weighted enemies, a known boss and valid count ranges.");
             return false;
         }
-        for (const auto& room : data.at("rooms")) {
-            if (!room.at("name").is_string() || room.at("name").get_ref<const std::string&>().empty() ||
-                !room.at("enemies").is_array() || room.at("enemies").empty()) {
-                LOG_ERROR("Dungeon room needs a name and a nonempty enemy placement array.");
-                return false;
-            }
-            entt::registry probe;
-            FScene scene(probe, "validation");
-            scene.Load();
-            auto document = room;
-            document["units"] = data.at("party");
-            for (const auto& enemy : room.at("enemies")) {
-                if (!content.units.find(enemy.at("unit").get<std::string>()) || enemy.at("faction") != "enemy") {
-                    LOG_ERROR("Dungeon room needs known enemy units and enemy factions.");
+        // Probe a spread of generated rooms so bad content stops the boot instead of a later battle.
+        for (std::uint32_t seed = 1; seed <= 6; ++seed) {
+            for (int room = 0; room < 3; ++room) {
+                entt::registry probe;
+                FScene scene(probe, "validation");
+                scene.Load();
+                const auto document = BuildRoomDocument(data, *config, seed, 1, room);
+                const auto battlefield = FEntityFactory::CreateBattlefield(scene, document);
+                if (!battlefield) {
+                    LOG_ERROR("Generated dungeon room invalid: {}", battlefield.error().message);
                     return false;
                 }
-                document["units"].push_back(enemy);
+                if (!SetupCombatUnits(probe, *battlefield, content)) return false;
             }
-            document["width"] = 8; document["height"] = 8; document["tile_size"] = 64;
-            document["origin_x"] = 0; document["origin_y"] = 0;
-            document["move_range"] = data["balance"]["move_range"];
-            document["trap_damage"] = data["balance"]["trap_damage"];
-            const auto battlefield = FEntityFactory::CreateBattlefield(scene, document);
-            if (!battlefield) {
-                LOG_ERROR("Dungeon room invalid: {}", battlefield.error().message);
-                return false;
-            }
-            if (!SetupCombatUnits(probe, *battlefield, content)) return false;
         }
     } catch (const nlohmann::json::exception& error) {
         LOG_ERROR("Dungeon content invalid: {}", error.what());
@@ -197,21 +257,12 @@ void StartDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh) {
 nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
     auto& run = registry.ctx().get<FDungeonRun>();
     const auto& data = Definition(registry);
-    // Rotate authored rooms by the run seed; terrain and placements stay paired.
-    const int index = (run.room + static_cast<int>(run.seed % 3u)) % 3;
-    auto document = data.at("rooms").at(index);
+    const auto& content = registry.ctx().get<gameplay::FContentRegistry>();
+    // Initialization already proved the block valid; a failure here means content changed underneath us.
+    const auto config = ParseRoomGeneration(data, content);
+    if (!config) return nlohmann::json::object();
+    auto document = BuildRoomDocument(data, *config, run.seed, run.depth, run.room);
     run.roomName = document.at("name").get<std::string>();
-    document["units"] = data.at("party");
-    for (const auto& enemy : document.at("enemies")) document["units"].push_back(enemy);
-    if (run.room == 2) {
-        auto& guardian = document["units"].back();
-        guardian["unit"] = "enemy.guardian";
-        guardian["display_name"] = "Stone guardian";
-    }
-    document["width"] = 8; document["height"] = 8; document["tile_size"] = 64;
-    document["origin_x"] = 0; document["origin_y"] = 0;
-    document["move_range"] = data["balance"]["move_range"];
-    document["trap_damage"] = data["balance"]["trap_damage"];
     return document;
 }
 

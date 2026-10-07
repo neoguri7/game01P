@@ -1,34 +1,38 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "style_source": "style.md",
-  "style_version": 2,
+  "style_version": 3,
   "generator": "PixelLab MCP",
-  "native_size": [32, 32],
+  "native_size": [64, 64],
   "references": [],
-  "settings": {"outline": "single color outline", "detail": "low detail", "shading": "basic shading"},
+  "settings": {
+    "characters": {"outline": "single color black outline", "detail": "medium detail", "shading": "medium shading"},
+    "tiles": {"outline": "lineless", "detail": "highly detailed", "shading": "detailed shading"}
+  },
   "review": {
-    "status": "prototype candidates reviewed against style v2, not user-approved reference images",
-    "characters": "Native-size full-body front-facing units; consistent compact scale, dark thin outlines and discrete upper-left lighting.",
-    "tiles": "First PixFlux floor candidates rejected for dense texture. Regenerated broad stone slabs with Pro Flash; repeated native floor layout and neighboring wall material visually reviewed.",
-    "pre_style_jobs_excluded": ["ae52b0ec-64db-4990-a773-cc700545c727", "8ea268f0-e6f3-4628-8a10-af3b8946b611", "2c66c7bf-acf2-4afa-b66d-52ab74c92451"],
-    "rejected_floor_jobs": ["8dcbe426-6620-4de9-aa07-387e763590d9", "4aae7e8e-ef3c-401a-b4ee-d070fd0341aa"],
-    "rejected_prop_jobs": ["6c3635d0-20c0-42d0-a938-c3fdf2fd08c3", "c1b1b2c0-2cc6-4c8c-b2cc-5eb06f41a7ee", "db5442f2-73e9-42f4-bb6b-65725fb87d95", "f5224740-af5c-4a02-87ad-1291cded5d79"],
-    "props": "Regenerated spikes, chest and stairs with front-facing symmetric silhouettes to remove diagonal projection and dense detail."
+    "status": "prototype candidates reviewed against style v3, not user-approved reference images",
+    "characters": "Native 64x64 front-facing units, medium detail. Human party members are faceless (visor / hood / hat brim void); monsters keep faces. Mage and healer were regenerated because the first candidates showed faces.",
+    "tiles": "High-detail opaque 64x64 tiles. Floors are cool blue flagstone, walls warm/dark masonry for contrast; floor_c is floor.png rotated 180 degrees for variation. Rejected: framed bevel floor, doorway wall candidates, non-tiling backdrop candidates.",
+    "rejected_jobs": ["992b55ba-b9e5-424a-aa3f-7e3b0f9a4a15", "2cddcfcc-7a74-438d-8d3a-b3eed5360236", "b78c243d-5180-4fc5-979e-2f74309985fb", "6080464c-0220-4c1f-9e4c-6fba6091d991", "b7ba22d9-3cfa-4afe-a9ce-cf4bbd669441", "451bb076-f1cd-49d8-8607-f5f457ade38e", "9dafc5ab-8d7d-49bc-b59a-74804a9e128d", "afd4caac-c13a-4a59-af45-9c5d4f6bd400", "32704f46-acb0-469f-babb-f4c48cb0765e", "5821834b-7b5e-4775-a78d-911b5f9b9274"]
   },
   "assets": [
-    {"file":"warrior.png","job_id":"247654e9-f44e-42c8-9a4b-145fbb65df53","seed":101,"tool":"create_image_pixflux","transparent":true},
-    {"file":"archer.png","job_id":"b8e87d1d-50b2-40b5-906e-b4d10fb8d52d","seed":102,"tool":"create_image_pixflux","transparent":true},
-    {"file":"mage.png","job_id":"4447feef-4f63-48b5-baf8-c0468e422d1a","seed":103,"tool":"create_image_pixflux","transparent":true},
-    {"file":"healer.png","job_id":"bbbb1cf6-8e40-4767-879f-0cd3d27c4189","seed":104,"tool":"create_image_pixflux","transparent":true},
-    {"file":"imp.png","job_id":"d67c9c17-8a10-4e78-a059-4c2cf94b10da","seed":105,"tool":"create_image_pixflux","transparent":true},
-    {"file":"imp_archer.png","job_id":"ec14ed4b-4a9d-4e80-bf62-f07764b4a917","seed":106,"tool":"create_image_pixflux","transparent":true},
-    {"file":"imp_shaman.png","job_id":"b363eef3-b06d-4d30-9770-611915340895","seed":107,"tool":"create_image_pixflux","transparent":true},
-    {"file":"guardian.png","job_id":"89cd229e-1218-42be-926d-904ff2ea83bc","seed":108,"tool":"create_image_pixflux","transparent":true},
-    {"file":"floor.png","job_id":"31925702-b4c3-4f09-bfdb-27666ae389f4","seed":209,"tool":"create_image_pro_flash","transparent":false},
-    {"file":"wall.png","job_id":"14e8cebc-dafd-40c8-acc7-d4bdf90d045f","seed":211,"tool":"create_image_pro_flash","transparent":false},
-    {"file":"spikes.png","job_id":"3aeb6250-fedc-4f7d-8b26-927b943aef7b","seed":312,"tool":"create_image_pro_flash","transparent":true},
-    {"file":"chest.png","job_id":"45f94304-f980-4d29-b4e4-2c26ec332346","seed":213,"tool":"create_image_pro_flash","transparent":true},
-    {"file":"stairs.png","job_id":"6f800265-8619-433d-a4de-3b3e892da130","seed":214,"tool":"create_image_pro_flash","transparent":true},
-    {"file":"shrine.png","job_id":"23c86395-9aba-4887-90ac-3f6c5ca1db1c","seed":115,"tool":"create_image_pixflux","transparent":true}
+    {"file":"warrior.png","job_id":"db19a6f1-f02c-4ab3-8bd6-f35aa3a9946c","seed":1101,"tool":"create_image_pixflux","transparent":true},
+    {"file":"archer.png","job_id":"b40b3cc3-0ada-4fef-822e-2a34fcbdf46b","seed":1102,"tool":"create_image_pixflux","transparent":true},
+    {"file":"mage.png","job_id":"861acb9e-aa4f-4a74-b562-3d0c7c7c6ed6","seed":1113,"tool":"create_image_pixflux","transparent":true},
+    {"file":"healer.png","job_id":"d21d1466-6f7f-4e2b-944e-8aea070fd438","seed":1114,"tool":"create_image_pixflux","transparent":true},
+    {"file":"imp.png","job_id":"84854592-3b19-4fea-9a14-49c3acb06231","seed":1105,"tool":"create_image_pixflux","transparent":true},
+    {"file":"imp_archer.png","job_id":"eb9e01b7-0437-4252-80ff-e44aac3fe6a1","seed":1106,"tool":"create_image_pixflux","transparent":true},
+    {"file":"imp_shaman.png","job_id":"d5d5e24b-64b6-4a98-90cd-d81a5c3b3792","seed":1107,"tool":"create_image_pixflux","transparent":true},
+    {"file":"guardian.png","job_id":"4827218c-a51f-4b6e-92d0-7e684c3c09fe","seed":1108,"tool":"create_image_pixflux","transparent":true},
+    {"file":"floor.png","job_id":"f3c8805c-f3b6-4e70-a706-f80974df37f8","seed":2201,"tool":"create_image_pixflux","transparent":false},
+    {"file":"floor_b.png","job_id":"2fa97864-b879-4bac-b3d1-2f086b2c92dc","seed":2203,"tool":"create_image_pixflux","transparent":false},
+    {"file":"floor_c.png","derived_from":"floor.png","note":"rotated 180 degrees","transparent":false},
+    {"file":"wall.png","job_id":"3c5378bb-cddd-4ccb-8322-393cff9f095a","seed":2232,"tool":"create_image_pixflux","transparent":false},
+    {"file":"wall_b.png","job_id":"e8284b24-f36c-49de-aad3-94a4f9ac5a9c","seed":2234,"tool":"create_image_pixflux","transparent":false},
+    {"file":"backdrop.png","job_id":"e4d47850-f2b0-4643-b1a7-d55c924c79b3","seed":2411,"tool":"create_image_pixflux","transparent":false},
+    {"file":"spikes.png","job_id":"7fffda3a-f6be-4c95-9464-67b55334964f","seed":2321,"tool":"create_image_pixflux","transparent":false},
+    {"file":"chest.png","job_id":"e05b03a0-be3f-4683-8d47-cd6c88eacb10","seed":2302,"tool":"create_image_pixflux","transparent":true},
+    {"file":"stairs.png","job_id":"b2c02cf3-49bc-4041-91fb-61c579f90637","seed":2303,"tool":"create_image_pixflux","transparent":true},
+    {"file":"shrine.png","job_id":"fda8ebb6-3356-4404-a493-0502af7be183","seed":2304,"tool":"create_image_pixflux","transparent":true}
   ]
 }

@@ -5,6 +5,8 @@
 #include <iostream>
 #include <stdexcept>
 #include <memory>
+#include <set>
+#include <vector>
 #include <imgui.h>
 
 #include "core/AssetManager.h"
@@ -25,6 +27,7 @@
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FAutoAction.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FRoomGenerator.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/grid/FGridQuery.h"
 #include "gameplay/grid/FCameraMath.h"
@@ -61,7 +64,8 @@ struct FFixture {
         game::StartDungeonRun(registry, seed, true);
         battle.OnEnter(registry);
         CHECK(game::AliveCount(registry, true) == 4);
-        CHECK(game::AliveCount(registry, false) == 3);
+        const int enemies = game::AliveCount(registry, false);
+        CHECK(enemies >= 3 && enemies <= 4);
     }
 
     ~FFixture() {
@@ -590,6 +594,59 @@ void GameplayKeyboardCapture() {
     CHECK(io.WantCaptureKeyboard);
 }
 
+void GeneratedRooms() {
+    const game::gameplay::FRoomGenConfig config{
+        {"A", "B", "C"},
+        {{"enemy.imp", "Imp", 3}, {"enemy.imp_archer", "Archer", 1}},
+        "enemy.guardian", "Guardian", {3, 4}, {4, 9}, {1, 3}};
+    const std::vector<std::pair<int, int>> party{{1, 6}, {2, 6}, {4, 6}, {5, 6}};
+    std::set<std::string> layouts;
+    for (std::uint32_t seed = 1; seed <= 200; ++seed) {
+        const int room = static_cast<int>(seed % 3);
+        const game::gameplay::FRoomRequest request{seed, 1 + static_cast<int>(seed % 5), room, room == 2, party};
+        const auto generated = game::gameplay::GenerateRoom(config, request);
+        const auto again = game::gameplay::GenerateRoom(config, request);
+        CHECK(generated.terrain == again.terrain && generated.enemies.size() == again.enemies.size());
+        CHECK(generated.enemies.size() >= 3 && generated.enemies.size() <= 4);
+        CHECK(request.boss == (generated.enemies.front().unit == "enemy.guardian"));
+        std::set<std::pair<int, int>> taken(party.begin(), party.end());
+        for (const auto& enemy : generated.enemies) {
+            CHECK(enemy.y >= 1 && enemy.y <= 2 && enemy.x >= 1 && enemy.x <= 6);
+            CHECK(generated.terrain[enemy.y][enemy.x] == '.');
+            CHECK(taken.insert({enemy.x, enemy.y}).second);
+        }
+        for (const auto& [x, y] : party) CHECK(generated.terrain[y][x] == '.');
+        int walls = 0;
+        for (int y = 0; y < 8; ++y) {
+            CHECK(generated.terrain[y].size() == 8);
+            for (int x = 0; x < 8; ++x) {
+                const bool border = x == 0 || y == 0 || x == 7 || y == 7;
+                CHECK(!border || generated.terrain[y][x] == '#');
+                if (!border && generated.terrain[y][x] == '#') ++walls;
+            }
+        }
+        CHECK(walls <= 9);
+        // Every unit must reach every other unit around the walls.
+        std::set<std::pair<int, int>> seen{*taken.begin()};
+        std::vector<std::pair<int, int>> open{*taken.begin()};
+        while (!open.empty()) {
+            const auto [x, y] = open.back();
+            open.pop_back();
+            for (const auto [dx, dy] : std::array<std::pair<int, int>, 4>{{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}}) {
+                if (generated.terrain[y + dy][x + dx] != '#' && seen.insert({x + dx, y + dy}).second) {
+                    open.push_back({x + dx, y + dy});
+                }
+            }
+        }
+        for (const auto& cell : taken) CHECK(seen.contains(cell));
+        std::string key;
+        for (const auto& row : generated.terrain) key += row;
+        for (const auto& enemy : generated.enemies) key += enemy.unit + std::to_string(enemy.x * 8 + enemy.y);
+        layouts.insert(key);
+    }
+    CHECK(layouts.size() > 150);
+}
+
 void InvalidRuneDrops() {
     std::ifstream originalFile("assets/data/dungeon.json");
     const auto original = nlohmann::json::parse(originalFile);
@@ -606,7 +663,13 @@ void InvalidRuneDrops() {
     missing.erase("rune_drops");
     invalidDocuments.push_back(std::move(missing));
     missing = original;
-    missing["rooms"][0].erase("name");
+    missing["generation"]["room_names"] = nlohmann::json::array();
+    invalidDocuments.push_back(std::move(missing));
+    missing = original;
+    missing["generation"]["enemies"][0]["unit"] = "enemy.unknown";
+    invalidDocuments.push_back(std::move(missing));
+    missing = original;
+    missing["generation"].erase("boss_unit");
     invalidDocuments.push_back(std::move(missing));
     for (const auto& data : invalidDocuments) {
         content.write(data);
@@ -635,7 +698,8 @@ int main() {
         DefeatAndFactory();
         GameplayKeyboardCapture();
         InvalidRuneDrops();
-        std::cout << "Dungeon collision, AP, tokens, LOS, three layouts, AI, rewards, runes, checkpoints and defeat passed.\n";
+        GeneratedRooms();
+        std::cout << "Dungeon collision, AP, tokens, LOS, generated layouts, AI, rewards, runes, checkpoints and defeat passed.\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAILED: " << error.what() << '\n';

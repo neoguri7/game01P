@@ -24,33 +24,17 @@
     {"id":"party.mage","display_name":"Mira / Mage","unit":"char.mage","faction":"party","grid_x":4,"grid_y":6},
     {"id":"party.healer","display_name":"Lumen / Healer","unit":"char.healer","faction":"party","grid_x":5,"grid_y":6}
   ],
-  "rooms": [
-    {
-      "name":"The broken gate",
-      "terrain":["########","#......#","#..#...#","#......#","#..^#..#","#......#","#......#","########"],
-      "enemies":[
-        {"id":"enemy.1","display_name":"Imp","unit":"enemy.imp","faction":"enemy","grid_x":2,"grid_y":1},
-        {"id":"enemy.2","display_name":"Imp archer","unit":"enemy.imp_archer","faction":"enemy","grid_x":5,"grid_y":1},
-        {"id":"enemy.3","display_name":"Imp shaman","unit":"enemy.imp_shaman","faction":"enemy","grid_x":5,"grid_y":2}
-      ]
-    },
-    {
-      "name":"Hall of echoes",
-      "terrain":["########","#......#","#.#..#.#","#......#","#.^....#","#..#...#","#......#","########"],
-      "enemies":[
-        {"id":"enemy.1","display_name":"Imp","unit":"enemy.imp","faction":"enemy","grid_x":1,"grid_y":2},
-        {"id":"enemy.2","display_name":"Imp archer","unit":"enemy.imp_archer","faction":"enemy","grid_x":4,"grid_y":1},
-        {"id":"enemy.3","display_name":"Imp shaman","unit":"enemy.imp_shaman","faction":"enemy","grid_x":6,"grid_y":2}
-      ]
-    },
-    {
-      "name":"The sunken vault",
-      "terrain":["########","#......#","#......#","#.#^#..#","#......#","#...#..#","#......#","########"],
-      "enemies":[
-        {"id":"enemy.1","display_name":"Imp archer","unit":"enemy.imp_archer","faction":"enemy","grid_x":1,"grid_y":1},
-        {"id":"enemy.2","display_name":"Imp","unit":"enemy.imp","faction":"enemy","grid_x":4,"grid_y":1},
-        {"id":"enemy.3","display_name":"Imp shaman","unit":"enemy.imp_shaman","faction":"enemy","grid_x":6,"grid_y":2}
-      ]
-    }
-  ]
+  "generation": {
+    "room_names": ["The broken gate", "Hall of echoes", "The sunken vault", "Ashen crypt", "Collapsed barracks", "Whispering cistern", "The cinder stair"],
+    "enemies": [
+      {"unit":"enemy.imp","display_name":"Imp","weight":4},
+      {"unit":"enemy.imp_archer","display_name":"Imp archer","weight":3},
+      {"unit":"enemy.imp_shaman","display_name":"Imp shaman","weight":2}
+    ],
+    "boss_unit": "enemy.guardian",
+    "boss_name": "Stone guardian",
+    "enemy_count": [3, 4],
+    "obstacle_count": [4, 9],
+    "trap_count": [1, 3]
+  }
 }

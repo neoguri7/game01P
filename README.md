@@ -54,7 +54,7 @@ the battle journal and do not spend AP.
 
 ## Prototype loop
 
-Lead a warrior, archer, mage and healer through three seeded 8×8 combat rooms,
+Lead a warrior, archer, mage and healer through three procedurally generated 8×8 combat rooms (the party starts at the bottom, a random enemy formation at the top, with random wall clusters and spike traps that never cut anyone off),
 a shrine/cache decision after the first room, and a guardian in the third.
 Initiative uses the existing speed scheduler. Each turn has separate movement
 AP and skill AP; neither can substitute for the other.
@@ -74,7 +74,7 @@ unlocked dungeon, or start fresh at dungeon 1. Defeat/abandonment resets run
 EXP, stat growth, materials and runes, not cleared checkpoints. KO is temporary;
 room-clear recovery restores knocked-out members without permanent injuries.
 
-This slice has a small authored room pool with seeded order, a minimal
+This slice generates rooms from the run seed (`gameplay/dungeon/FRoomGenerator`, tuned by the `generation` block of `assets/data/dungeon.json`), has a minimal
 party-wide growth choice, static unit sprites, and checkpoint persistence.
 It does not implement the full planned individual node tree, expanded theme
 content, multi-part bosses, character animations, or saving an in-progress run.
@@ -82,8 +82,8 @@ Ending an expedition at camp keeps the checkpoint, **not** a suspended build.
 
 ## Art
 
-[`style.md`](style.md) is the user-provided style-v2 source of truth.
-`assets/art` contains native 32×32 PixelLab MCP outputs, sampled with nearest
+[`style.md`](style.md) is the user-provided style-v3 source of truth.
+`assets/art` contains native 64×64 PixelLab MCP outputs, sampled with nearest
 neighbor at runtime. No existing PNG was used as a reference. The manifest
 records tool/job/seed provenance and rejected candidates. Family and repeated
 tile previews were checked before integration; these remain prototype art,
@@ -105,7 +105,7 @@ $env:GAME01P_START = "battle"
 ```
 
 CTest covers collisions, path traversal/traps, LOS including diagonal corners,
-AP separation, stale turn tokens, KO occupancy, three seeded complete dungeons,
+AP separation, stale turn tokens, KO occupancy, generated-room invariants (enemies on top, connectivity, variety), three seeded complete dungeons,
 AI progress, rewards, rune legality, checkpoint advancement and defeat reset.
 It also verifies focused-HUD keyboard shortcuts, modal keyboard capture, bad
 rune-drop content rejection, scheduler-independent AI token propagation, camp

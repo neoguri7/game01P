@@ -12,7 +12,8 @@ namespace game {
 
 enum class EDungeonSprite : std::size_t {
     Floor, Wall, Spikes, Chest, Stairs, Shrine,
-    Warrior, Archer, Mage, Healer, Imp, ImpArcher, ImpShaman, Guardian, Count
+    Warrior, Archer, Mage, Healer, Imp, ImpArcher, ImpShaman, Guardian,
+    FloorB, FloorC, WallB, Backdrop, Count
 };
 
 struct FDungeonArt {
@@ -22,6 +23,10 @@ struct FDungeonArt {
 struct FUnitArt {
     EDungeonSprite sprite{EDungeonSprite::Warrior};
 };
+
+/// Deterministic per-cell tile variants so rooms do not read as a repeated stamp.
+[[nodiscard]] EDungeonSprite FloorVariant(int x, int y);
+[[nodiscard]] EDungeonSprite WallVariant(int x, int y);
 
 bool InitializeDungeonArt(entt::registry& registry);
 void AssignDungeonSprites(entt::registry& registry, std::span<const FUnitPlacement> units);

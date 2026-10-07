@@ -8,11 +8,33 @@
 
 namespace game {
 
+namespace {
+
+std::uint32_t CellHash(int x, int y) {
+    auto h = static_cast<std::uint32_t>(x) * 73856093u ^ static_cast<std::uint32_t>(y) * 19349663u;
+    h ^= h >> 13;
+    h *= 0x5BD1E995u;
+    return h ^ (h >> 15);
+}
+
+} // namespace
+
+EDungeonSprite FloorVariant(int x, int y) {
+    constexpr std::array variants{EDungeonSprite::Floor, EDungeonSprite::FloorB, EDungeonSprite::Floor,
+                                  EDungeonSprite::FloorC, EDungeonSprite::FloorB, EDungeonSprite::Floor};
+    return variants[CellHash(x, y) % variants.size()];
+}
+
+EDungeonSprite WallVariant(int x, int y) {
+    return CellHash(x, y) % 3 == 0 ? EDungeonSprite::WallB : EDungeonSprite::Wall;
+}
+
 bool InitializeDungeonArt(entt::registry& registry) {
     constexpr std::array<std::string_view, static_cast<std::size_t>(EDungeonSprite::Count)> ids{
         "art/floor", "art/wall", "art/spikes", "art/chest", "art/stairs", "art/shrine",
         "art/warrior", "art/archer", "art/mage", "art/healer", "art/imp",
-        "art/imp_archer", "art/imp_shaman", "art/guardian"
+        "art/imp_archer", "art/imp_shaman", "art/guardian",
+        "art/floor_b", "art/floor_c", "art/wall_b", "art/backdrop"
     };
     const auto& assets = registry.ctx().get<FAssetManager>();
     auto& resources = registry.ctx().get<FResourceManager>();
@@ -24,8 +46,8 @@ bool InitializeDungeonArt(entt::registry& registry) {
             return false;
         }
         const auto size = resources.findSize(*texture);
-        if (!size || size->width != 32 || size->height != 32) {
-            LOG_ERROR("Dungeon art must be native 32x32: {}", ids[index]);
+        if (!size || size->width != 64 || size->height != 64) {
+            LOG_ERROR("Dungeon art must be native 64x64: {}", ids[index]);
             return false;
         }
         art.textures[index] = *texture;

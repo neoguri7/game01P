@@ -1,6 +1,6 @@
 # Game01P art style
 
-Style version: 2
+Style version: 3
 
 This is the source of truth for generated art. Read it before requesting an
 asset. There are **no approved reference images**. Do not automatically use
@@ -41,8 +41,8 @@ rules. Asset requests change subject or motion, never the visual style.
 
 - 16x16 is the existing native animation-test size and the CLI default.
 - 32x32 is a reasonable requested size for icons or more readable small sprites.
-- 64x64 is the current battlefield cell size, not an established native sprite
-  resolution. Use it when the request explicitly needs a larger sprite.
+- 64x64 is the native size of every in-game asset (units, props, tiles and the
+  backdrop tile), matching the 64-pixel battlefield cell.
 - Keep complexity appropriate to the selected size. A 64x64 sprite should not
   become an illustration with many tiny unrelated details.
 - Keep every animation frame at exactly the requested size. The game consumes
@@ -123,8 +123,15 @@ communicate anticipation, action, and recovery clearly.
 
 ## Detail level
 
-Low detail. Keep only details that clarify the asset's identity, material, or
-gameplay role. Avoid ornamental filigree, texture noise, and crowded interiors.
+- Characters, monsters and props: **medium detail** at native 64x64. Show
+  equipment, material and class identity; avoid filigree and crowded interiors.
+- Human characters (party members) are **faceless**: no eyes, nose or mouth. A
+  hood, visor or hat brim hides the face as a blank or shadowed area. Monsters
+  may keep faces.
+- Floor/wall tiles and the backdrop: **high detail** (cracks, moss, mortar,
+  wear), still opaque and cell-sized (64x64). Walls must contrast clearly with
+  floors (warm/dark masonry against cool, lighter flagstones) and floors stay
+  quieter than units.
 
 ## Lighting/shading rules
 
@@ -174,7 +181,7 @@ duplicating style choices in code.
 ```json
 {
   "outline": "single color outline",
-  "detail": "low detail"
+  "detail": "medium detail"
 }
 ```
 
