@@ -2,10 +2,16 @@
 
 #include "core/ResourceManager.h"
 #include "core/Logger.h"
+#include "core/EngineState.h"
+#include "ecs/components/FCamera.h"
+#include "ecs/components/FGridPosition.h"
+#include "ecs/components/FHealth.h"
+#include "ecs/components/FTag.h"
 #include "ecs/components/FLayer.h"
 #include "ecs/components/FPosition.h"
 #include "ecs/components/FSprite.h"
 #include "ecs/systems/ISystem.h"
+#include "gameplay/grid/FCameraMath.h"
 
 #include <entt/entt.hpp>
 #include <SDL3/SDL.h>
@@ -35,6 +41,19 @@ struct SpriteRenderSystem : public ISystem {
         }
 
         SDL_Renderer* renderer = *rendererContext;
+        FViewport viewport{};
+        if (const auto* window = registry.ctx().find<FEngineWindowState>()) {
+            viewport = {static_cast<float>(window->width), static_cast<float>(window->height)};
+        }
+        FCamera camera{};
+        bool battleCamera = false;
+        for (const auto entity : registry.view<const FCamera, const FTag>()) {
+            if (registry.get<const FTag>(entity).value == "battle_camera") {
+                camera = registry.get<const FCamera>(entity);
+                battleCamera = true;
+                break;
+            }
+        }
         auto view = registry.view<const FPosition, const FSprite>();
         std::vector<entt::entity> entities(view.begin(), view.end());
         std::ranges::stable_sort(entities, [&registry](entt::entity lhs, entt::entity rhs) {
@@ -65,11 +84,17 @@ struct SpriteRenderSystem : public ISystem {
                 source = &sourceRect;
             }
 
-            const SDL_FRect destination{
-                position.x,
-                position.y,
+            SDL_FRect destination{
+                position.x + sprite.offsetX,
+                position.y + sprite.offsetY,
                 sprite.width,
                 sprite.height};
+            if (battleCamera && registry.all_of<FGridPosition>(entity)) {
+                const auto screen = WorldToScreen({destination.x, destination.y}, camera, viewport);
+                destination = {screen.x, screen.y, destination.w * camera.zoom, destination.h * camera.zoom};
+            }
+            const auto* health = registry.try_get<FHealth>(entity);
+            SDL_SetTextureAlphaMod(texture->texture, health && health->current <= 0 ? 65 : 255);
             SDL_FlipMode flip = SDL_FLIP_NONE;
             if (sprite.flipX) {
                 flip = static_cast<SDL_FlipMode>(flip | SDL_FLIP_HORIZONTAL);
@@ -81,6 +106,7 @@ struct SpriteRenderSystem : public ISystem {
             const bool rendered = flip == SDL_FLIP_NONE
                 ? SDL_RenderTexture(renderer, texture->texture, source, &destination)
                 : SDL_RenderTextureRotated(renderer, texture->texture, source, &destination, 0.0, nullptr, flip);
+            SDL_SetTextureAlphaMod(texture->texture, 255);
             if (!rendered && renderFailures_.insert(sprite.texture.value).second) {
                 LOG_ERROR("Rendering texture {} for entity {} failed ({}).",
                           sprite.texture.value, entt::to_integral(entity), SDL_GetError());

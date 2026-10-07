@@ -9,14 +9,21 @@
 #include <entt/entt.hpp>
 
 #include "core/Logger.h"
+#include "ecs/components/FGridPosition.h"
+#include "gameplay/turn/TurnTypes.h"
 
 namespace game {
 
-/// One queued battle action. Skill-only for now; 이동은 다음 슬라이스에서 추가한다.
+enum class EBattleAction { Skill, Move };
+
+/// Requests carry a turn token so delayed input cannot act in another turn or scene.
 struct FActionRequest {
     entt::entity actor{entt::null};
     entt::entity target{entt::null};
     std::string skillId;
+    EBattleAction action{EBattleAction::Skill};
+    FGridPosition cell{};
+    FTurnToken turn{};
 };
 
 struct FActionQueue {
@@ -29,9 +36,10 @@ struct FBattleOutcome {
     bool resolved{false};
     bool victory{false};
     bool exitRequested{false};
+    bool abandonRequested{false};
 };
 
-/// Player-facing battle feed (Korean lines). Systems append; the HUD renders and trims.
+/// Player-facing battle feed (English lines). Systems append; the HUD renders and trims.
 struct FCombatLog {
     std::vector<std::string> lines;
 
@@ -74,15 +82,23 @@ struct FBattleRng {
     }
 };
 
-/// Per-battle bookkeeping owned by the battle state (FBattleState creates and clears it with the rest of
+/// Hard limits that keep automated turns from spinning forever.
+inline constexpr int kMaxAutoActionsPerTurn = 8;
+inline constexpr std::uint64_t kMaxBattleRounds = 60;
+
+/// Per-battle bookkeeping owned by the battle state
 /// the battle-scoped context): the last turn serial an enemy action was scheduled for (player turns are
 /// scheduled by the HUD, so only auto actions need this guard). `autoPlay` is a debug switch (env
 /// `GAME01P_AUTOPLAY=1`): both sides fight automatically so the combat pipeline can be verified from the
 /// log without input. `rng` is battle-scoped so status rolls do not leak between fights.
 struct FCombatRuntime {
     std::uint64_t scheduledTurnSerial{0};
+    int autoActionsThisTurn{0}; // loop guard: auto actions queued during the current turn
     bool autoPlay{false};
     FBattleRng rng;
+    int selectedSkill{0};
+    bool moveSelected{false};
+    entt::entity inputActor{entt::null};
 };
 
 } // namespace game

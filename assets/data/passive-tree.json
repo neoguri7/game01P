@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "nodes": [
+    {
+      "id": "node.origin",
+      "display_name": "Origin",
+      "description": "The starting point of the passive tree.",
+      "parent": null,
+      "x": 50,
+      "y": 50,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.might",
+      "display_name": "Might",
+      "description": "+1 physical attack.",
+      "parent": "node.origin",
+      "x": 30,
+      "y": 30,
+      "bonuses": { "max_health": 0, "attack": 1, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.vitality",
+      "display_name": "Vitality",
+      "description": "+5 maximum health.",
+      "parent": "node.origin",
+      "x": 70,
+      "y": 30,
+      "bonuses": { "max_health": 5, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.guard",
+      "display_name": "Guard",
+      "description": "+1 physical defense.",
+      "parent": "node.origin",
+      "x": 30,
+      "y": 70,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 1, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.insight",
+      "display_name": "Insight",
+      "description": "+1 magical attack.",
+      "parent": "node.origin",
+      "x": 70,
+      "y": 70,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 1, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.swiftstep",
+      "display_name": "Swiftstep",
+      "description": "+1 initiative speed.",
+      "parent": "node.might",
+      "x": 10,
+      "y": 10,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 1 }
+    },
+    {
+      "id": "node.warding",
+      "display_name": "Warding",
+      "description": "+1 magical defense.",
+      "parent": "node.guard",
+      "x": 10,
+      "y": 90,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 1, "speed": 0 }
+    },
+    {
+      "id": "node.precision",
+      "display_name": "Precision",
+      "description": "+1 physical attack.",
+      "parent": "node.vitality",
+      "x": 90,
+      "y": 10,
+      "bonuses": { "max_health": 0, "attack": 1, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.endurance",
+      "display_name": "Endurance",
+      "description": "+5 maximum health.",
+      "parent": "node.insight",
+      "x": 90,
+      "y": 90,
+      "bonuses": { "max_health": 5, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }
+    }
+  ]
+}

@@ -28,6 +28,7 @@ public:
 
     /// Per-frame logic. Returns transition intent.
     virtual EStateTransition Update(entt::registry& Registry, float DeltaTime) = 0;
+    virtual void Render(entt::registry& Registry) {}
 
     /// Human-readable app-flow state name for diagnostics.
     [[nodiscard]] virtual std::string_view GetName() const noexcept = 0;

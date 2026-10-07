@@ -63,6 +63,7 @@ struct FInputState {
             if (!uiCapturesMouse) mouseWheelDelta += ev.wheel.y;
             return true;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            mousePos = { ev.button.x, ev.button.y };
             if (uiCapturesMouse) return false;
             if (ev.button.button == SDL_BUTTON_LEFT) {
                 mouseLeftPressed = true;
@@ -70,7 +71,7 @@ struct FInputState {
             }
             return true;
         case SDL_EVENT_MOUSE_BUTTON_UP:
-            if (uiCapturesMouse) return false;
+            mousePos = { ev.button.x, ev.button.y };
             if (ev.button.button == SDL_BUTTON_LEFT) mouseLeftHeld = false;
             return true;
         case SDL_EVENT_KEY_DOWN: {

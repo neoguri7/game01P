@@ -5,13 +5,18 @@
 
 #include <SDL3/SDL.h>
 
+#include "core/AssetManager.h"
 #include "core/EngineState.h"
+#include "core/ResourceManager.h"
 #include "ecs/components/FCamera.h"
 #include "ecs/components/FFaction.h"
+#include "ecs/components/FHealth.h"
 #include "ecs/components/FGridPosition.h"
 #include "ecs/components/FPosition.h"
+#include "ecs/components/FSprite.h"
 #include "ecs/components/FTag.h"
 #include "ecs/systems/ISystem.h"
+#include "ecs/systems/TurnSystem.h"
 #include "gameplay/grid/FCameraMath.h"
 #include "gameplay/grid/FGridSelection.h"
 #include "gameplay/grid/FGridTypes.h"
@@ -47,15 +52,70 @@ struct GridRenderSystem : ISystem {
             }
         }
 
+        SDL_SetRenderDrawColor(renderer, 19, 35, 31, 255);
+        SDL_RenderFillRect(renderer, nullptr);
+        const auto* assets = registry.ctx().find<FAssetManager>();
+        auto* resources = registry.ctx().find<FResourceManager>();
+        const auto texture = [&](const char* id) -> const FTextureInfo* {
+            if (!assets || !resources) return nullptr;
+            const auto handle = resources->loadTexture(*assets, id);
+            return handle ? resources->find(*handle) : nullptr;
+        };
+        const auto* ground = texture("generated/forest-local/ground");
+        for (int y = -3; y < metrics.height + 3; ++y) {
+            for (int x = -5; x < metrics.width + 5; ++x) {
+                const auto rect = CellRect(metrics, {x, y}, camera, viewport);
+                const bool path = (x == 3 || x == 4) && y >= -1 && y <= metrics.height;
+                const int variant = path ? 4 + ((x + y + 32) % 2) : ((x * 7 + y * 11 + 256) % 4);
+                const SDL_FRect source{static_cast<float>(variant * 32), 0.f, 32.f, 32.f};
+                if (ground) SDL_RenderTexture(renderer, ground->texture, &source, &rect);
+                if (!IsInsideGrid(metrics, x, y)) {
+                    SDL_SetRenderDrawColor(renderer, 10, 26, 24, 95);
+                    SDL_RenderFillRect(renderer, &rect);
+                }
+            }
+        }
+        const auto prop = [&](const FTextureInfo* image, float x, float y, float size) {
+            if (!image) return;
+            const auto screen = WorldToScreen(metrics.origin + glm::vec2{x, y} * metrics.tileSize, camera, viewport);
+            const SDL_FRect rect{screen.x, screen.y, size * metrics.tileSize * camera.zoom, size * metrics.tileSize * camera.zoom};
+            SDL_RenderTexture(renderer, image->texture, nullptr, &rect);
+        };
+        const auto* oak = texture("generated/forest-local/oak");
+        for (int y = -2; y <= metrics.height; y += 2) {
+            prop(oak, -2.1f, static_cast<float>(y), 2.f);
+            prop(oak, static_cast<float>(metrics.width) + 0.1f, static_cast<float>(y) - 0.5f, 2.f);
+        }
+        for (int x = 0; x < metrics.width; x += 2) {
+            prop(oak, static_cast<float>(x), -2.2f, 2.f);
+            prop(oak, static_cast<float>(x), static_cast<float>(metrics.height) + 0.3f, 2.f);
+        }
+        const auto* stone = texture("generated/forest-local/waystone");
+        prop(stone, -0.9f, 3.f, 0.8f);
+        prop(stone, static_cast<float>(metrics.width) + 0.1f, 4.5f, 0.8f);
+
         if (const auto* selection = registry.ctx().find<FGridSelection>()) {
-            SDL_SetRenderDrawColor(renderer, 0, 200, 255, 90);
+            SDL_SetRenderDrawColor(renderer, 220, 185, 100, 18);
+            for (const auto cell : selection->targetable) {
+                if (IsInsideGrid(metrics, cell.x, cell.y)) DrawCellFill(renderer, metrics, cell, camera, viewport);
+            }
+            SDL_SetRenderDrawColor(renderer, 0, 200, 255, 55);
             for (const auto cell : selection->reachable) {
                 if (!IsInsideGrid(metrics, cell.x, cell.y)) continue;
                 DrawCellFill(renderer, metrics, cell, camera, viewport);
             }
+            SDL_SetRenderDrawColor(renderer, 230, 170, 80, 75);
+            for (const auto cell : selection->preview) {
+                if (IsInsideGrid(metrics, cell.x, cell.y)) DrawCellFill(renderer, metrics, cell, camera, viewport);
+            }
+            if (selection->hovered) {
+                SDL_SetRenderDrawColor(renderer, 235, 218, 166, 230);
+                const auto rect = CellRect(metrics, *selection->hovered, camera, viewport);
+                SDL_RenderRect(renderer, &rect);
+            }
         }
 
-        SDL_SetRenderDrawColor(renderer, 70, 70, 90, 255);
+        SDL_SetRenderDrawColor(renderer, 167, 186, 133, 40);
         for (int x = 0; x <= metrics.width; ++x) {
             const auto top = WorldToScreen(GridCellTopLeftToWorld(metrics, x, 0), camera, viewport);
             const auto bottom = WorldToScreen(GridCellTopLeftToWorld(metrics, x, metrics.height), camera, viewport);
@@ -68,6 +128,8 @@ struct GridRenderSystem : ISystem {
         }
 
         const auto* selection = registry.ctx().find<FGridSelection>();
+        const auto* turn = registry.ctx().find<FTurnRuntime>();
+        const auto snapshot = turn ? turn->controller.snapshot() : FTurnSnapshot{};
         auto units = registry.view<const FGridPosition, const FPosition>();
         for (const auto entity : units) {
             const auto cell = units.get<const FGridPosition>(entity);
@@ -81,15 +143,24 @@ struct GridRenderSystem : ISystem {
             } else if (registry.all_of<FEnemy>(entity)) {
                 red = 230; green = 80; blue = 80;
             }
-
-            SDL_SetRenderDrawColor(renderer, red, green, blue, 255);
-            DrawUnitFill(renderer, metrics, cell, camera, viewport);
-            if (selection && selection->selected == entity) {
-                SDL_SetRenderDrawColor(renderer, 255, 220, 60, 255);
-            } else {
-                SDL_SetRenderDrawColor(renderer, 20, 20, 30, 255);
+            if (const auto* health = registry.try_get<FHealth>(entity); health && health->current <= 0) {
+                red = 65; green = 65; blue = 65;
             }
-            DrawUnitOutline(renderer, metrics, cell, camera, viewport);
+
+            if (!registry.all_of<FSprite>(entity)) {
+                SDL_SetRenderDrawColor(renderer, red, green, blue, 255);
+                DrawUnitFill(renderer, metrics, cell, camera, viewport);
+            }
+            SDL_SetRenderDrawColor(renderer, red, green, blue, 180);
+            auto base = UnitRect(metrics, cell, camera, viewport);
+            base.y += base.h - 4.f;
+            base.h = 4.f;
+            SDL_RenderFillRect(renderer, &base);
+            if ((snapshot.currentTurn && snapshot.currentTurn->actor == entity)
+                || (selection && selection->selected == entity)) {
+                SDL_SetRenderDrawColor(renderer, 255, 220, 60, 255);
+                DrawUnitOutline(renderer, metrics, cell, camera, viewport);
+            }
         }
     }
 
@@ -111,7 +182,7 @@ private:
 
     static SDL_FRect UnitRect(const FGridMetrics& metrics, FGridPosition cell, const FCamera& camera, const FViewport& viewport) {
         auto rect = CellRect(metrics, cell, camera, viewport);
-        constexpr float inset = 6.f;
+        const float inset = kUnitHitboxInset * camera.zoom;
         rect.x += inset;
         rect.y += inset;
         rect.w -= inset * 2.f;

@@ -1,5 +1,5 @@
 {
-  "_comment": "첫 전투 배치(개편 3차: 3 클래스 vs 3 적). unit = units.json 콘텐츠 유닛, skills = 장착 스킬+룬(런 스코프). 룬은 소켓 수와 태그 규칙(정본 §3)을 통과해야 하며, 위반 시 전투 셋업이 실패한다. 이동 미구현이라 전원 인접 배치로 검증한다.",
+  "_comment": "Forest I: Mossbound Crossing. Party and enemies meet in the central clearing; perimeter trees are decorative, not hidden obstacles. Normal hub runs override party loadouts. Movement and skill AP remain independent.",
   "schema_version": 1,
   "width": 8,
   "height": 8,
@@ -9,10 +9,10 @@
   "units": [
     {
       "id": "party.warrior",
-      "display_name": "전사",
+      "display_name": "Warrior",
       "faction": "party",
-      "grid_x": 0,
-      "grid_y": 5,
+      "grid_x": 3,
+      "grid_y": 4,
       "unit": "char.warrior",
       "skills": [
         { "skill": "skill.cleave", "runes": ["rune.fire", "rune.power", "rune.leech"] },
@@ -21,10 +21,10 @@
     },
     {
       "id": "party.archer",
-      "display_name": "궁수",
+      "display_name": "Archer",
       "faction": "party",
-      "grid_x": 0,
-      "grid_y": 6,
+      "grid_x": 1,
+      "grid_y": 5,
       "unit": "char.archer",
       "skills": [
         { "skill": "skill.arrow", "runes": ["rune.multishot", "rune.fire", "rune.range"] },
@@ -33,10 +33,10 @@
     },
     {
       "id": "party.mage",
-      "display_name": "법사",
+      "display_name": "Mage",
       "faction": "party",
-      "grid_x": 0,
-      "grid_y": 7,
+      "grid_x": 2,
+      "grid_y": 6,
       "unit": "char.mage",
       "skills": [
         { "skill": "skill.bolt", "runes": ["rune.lightning", "rune.shock", "rune.duration"] },
@@ -47,10 +47,10 @@
     },
     {
       "id": "enemy.imp",
-      "display_name": "임프",
+      "display_name": "Imp",
       "faction": "enemy",
-      "grid_x": 1,
-      "grid_y": 5,
+      "grid_x": 4,
+      "grid_y": 4,
       "unit": "enemy.imp",
       "skills": [
         { "skill": "skill.strike" }
@@ -58,10 +58,10 @@
     },
     {
       "id": "enemy.imp_archer",
-      "display_name": "임프 궁수",
+      "display_name": "Imp Archer",
       "faction": "enemy",
-      "grid_x": 1,
-      "grid_y": 6,
+      "grid_x": 6,
+      "grid_y": 2,
       "unit": "enemy.imp_archer",
       "skills": [
         { "skill": "skill.arrow" }
@@ -69,10 +69,10 @@
     },
     {
       "id": "enemy.imp_shaman",
-      "display_name": "임프 주술사",
+      "display_name": "Imp Hexer",
       "faction": "enemy",
-      "grid_x": 1,
-      "grid_y": 7,
+      "grid_x": 5,
+      "grid_y": 1,
       "unit": "enemy.imp_shaman",
       "skills": [
         { "skill": "skill.bolt" }

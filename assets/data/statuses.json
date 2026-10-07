@@ -4,14 +4,14 @@
   "statuses": [
     {
       "id": "status.burn",
-      "display_name": "화상",
+      "display_name": "Burn",
       "kind": "dot",
       "magnitude": 3,
       "duration_turns": 3
     },
     {
       "id": "status.freeze",
-      "display_name": "빙결",
+      "display_name": "Freeze",
       "kind": "control",
       "magnitude": 0,
       "duration_turns": 2,
@@ -19,21 +19,21 @@
     },
     {
       "id": "status.paralyze",
-      "display_name": "마비",
+      "display_name": "Shock",
       "kind": "control",
       "magnitude": 50,
       "duration_turns": 2
     },
     {
       "id": "status.buff",
-      "display_name": "강화",
+      "display_name": "Empowered",
       "kind": "stat",
       "magnitude": 2,
       "duration_turns": 3
     },
     {
       "id": "status.debuff",
-      "display_name": "약화",
+      "display_name": "Weakened",
       "kind": "stat",
       "magnitude": -2,
       "duration_turns": 3

@@ -1,0 +1,113 @@
+{
+  "source": "Original deterministic pixel drawing in tools/generate_forest_art.py",
+  "seed": 730,
+  "third_party_images": false,
+  "style_sha256": "63ad3fc21185592e239289af8122b7dea02cfa186c75d0f4512bda60fcfb2874",
+  "notes": "Local authored pixel clusters; not a PixelLab result. Remote candidates remain separate and unapproved.",
+  "files": [
+    {
+      "file": "archer.png",
+      "size": [
+        32,
+        32
+      ],
+      "sha256": "93e07ac0b80c649661809dc30a337ac734cb60740b3cf71a7aa184960538f29c"
+    },
+    {
+      "file": "boots.png",
+      "size": [
+        32,
+        32
+      ],
+      "sha256": "4c4a557f0dc3fd0d476050c7b62832e9b2dc2595a1acbbf72c0ee03d5a112dd1"
+    },
+    {
+      "file": "bow.png",
+      "size": [
+        32,
+        32
+      ],
+      "sha256": "81e77e30cc757a33dbc16d05f939d6a8ace860987553cf2832d9c04b48d50b1a"
+    },
+    {
+      "file": "ground.png",
+      "size": [
+        192,
+        32
+      ],
+      "sha256": "b45f164d1431514905de948e80efaf88494d49e9af91c1146dbe2bde36673696"
+    },
+    {
+      "file": "imp-archer.png",
+      "size": [
+        32,
+        32
+      ],
+      "sha256": "80c44bd3d89ec8b7cccdc0f804398eafe0a38c64a81f726fac116691688d892a"
+    },
+    {
+      "file": "imp-shaman.png",
+      "size": [
+        32,
+        32
+      ],
+      "sha256": "9dbe5a30e1a7496eb7bbb68ee221080ac149f7fb0ff2e48caae8c9790bf96e9b"
+    },
+    {
+      "file": "imp.png",
+      "size": [
+        32,
+        32
+      ],
+      "sha256": "a78145b7893bb55a276873059c29059b3875d293c37216d8e9dab88e43313780"
+    },
+    {
+      "file": "mage.png",
+      "size": [
+        32,
+        32
+      ],
+      "sha256": "b527b14ebcec3f82749f730c23c3e95d82d47906fc38b580d19635ab86819ee3"
+    },
+    {
+      "file": "oak.png",
+      "size": [
+        64,
+        64
+      ],
+      "sha256": "4b4e4b023bf6907312f66349dff6a3d3624f99cd581b574956a7a13e1e6c790f"
+    },
+    {
+      "file": "spell.png",
+      "size": [
+        32,
+        32
+      ],
+      "sha256": "ff69ae1937b03096f5a8ef7ac4be40ae7b365c48728acc5ec3a123ea63668be2"
+    },
+    {
+      "file": "sword.png",
+      "size": [
+        32,
+        32
+      ],
+      "sha256": "71f2052478e95885dfb9044fcb8946a94dc8b2405a9d15ed85c071923d58cdd0"
+    },
+    {
+      "file": "warrior.png",
+      "size": [
+        32,
+        32
+      ],
+      "sha256": "dd244bed92d1134c4c60b06a9918f5d0488afb8f67e3ce7cb841b6ce706859cd"
+    },
+    {
+      "file": "waystone.png",
+      "size": [
+        32,
+        32
+      ],
+      "sha256": "aec5202d85f033e17a55e248970e00903a800a08fe7e5ce89753e8de4f01e76a"
+    }
+  ]
+}

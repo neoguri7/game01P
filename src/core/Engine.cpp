@@ -140,7 +140,7 @@ bool Engine::applyEngineInitializeSdlEffect() {
 }
 
 bool Engine::applyEngineCreateWindowEffect(const std::string& title, int w, int h) {
-    SDL_Window* rawWin = SDL_CreateWindow(title.c_str(), w, h, SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    SDL_Window* rawWin = SDL_CreateWindow(title.c_str(), w, h, SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE);
     if (!rawWin) {
         SDL_Log("Window create failed: %s", SDL_GetError());
         return false;
@@ -392,6 +392,7 @@ void Engine::render() {
     (void)ApplyEngineClearBackbufferEffect(renderer.get());
 
     (void)ApplyEngineWorldRenderEffect(registry, systemMgr);
+    if (auto* state = stateMachine.currentState()) state->Render(registry);
 
     (void)ApplyEngineOverlayRenderEffect(registry, frameTime, systemMgr, overlayRenderer);
 

@@ -39,40 +39,50 @@ struct TurnFlowSystem {
         }
 
         const FTurnToken token = *snapshot.currentTurn;
-        if (token.turnSerial == combat->scheduledTurnSerial) {
-            return; // this turn was already handled
-        }
+        const bool turnStarted = token.turnSerial != combat->scheduledTurnSerial;
         combat->scheduledTurnSerial = token.turnSerial;
+        if (turnStarted) {
+            combat->autoActionsThisTurn = 0;
+        }
 
         auto* log = registry.ctx().find<FCombatLog>();
+        if (snapshot.roundNumber > kMaxBattleRounds) {
+            // Stalemate guard: nobody can finish the fight, so end it as a loss instead of spinning.
+            LOG_WARN("[turn] Round limit {} reached - ending battle as a stalemate.", kMaxBattleRounds);
+            if (log) log->push("Stalemate - the battle ends.");
+            outcome->resolved = true;
+            outcome->victory = false;
+            runtime->requests.push_back(FStopTurnSession{});
+            return;
+        }
         const entt::entity actor = token.actor;
         if (!IsAlive(registry, actor)) {
             return; // synchronize() advances past a dead actor
         }
 
         // Turn start: refill both AP pools (design §4: 서로 전환되지 않는 두 풀).
-        if (auto* points = registry.try_get<FActionPoints>(actor)) {
+        if (auto* points = registry.try_get<FActionPoints>(actor); turnStarted && points) {
             points->move = points->moveMax;
             points->skill = points->skillMax;
-            LOG_DEBUG("[turn] {} AP 보충 — 이동 {}/{} 스킬 {}/{}", UnitDisplayName(registry, actor),
+            LOG_DEBUG("[turn] {} AP refilled - move {}/{} skill {}/{}", UnitDisplayName(registry, actor),
                       points->move, points->moveMax, points->skill, points->skillMax);
         }
 
         // Turn start: status tick (docs/design/skill-rune-progression.md §4).
-        if (auto* active = registry.try_get<FActiveStatuses>(actor); active && !active->effects.empty()) {
+        if (auto* active = registry.try_get<FActiveStatuses>(actor); turnStarted && active && !active->effects.empty()) {
             const std::vector<const gameplay::FStatusContent*> definitions = CollectStatuses(*active, *content);
             const FStatusTickResult tick = TickStatuses(*active, definitions, combat->rng);
             if (tick.damage > 0) {
-                if (log) log->push(UnitDisplayName(registry, actor) + " 상태 피해 " + std::to_string(tick.damage));
+                if (log) log->push(UnitDisplayName(registry, actor) + " takes " + std::to_string(tick.damage) + " status damage");
                 if (ApplyDamageToUnit(registry, actor, tick.damage) && log) {
-                    log->push(UnitDisplayName(registry, actor) + " 쓰러짐!");
+                    log->push(UnitDisplayName(registry, actor) + " falls!");
                 }
             }
             if (!IsAlive(registry, actor)) {
                 return;
             }
             if (tick.skipTurn) {
-                if (log) log->push(UnitDisplayName(registry, actor) + " 행동 불가 — 턴을 넘긴다");
+                if (log) log->push(UnitDisplayName(registry, actor) + " cannot act - turn skipped");
                 runtime->requests.push_back(FEndTurn{token});
                 return;
             }
@@ -91,13 +101,20 @@ struct TurnFlowSystem {
             runtime->requests.push_back(FEndTurn{token});
             return;
         }
-
-        if (const auto request = ChooseAutoAction(registry, actor, !isParty, *content)) {
-            queue->pending.push_back(*request);
-        } else if (log) {
-            log->push(UnitDisplayName(registry, actor) + " 사거리 밖 — 턴을 넘긴다");
+        if (!queue->pending.empty()) return;
+        if (combat->autoActionsThisTurn >= kMaxAutoActionsPerTurn) {
+            LOG_WARN("[turn] {} hit the auto-action cap - ending turn.", UnitDisplayName(registry, actor));
+            runtime->requests.push_back(FEndTurn{token});
+            return;
         }
-        runtime->requests.push_back(FEndTurn{token});
+
+        if (auto request = ChooseAutoAction(registry, actor, !isParty, *content)) {
+            request->turn = token;
+            ++combat->autoActionsThisTurn;
+            queue->pending.push_back(*request);
+        } else {
+            runtime->requests.push_back(FEndTurn{token});
+        }
     }
 
     [[nodiscard]] std::string name() const { return "TurnFlowSystem"; }

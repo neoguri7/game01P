@@ -3,6 +3,7 @@
 #include "core/JsonLoader.h"
 #include "core/Logger.h"
 #include "debug/DebugOverlay.h"
+#include "debug/PrototypeChecks.h"
 #include "debug/TurnDemo.h"
 #include "ecs/AnimationFunctions.h"
 #include "ecs/components/FPosition.h"
@@ -24,9 +25,11 @@
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/factory/FScene.h"
 #include "gameplay/GameplayServices.h"
+#include "gameplay/run/FPrototypeRun.h"
 
 #include <cstdlib>
 #include <optional>
+#include <string_view>
 
 namespace {
 
@@ -36,7 +39,6 @@ void RegisterSystems(game::SystemManager& systems)
     systems.addSystem<game::CollisionSystem>();
     systems.addSystem<game::ecs::AnimationSystem>();
     systems.addSystem<game::ecs::DebugPrimitiveRenderSystem>();
-    systems.addSystem<game::ecs::SpriteRenderSystem>();
     systems.addSystem<game::TurnDemoSystem>();
     systems.addSystem<game::ecs::TurnSystem>();
     systems.addSystem<game::ecs::TurnFlowSystem>();
@@ -46,6 +48,7 @@ void RegisterSystems(game::SystemManager& systems)
     systems.addSystem<game::ecs::GridCameraSystem>();
     systems.addSystem<game::ecs::GridSelectSystem>();
     systems.addSystem<game::ecs::GridRenderSystem>();
+    systems.addSystem<game::ecs::SpriteRenderSystem>();
     systems.addSystem<game::ecs::CombatHudSystem>();
 }
 
@@ -115,6 +118,7 @@ int main(int argc, char* argv[])
 
     game::FScene startupScene(engine.getRegistry(), "Stage0Startup");
     const auto shutdown = [&] {
+        engine.getRegistry().ctx().erase<game::FPrototypeRun>();
         startupScene.Unload();
         game::ShutdownTurnDemo(engine.getRegistry());
         game::ShutdownTurnRuntime(engine.getRegistry());
@@ -136,7 +140,8 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
-    if (!AddAnimationCheckSprite(startupScene, engine.getRegistry())) {
+    if (argc == 2 && std::string_view(argv[1]) == "--check-animation"
+        && !AddAnimationCheckSprite(startupScene, engine.getRegistry())) {
         shutdown();
         return EXIT_FAILURE;
     }
@@ -146,6 +151,19 @@ int main(int argc, char* argv[])
     if (!game::gameplay::FGameplayServices::Initialize(engine.getRegistry())) {
         shutdown();
         return EXIT_FAILURE;
+    }
+    const auto* content = engine.getRegistry().ctx().find<game::gameplay::FContentRegistry>();
+    auto run = content ? game::FPrototypeRun::Load(*content) : std::nullopt;
+    if (!run) {
+        LOG_ERROR("Prototype room/party definition is invalid; boot stopped.");
+        shutdown();
+        return EXIT_FAILURE;
+    }
+    engine.getRegistry().ctx().emplace<game::FPrototypeRun>(std::move(*run));
+    if (argc == 2 && std::string_view(argv[1]) == "--verify-prototype") {
+        const bool passed = game::RunPrototypeChecks(*content, engine.getRegistry().ctx().get<game::FPrototypeRun>());
+        shutdown();
+        return passed ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 
     engine.applyStartupStateOverride();

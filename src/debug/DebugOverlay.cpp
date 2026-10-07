@@ -12,6 +12,7 @@
 #include "core/events/FCollisionEvent.h"
 #include "core/events/FEventBus.h"
 #include "core/SystemManager.h"
+#include "core/InputState.h"
 #include "core/Time.h"
 #include "states/GameStateMachine.h"
 #include "ecs/components/FAnimator.h"
@@ -30,6 +31,7 @@
 namespace game {
 
 namespace {
+struct FDebugOverlayVisibility { bool visible{false}; };
 
 std::string GetEntityLabel(entt::registry& registry, entt::entity entity) {
     if (registry.all_of<FTag>(entity)) {
@@ -136,7 +138,7 @@ void RenderEngineStats(entt::registry& registry, const Time& frameTime, const Sy
     }
 
     ImGui::Separator();
-    ImGui::TextDisabled("No gameplay scene is bootstrapped. Engine services and ECS systems are available for the next prototype.");
+    ImGui::TextDisabled("Diagnostics only; grave toggles this overlay.");
     ImGui::End();
 }
 
@@ -174,6 +176,11 @@ void RenderEntityInspector(entt::registry& registry) {
 
 void RenderDebugOverlay(entt::registry& registry, const Time& frameTime, const SystemManager& systemManager) {
     ZoneScopedN("RenderDebugOverlay");
+    auto* visibility = registry.ctx().find<FDebugOverlayVisibility>();
+    if (!visibility) visibility = &registry.ctx().emplace<FDebugOverlayVisibility>();
+    const auto* input = registry.ctx().find<FInputState>();
+    if (input && input->isActionPressed(EInputAction::DebugToggle)) visibility->visible = !visibility->visible;
+    if (!visibility->visible) return;
     RenderEngineStats(registry, frameTime, systemManager);
     RenderEntityInspector(registry);
     RenderTurnDemo(registry);

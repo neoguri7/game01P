@@ -20,7 +20,7 @@ bool IsAlive(entt::registry& registry, entt::entity unit) {
 
 std::string UnitDisplayName(entt::registry& registry, entt::entity unit) {
     if (!registry.valid(unit)) {
-        return "(없음)";
+        return "(none)";
     }
     if (const auto* data = registry.try_get<FUnitData>(unit)) {
         return data->definition.displayName;

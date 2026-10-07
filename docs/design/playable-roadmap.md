@@ -2,6 +2,10 @@
 
 Status: **DRAFT**
 
+Current implementation status and controls: see §9 below.
+The inventory in §3 below is historical; mouse combat and room-flow scaffolding now exist,
+but progression, save/resume, substantive events and final art are not complete.
+
 ※ 2026-10-06 개편 2차: **장비 시스템 폐기, 런 EXP 단일화**. 이 문서에서 장비·수치노드·
 2종 EXP를 언급하는 계획(2·5·6·7단계)은 개편 2차 정본
 [skill-rune-progression.md](skill-rune-progression.md)가 대체한다.
@@ -309,3 +313,92 @@ DoD:
 ## 8. 결정 이력
 
 - (해당 없음 — 최초 작성)
+
+---
+
+## 9. Current prototype status and controls
+
+Updated against pushed `origin/main` at `a4e6ad2` (combat revision `db8fe8b`).
+
+**Status: playable mouse-combat and room-flow slice; not a completed prototype.**
+The authoritative gameplay/progression design still takes precedence over this status report.
+
+### Implemented
+
+- Mouse-accessible title, party preparation, run start, event continuation, camp preparation,
+  battle result continuation, abandonment and quit. Diagnostics are hidden by default.
+- Preparation uses the existing three-class roster and one to four available skills per enabled
+  member, with a party limit of four. Recruitment/permanent unlocks are not implemented.
+- Normal hub-started runs override the diagnostic battlefield loadouts and start without runes.
+  Direct `GAME01P_START=battle` retains the authored rune fixture for diagnostics.
+- Movement spends one move AP for one orthogonal empty cell, preserving the existing provisional
+  reachability rule. Skill AP is independent. This is not a final movement-distance balance decision.
+- A skill plus a clicked living unit hitbox queues an attack/support request. Cell-targeted skills
+  can select empty grid cells. The resolver validates turn token, actor, faction, self targeting,
+  range, occupancy and AP. No projectile/sprite/VFX collision determines damage; combat does not
+  use the physics collision system.
+- Current/pending turn order, selected skill range, reachable movement cells, KO state and battle log.
+  Enemies approach when necessary and spend available AP through the same resolver.
+- `assets/data/prototype-run.json` defines three battles, an informational event waypoint and a camp.
+  Camp advances a session-only checkpoint and continues into another dungeon. Defeat/abandonment
+  clears the active run and rune attachments, retaining preparation and the checkpoint.
+  Preparation/checkpoints contain stable placement IDs, never battle entity handles.
+
+### Controls
+
+1. Click **Prepare party**, enable members/select skills, then **Start run**.
+2. On a party turn, select a skill and click the target's visible body hitbox. Range is amber.
+   Click **Move**, then a cyan adjacent empty cell; click **End turn** when finished.
+   Holding the mouse does not repeatedly spend AP or attack.
+3. Click **Continue run** after victory and **Continue** at the waypoint/camp. Abandonment is
+   available by mouse. Enter/Escape are menu/result shortcuts; WASD pans, the wheel zooms,
+   and the grave key toggles diagnostics.
+
+Unit input hitboxes and outlines share a six-world-pixel inset and transform with camera zoom.
+Future sprite/animation/VFX bounds must not become damage detectors.
+
+### Verification
+
+Build the existing MSVC/C++23 CMake application and run `game01P.exe --verify-prototype`.
+There is no separate test executable or new CMake test target.
+
+- Workspace build: passed.
+- Main-executable regression suite: **73 checks passed**, exit code 0. Covers preparation,
+  empty starting runes, checkpoint/reset scope, action rejection, separate AP, grid/world movement,
+  empty-cell skills, mouse hitboxes/UI capture/hold, automated combat and the actual three-battle
+  state lifecycle with scene/context teardown.
+- Real SDL/ImGui smoke with `GAME01P_START=battle` and `GAME01P_AUTOPLAY=1`: victory logged,
+  graceful window shutdown exited 0.
+- `git diff --check`: passed.
+- Combat and room-flow reviewed against `modern-game-programming-check`; concrete AI
+  slot-selection/full-HP-support issues corrected. Ownership remains application/scene scoped.
+- Existing PixelLab style-first idle-animation dry run: passed, no paid call or generated files.
+
+These checks do not constitute human visual review or balance evaluation.
+
+### Remaining completion gates
+
+- Run EXP/levels/nodes and the final run-growth stage of the skill/stat pipeline.
+- Rune/material rewards, ownership, camp equipping and material stat upgrades. Reward rates,
+  costs and unlock rules still need explicit design decisions.
+- Full rune shape behavior: existing pierce still falls back to a single target.
+- Actual event choices/rewards, not the current informational waypoint.
+- Cross-room HP/KO recovery policy. This slice preserves full-HP battle startup rather than
+  silently introducing persistent attrition/resurrection rules.
+- Dungeon/theme/boss content and difficulty growth. Currently all rooms/subsequent dungeons
+  reuse the diagnostic encounter.
+- Save/resume and persistent checkpoint/roster/unlock storage. The checkpoint is **session-only**.
+- Final assets, icons, animations and cosmetic attack feedback, with visual consistency review.
+
+### PixelLab handoff
+
+Read `style.md` and `tools/pixellab/README.md`; use the existing offline generator. Provider credentials
+were available, but **paid generation was deferred because mechanics are not complete**. No generated
+or approved art is claimed. Do not bypass this gate with fabricated assets.
+
+Use a coherent family: 32x32 native front-facing full-body characters/enemies with transparent
+backgrounds, stable feet and four-frame subtle idle clips; 32x32 opaque seamless stone floor tiles;
+restrained transparent cosmetic effects. Preserve outline, upper-left light and faction/selection
+color meanings. Inspect dry runs, then review units side by side, animation loops and repeated tiles
+before integrating through the existing resource/animation library. Seeds alone do not guarantee
+consistency; separate animation invocations currently create separate initial images.
