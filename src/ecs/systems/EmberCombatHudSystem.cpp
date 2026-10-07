@@ -1,4 +1,4 @@
-#include "ecs/systems/CombatHudSystem.h"
+#include "ecs/systems/EmberCombatHudSystem.h"
 
 #include <algorithm>
 #include <imgui.h>
@@ -39,7 +39,7 @@ bool CanTarget(entt::registry& registry, entt::entity actor, entt::entity target
 }
 } // namespace
 
-void CombatHudSystem::update(entt::registry& registry, float) {
+void EmberCombatHudSystem::update(entt::registry& registry, float) {
     auto* selection = registry.ctx().find<FGridSelection>();
     auto* runtime = registry.ctx().find<FTurnRuntime>();
     const auto* outcome = registry.ctx().find<FBattleOutcome>();
@@ -89,19 +89,33 @@ void CombatHudSystem::update(entt::registry& registry, float) {
             FViewport{static_cast<float>(window.width), static_cast<float>(window.height)}), x, y)) return;
     selection->hovered = FGridPosition{x, y};
     const auto target = FindGridOccupant(registry, x, y);
+    if (selectedSkill >= 0 && selectedSkill < static_cast<int>(loadout.slots.size())) {
+        const auto& slot = loadout.slots[selectedSkill];
+        const auto skill = ResolveSkillSlot(slot, registry.ctx().get<gameplay::FContentRegistry>());
+        if (skill && skill->target == "cell") {
+            const auto from = registry.get<FGridPosition>(actor);
+            if (IsInRange(from, {x, y}, skill->range) && HasGridLineOfSight(registry, from, {x, y})) {
+                selection->affected = ComputeSkillCells(*skill, {x, y}, from);
+            }
+            if (input->mouseLeftPressed) {
+                queue.pending.push_back(FActionRequest{actor, target, slot.skillId, token, {x, y}});
+            }
+            return;
+        }
+    }
     if (target != entt::null && selectedSkill < static_cast<int>(loadout.slots.size())) {
         const auto& slot = loadout.slots[selectedSkill];
         const auto skill = ResolveSkillSlot(slot, registry.ctx().get<gameplay::FContentRegistry>());
         if (skill && CanTarget(registry, actor, target, *skill)) {
-            selection->affected = ComputeSkillCells(*skill, {x, y});
+            selection->affected = ComputeSkillCells(*skill, {x, y}, registry.get<FGridPosition>(actor));
         }
-        if (input->mouseLeftPressed) queue.pending.push_back(FActionRequest{actor, target, slot.skillId, token});
+        if (input->mouseLeftPressed) queue.pending.push_back(FActionRequest{actor, target, slot.skillId, token, {x, y}});
     } else if (input->mouseLeftPressed) {
         queue.pending.push_back(FMoveRequest{actor, {x, y}, token});
     }
 }
 
-void CombatHudSystem::render(entt::registry& registry) {
+void EmberCombatHudSystem::render(entt::registry& registry) {
     auto* outcome = registry.ctx().find<FBattleOutcome>();
     if (!outcome) return;
     const auto& window = registry.ctx().get<FEngineWindowState>();
@@ -185,7 +199,8 @@ void CombatHudSystem::render(entt::registry& registry) {
                         ImGui::PushID(static_cast<int>(entt::to_integral(target)));
                         ImGui::BeginDisabled(points.skill < skill->apCost || !queue.pending.empty());
                         if (ImGui::SmallButton(UnitDisplayName(registry, target).c_str())) {
-                            queue.pending.push_back(FActionRequest{actor, target, slots[selectedSkill].skillId, *snapshot.currentTurn});
+                            queue.pending.push_back(FActionRequest{actor, target, slots[selectedSkill].skillId,
+                                *snapshot.currentTurn, registry.get<FGridPosition>(target)});
                         }
                         ImGui::EndDisabled();
                         ImGui::PopID();

@@ -2,6 +2,27 @@
 
 A playable SDL3 + EnTT turn-based grid-tactics roguelike prototype.
 
+## Two preserved game modes
+
+The default executable opens the **forest prototype**: the user's title, prepared
+party/equipment and individual passive tree, forest encounters, event and camp
+flow, and local forest art. Click an action in the dock, then its target; movement
+spends one move AP for one orthogonal step. WASD pans the forest camera and the
+mouse wheel zooms it. The three-room lifecycle and checkpoint progression stay
+independent of Ember's save.
+
+Launch **Ember Dungeon** with `game01P.exe --ember`, or set
+`$env:GAME01P_MODE = "ember"`. `--forest` explicitly selects the default again.
+Mode selection happens at startup, not during an active battle. The Ember
+controls and expedition loop are described below.
+
+Both modes use the same turn scheduler, value-token action queue, AP/status
+pipeline, collision/pathfinding and wall LOS rules. Forest skills retain empty
+cell targeting, line pierce, and the expanded Lunge/Snipe/Firebolt rows; Ember
+retains path traps, rune transactions and persistent dungeon checkpoints.
+Distinct app states and rendering/HUD systems preserve each authored layout;
+there is no second combat scheduler or resolver.
+
 ## Play
 
 On Windows, with CMake, Visual Studio 2026 and `VCPKG_ROOT` configured:
@@ -9,7 +30,7 @@ On Windows, with CMake, Visual Studio 2026 and `VCPKG_ROOT` configured:
 ```powershell
 cmake --preset windows-msvc-debug
 cmake --build --preset windows-msvc-debug --parallel
-.\out\build\windows-msvc-debug\Debug\game01P.exe
+.\out\build\windows-msvc-debug\Debug\game01P.exe --ember
 ```
 
 The executable loads its adjacent `assets` directory, so the build folder can
@@ -76,10 +97,11 @@ style controls and subject-specific text, not through that absent CLI.
 
 ```powershell
 ctest --preset windows-msvc-debug --output-on-failure
-.\out\build\windows-msvc-debug\Debug\game01P.exe --smoke-test
-.\out\build\windows-msvc-debug\Debug\game01P.exe --capture .\out\title.png
+.\out\build\windows-msvc-debug\Debug\game01P.exe --forest --verify-prototype
+.\out\build\windows-msvc-debug\Debug\game01P.exe --ember --smoke-test
+.\out\build\windows-msvc-debug\Debug\game01P.exe --ember --capture .\out\title.png
 $env:GAME01P_START = "battle"
-.\out\build\windows-msvc-debug\Debug\game01P.exe --capture .\out\battle.png
+.\out\build\windows-msvc-debug\Debug\game01P.exe --ember --capture .\out\battle.png
 ```
 
 CTest covers collisions, path traversal/traps, LOS including diagonal corners,
@@ -88,14 +110,17 @@ AI progress, rewards, rune legality, checkpoint advancement and defeat reset.
 It also verifies focused-HUD keyboard shortcuts, modal keyboard capture, bad
 rune-drop content rejection, scheduler-independent AI token propagation, camp
 rune conservation/rejections, and actual choice-window text under changed
-balance data. It boots title/battle with SDL's dummy video/
-software renderer. Tests use isolated checkpoint files, not the player's save.
+balance data, empty-cell targeting and line pierce blocked by walls. It boots
+both modes' title/battle with SDL's dummy video/software renderer and runs the
+user's `--verify-prototype` harness (including preparation/passives, hitboxes,
+AP/tokens, autoplay and the complete forest room lifecycle).
+Tests use isolated checkpoint files, not the player's save.
 
 Content and balance live in `assets/data/dungeon.json`, `units.json`,
 `skills.json`, `runes.json`, and `statuses.json`. Gameplay rules remain separate
 from SDL/ImGui presentation. For automated combat, set `GAME01P_AUTOPLAY=1`
 together with `GAME01P_START=battle`; this does not choose run rewards for you.
-Use `--frames 800 --capture .\out\reward.png` for a bounded capture after
+Use `--ember --frames 800 --capture .\out\reward.png` for a bounded capture after
 combat, or `--frames N` to quit automatically after 1-100000 frames.
 
 For semantic tooling, place a generated CMake `compile_commands.json` in the

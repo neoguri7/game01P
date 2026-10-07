@@ -20,6 +20,7 @@ struct FActionRequest {
     entt::entity target{entt::null};
     std::string skillId;
     FTurnToken token;
+    FGridPosition cell{};
 };
 
 struct FMoveRequest {
@@ -37,6 +38,7 @@ struct FActionQueue {
 /// Battle result, written once when one side is wiped. `resolved` guards repeated evaluation;
 /// `exitRequested` is set by the HUD's "거점으로" button.
 struct FBattleOutcome {
+    bool abandonRequested{false};
     bool resolved{false};
     bool victory{false};
     bool exitRequested{false};
@@ -90,11 +92,18 @@ struct FBattleRng {
 /// scheduled by the HUD, so only auto actions need this guard). `autoPlay` is a debug switch (env
 /// `GAME01P_AUTOPLAY=1`): both sides fight automatically so the combat pipeline can be verified from the
 /// log without input. `rng` is battle-scoped so status rolls do not leak between fights.
+inline constexpr int kMaxAutoActionsPerTurn = 8;
+inline constexpr std::uint64_t kMaxBattleRounds = 60;
+
 struct FCombatRuntime {
     std::uint64_t scheduledTurnSerial{0};
+    int autoActionsThisTurn{0};
     bool autoPlay{false};
     FBattleRng rng;
     float thinkDelay{0.f};
+    int selectedSkill{0};
+    bool moveSelected{false};
+    entt::entity inputActor{entt::null};
 };
 
 } // namespace game

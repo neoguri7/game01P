@@ -4,7 +4,7 @@
   "runes": [
     {
       "id": "rune.fire",
-      "display_name": "화염 추가 피해",
+      "display_name": "Added Fire Damage",
       "status_on_hit": "status.burn",
       "power_delta": 1,
       "requires_any_tags": ["Attack", "Spell"],
@@ -13,7 +13,7 @@
     },
     {
       "id": "rune.cold",
-      "display_name": "냉기 추가 피해",
+      "display_name": "Added Cold Damage",
       "status_on_hit": "status.freeze",
       "power_delta": 1,
       "requires_any_tags": ["Attack", "Spell"],
@@ -22,7 +22,7 @@
     },
     {
       "id": "rune.lightning",
-      "display_name": "전기 추가 피해",
+      "display_name": "Added Lightning Damage",
       "status_on_hit": "status.paralyze",
       "power_delta": 1,
       "requires_any_tags": ["Attack", "Spell"],
@@ -31,83 +31,102 @@
     },
     {
       "id": "rune.multishot",
-      "display_name": "다중 사격",
+      "display_name": "Lesser Multiple Projectiles",
       "shape_override": "spread",
       "requires_all_tags": ["Projectile"]
     },
     {
       "id": "rune.pierce",
-      "display_name": "관통",
+      "display_name": "Pierce",
       "shape_override": "pierce",
       "requires_all_tags": ["Projectile"]
     },
     {
       "id": "rune.zone",
-      "display_name": "장판",
+      "display_name": "Lingering Zone",
       "shape_override": "zone",
       "requires_all_tags": ["Spell"],
       "adds_tags": ["Zone"]
     },
     {
       "id": "rune.area",
-      "display_name": "범위 확대",
+      "display_name": "Increased Area of Effect",
       "area_radius_delta": 1,
       "requires_all_tags": ["Zone"]
     },
     {
       "id": "rune.concentrated",
-      "display_name": "집중",
+      "display_name": "Concentrated Effect",
       "area_radius_delta": -1,
       "power_delta": 3,
       "requires_all_tags": ["Zone"]
     },
     {
       "id": "rune.power",
-      "display_name": "위력",
+      "display_name": "Brutality",
       "power_delta": 2
     },
     {
       "id": "rune.swift",
-      "display_name": "신속",
+      "display_name": "Quicken",
       "ap_delta": -1
     },
     {
       "id": "rune.range",
-      "display_name": "사거리",
+      "display_name": "Far Reach",
       "range_delta": 1
     },
     {
       "id": "rune.duration",
-      "display_name": "지속",
+      "display_name": "Persistence",
       "status_duration_delta": 1,
       "requires_any_tags": ["Duration", "Fire", "Cold", "Lightning"]
     },
     {
       "id": "rune.ember",
-      "display_name": "연소",
+      "display_name": "Burning Embers",
       "requires_all_tags": ["Fire"],
       "status_id": "status.burn",
       "status_magnitude_delta": 2
     },
     {
       "id": "rune.frostbite",
-      "display_name": "혹한",
+      "display_name": "Deep Frostbite",
       "requires_all_tags": ["Cold"],
       "status_id": "status.freeze",
       "status_duration_delta": 1
     },
     {
       "id": "rune.shock",
-      "display_name": "감전",
+      "display_name": "Amplified Shock",
       "requires_all_tags": ["Lightning"],
       "status_id": "status.paralyze",
       "status_magnitude_delta": 20
     },
     {
       "id": "rune.leech",
-      "display_name": "흡혈",
+      "display_name": "Life Leech",
       "life_on_hit": 2,
       "requires_any_tags": ["Attack"]
+    },
+    {
+      "id": "rune.inferno",
+      "display_name": "Inferno",
+      "power_delta": 2,
+      "requires_all_tags": ["Fire"]
+    },
+    {
+      "id": "rune.glacial",
+      "display_name": "Glacial Hammer",
+      "power_delta": 2,
+      "requires_all_tags": ["Cold"]
+    },
+    {
+      "id": "rune.precision",
+      "display_name": "Precision",
+      "power_delta": 1,
+      "range_delta": 1,
+      "requires_all_tags": ["Projectile"]
     }
   ]
 }

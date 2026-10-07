@@ -11,12 +11,14 @@
 #include "core/EngineState.h"
 #include "core/ResourceManager.h"
 #include "ecs/components/FActionPoints.h"
+#include "ecs/components/FActiveStatuses.h"
 #include "ecs/components/FFaction.h"
 #include "ecs/components/FGridPosition.h"
 #include "ecs/components/FHealth.h"
 #include "ecs/components/FPosition.h"
 #include "ecs/systems/ActionResolverSystem.h"
 #include "ecs/systems/CombatOutcomeSystem.h"
+#include "ecs/systems/EmberCombatHudSystem.h"
 #include "ecs/systems/TurnFlowSystem.h"
 #include "gameplay/GameplayServices.h"
 #include "gameplay/combat/FCombatApply.h"
@@ -25,8 +27,9 @@
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/grid/FGridQuery.h"
+#include "gameplay/grid/FCameraMath.h"
 #include "gameplay/grid/FGridTerrain.h"
-#include "states/FBattleState.h"
+#include "states/FEmberBattleState.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FDungeonArt.h"
 #include "core/InputState.h"
@@ -44,7 +47,7 @@ struct FFixture {
     game::ecs::TurnFlowSystem flow;
     game::ecs::ActionResolverSystem actions;
     game::ecs::CombatOutcomeSystem outcomes;
-    FBattleState battle;
+    FEmberBattleState battle;
     std::filesystem::path checkpoint;
 
     explicit FFixture(std::uint32_t seed = 1234) {
@@ -238,6 +241,98 @@ void AutoActionTokenBoundary() {
     CHECK(!game::ChooseAutoAction(registry, invalid, false, content));
 }
 
+void SharedCellAndPierceActions() {
+    FFixture fixture;
+    auto& registry = fixture.registry;
+    const auto token = fixture.token();
+    auto& terrain = registry.ctx().get<game::FGridTerrain>();
+    terrain.cells.fill(game::ETile::Floor);
+    registry.get<game::FGridPosition>(token.actor) = {1, 1};
+    std::vector<entt::entity> enemies;
+    for (const auto entity : registry.view<game::FEnemy, game::FHealth>()) enemies.push_back(entity);
+    CHECK(enemies.size() >= 2);
+    for (std::size_t index = 0; index < enemies.size(); ++index) {
+        registry.get<game::FGridPosition>(enemies[index]) = {6, 2 + static_cast<int>(index)};
+    }
+    const auto target = enemies[0];
+    const auto behind = enemies[1];
+    registry.get<game::FGridPosition>(target) = {2, 1};
+    registry.get<game::FGridPosition>(behind) = {3, 1};
+    auto& loadout = registry.get<game::FSkillLoadout>(token.actor);
+    loadout.slots.push_back({"skill.lunge", {}});
+    loadout.slots.push_back({"skill.fog", {}});
+    auto& points = registry.get<game::FActionPoints>(token.actor);
+    auto& queue = registry.ctx().get<game::FActionQueue>();
+    const int targetHp = registry.get<game::FHealth>(target).current;
+    const int behindHp = registry.get<game::FHealth>(behind).current;
+    terrain.cells[1 * 8 + 3] = game::ETile::Wall;
+    queue.pending.push_back(game::FActionRequest{token.actor, target, "skill.lunge", token});
+    fixture.actions.update(registry, 0);
+    CHECK(registry.get<game::FHealth>(target).current < targetHp);
+    CHECK(registry.get<game::FHealth>(behind).current == behindHp);
+    terrain.cells[1 * 8 + 3] = game::ETile::Floor;
+    points.skill = points.skillMax;
+    queue.pending.push_back(game::FActionRequest{token.actor, target, "skill.lunge", token});
+    fixture.actions.update(registry, 0);
+    CHECK(registry.get<game::FHealth>(behind).current < behindHp);
+
+    registry.get<game::FGridPosition>(target) = {4, 1};
+    registry.get<game::FGridPosition>(behind) = {5, 1};
+    points.skill = points.skillMax;
+    const auto effectsBefore = registry.get<game::FActiveStatuses>(target).effects.size();
+    terrain.cells[1 * 8 + 2] = game::ETile::Wall;
+    queue.pending.push_back(game::FActionRequest{token.actor, entt::null, "skill.fog", token, {3, 1}});
+    fixture.actions.update(registry, 0);
+    CHECK(points.skill == points.skillMax);
+    CHECK(registry.get<game::FActiveStatuses>(target).effects.size() == effectsBefore);
+    terrain.cells[1 * 8 + 2] = game::ETile::Floor;
+    queue.pending.push_back(game::FActionRequest{token.actor, entt::null, "skill.fog", token, {3, 1}});
+    fixture.actions.update(registry, 0);
+    CHECK(points.skill < points.skillMax);
+    CHECK(registry.get<game::FActiveStatuses>(target).effects.size() > effectsBefore);
+    points.skill = points.skillMax;
+    queue.pending.push_back(game::FActionRequest{token.actor, entt::null, "skill.fog", token, {-1, 1}});
+    fixture.actions.update(registry, 0);
+    CHECK(points.skill == points.skillMax);
+
+    auto& window = registry.ctx().emplace<game::FEngineWindowState>();
+    window.width = 1280;
+    window.height = 800;
+    auto& input = registry.ctx().emplace<game::FInputState>();
+    game::FCamera camera{};
+    for (const auto entity : registry.view<game::FCamera>()) camera = registry.get<game::FCamera>(entity);
+    input.mousePos = game::WorldToScreen(game::GridCellCenterToWorld(
+        registry.ctx().get<game::FGridMetrics>(), 3, 1), camera, {1280, 800});
+    input.mouseLeftPressed = true;
+    game::ecs::EmberCombatHudSystem hud;
+    hud.boundTurn = token.turnSerial;
+    hud.selectedSkill = static_cast<int>(loadout.slots.size()) - 1;
+    hud.update(registry, 0);
+    CHECK(queue.pending.size() == 1);
+    const auto* cellAction = std::get_if<game::FActionRequest>(&queue.pending.front());
+    CHECK(cellAction && cellAction->skillId == "skill.fog" && cellAction->target == entt::null);
+    CHECK(cellAction->cell.x == 3 && cellAction->cell.y == 1 && cellAction->token == token);
+    fixture.actions.update(registry, 0);
+    CHECK(points.skill < points.skillMax);
+
+    entt::entity ally = entt::null;
+    for (const auto entity : registry.view<game::FPartyMember>()) {
+        if (entity != token.actor) { ally = entity; break; }
+    }
+    CHECK(ally != entt::null);
+    registry.get<game::FGridPosition>(ally) = {1, 2};
+    CHECK(game::FindGridOccupant(registry, 1, 2) == ally);
+    auto& allyHealth = registry.get<game::FHealth>(ally);
+    allyHealth.current -= 10;
+    const int allyHp = allyHealth.current;
+    loadout.slots.push_back({"skill.buff", {}});
+    points.skill = points.skillMax;
+    queue.pending.push_back(game::FActionRequest{token.actor, ally, "skill.buff", token});
+    fixture.actions.update(registry, 0);
+    CHECK(allyHealth.current == allyHp);
+    CHECK(!registry.get<game::FActiveStatuses>(ally).effects.empty());
+}
+
 void CampRuneTransactions() {
     FFixture fixture;
     auto& registry = fixture.registry;
@@ -410,7 +505,8 @@ void CompleteRun(std::uint32_t seed) {
     std::ifstream file(fixture.checkpoint);
     const auto saved = nlohmann::json::parse(file);
     CHECK(saved.at("cleared") == 1);
-    CHECK(run.party.front().skills.size() == 2);
+    CHECK(run.party.front().skills.size() ==
+        registry.ctx().get<game::gameplay::FContentRegistry>().units.find("char.warrior")->skillIds.size());
     auto candidate = run.party.front().skills.front();
     candidate.runeIds.push_back("rune.fire");
     CHECK(!game::ValidateSkillSlot(candidate, registry.ctx().get<game::gameplay::FContentRegistry>()));
@@ -530,6 +626,7 @@ int main() {
         CollisionAndTurns();
         ActionValidation();
         AutoActionTokenBoundary();
+        SharedCellAndPierceActions();
         CampRuneTransactions();
         BalanceDrivenChoiceUi();
         CompleteRun(1);

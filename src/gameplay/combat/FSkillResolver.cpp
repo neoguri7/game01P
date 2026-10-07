@@ -112,6 +112,29 @@ std::optional<FResolvedSkill> ResolveSkillSlot(
     return ResolveSkill(*skill, runes);
 }
 
+std::vector<FGridPosition> ComputeSkillCells(
+    const FResolvedSkill& skill, const FGridPosition& center, const FGridPosition& origin) {
+    std::vector<FGridPosition> cells = ComputeSkillCells(skill, center);
+    if (skill.shape != "pierce") {
+        return cells;
+    }
+    const int dx = center.x - origin.x;
+    const int dy = center.y - origin.y;
+    if (dx == 0 && dy == 0) {
+        return cells;
+    }
+    const bool horizontal = std::abs(dx) >= std::abs(dy);
+    const int stepX = horizontal ? (dx > 0 ? 1 : -1) : 0;
+    const int stepY = horizontal ? 0 : (dy > 0 ? 1 : -1);
+    const int length = std::max(1, skill.range);
+    for (int i = 1; i <= length; ++i) {
+        const FGridPosition cell{origin.x + stepX * i, origin.y + stepY * i};
+        if (cell.x == center.x && cell.y == center.y) continue;
+        cells.push_back(cell);
+    }
+    return cells;
+}
+
 std::vector<FGridPosition> ComputeSkillCells(const FResolvedSkill& skill, const FGridPosition& center) {
     std::vector<FGridPosition> cells{center};
     if (skill.shape == "spread") {
@@ -119,7 +142,7 @@ std::vector<FGridPosition> ComputeSkillCells(const FResolvedSkill& skill, const 
             cells.push_back(neighbor);
         }
     } else if (skill.shape == "zone") {
-        // §3.3 집중 룬이 반경을 0까지 낮출 수 있다 — 그때는 대상 셀 하나만 남는다.
+        // Concentrated can lower the radius to 0, leaving only the target cell.
         const int radius = std::max(0, skill.areaRadius);
         for (int dy = -radius; dy <= radius; ++dy) {
             for (int dx = -radius; dx <= radius; ++dx) {
@@ -129,8 +152,7 @@ std::vector<FGridPosition> ComputeSkillCells(const FResolvedSkill& skill, const 
             }
         }
     } else if (skill.shape == "pierce") {
-        // 관통 직선은 전투 완성 슬라이스에서 구현한다(정본 §3.3 rune.pierce). 그때까지 대상 셀 하나로
-        // 처리해 액션이 정의되게 유지한다.
+        // The line beyond the target needs the caster cell; use the three-argument overload.
     }
     return cells;
 }

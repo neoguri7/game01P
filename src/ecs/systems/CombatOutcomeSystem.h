@@ -29,7 +29,7 @@ struct CombatOutcomeSystem {
         outcome->resolved = true;
         outcome->victory = enemies == 0;
         if (auto* log = registry.ctx().find<FCombatLog>()) {
-            log->push(outcome->victory ? "Room secured!" : "Party defeated...");
+            log->push(outcome->victory ? "Victory!" : "The party has fallen...");
         }
         if (auto* runtime = registry.ctx().find<FTurnRuntime>()) {
             runtime->requests.push_back(FStopTurnSession{});

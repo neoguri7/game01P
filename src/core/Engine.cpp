@@ -21,6 +21,10 @@
 #include "states/FBattleState.h"
 #include "states/FHubState.h"
 #include "states/FTitleState.h"
+#include "states/FEmberBattleState.h"
+#include "states/FEmberHubState.h"
+#include "states/FEmberTitleState.h"
+#include "gameplay/FGameMode.h"
 
 namespace game {
 
@@ -94,6 +98,7 @@ void Engine::setOverlayRenderer(std::function<void(entt::registry&, const Time&,
 }
 
 void Engine::applyStartupStateOverride() {
+    if (IsEmberMode(registry)) applyStateTransition(EStateTransition::ToTitle);
     const char* requestedStart = SDL_getenv("GAME01P_START"); // boundary: env key
     if (requestedStart == nullptr || std::string_view(requestedStart) != "battle") {
         return;
@@ -141,7 +146,7 @@ bool Engine::applyEngineInitializeSdlEffect() {
 }
 
 bool Engine::applyEngineCreateWindowEffect(const std::string& title, int w, int h) {
-    SDL_Window* rawWin = SDL_CreateWindow(title.c_str(), w, h, SDL_WINDOW_RESIZABLE);
+    SDL_Window* rawWin = SDL_CreateWindow(title.c_str(), w, h, SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE);
     if (!rawWin) {
         SDL_Log("Window create failed: %s", SDL_GetError());
         return false;
@@ -346,14 +351,17 @@ void Engine::applyStateTransition(EStateTransition transition) {
     case EStateTransition::None:
         return;
     case EStateTransition::ToTitle:
-        stateMachine.switchState(std::make_unique<FTitleState>(), registry);
+        if (IsEmberMode(registry)) stateMachine.switchState(std::make_unique<FEmberTitleState>(), registry);
+        else stateMachine.switchState(std::make_unique<FTitleState>(), registry);
         break;
     case EStateTransition::ToHub:
-        stateMachine.switchState(std::make_unique<FHubState>(), registry);
+        if (IsEmberMode(registry)) stateMachine.switchState(std::make_unique<FEmberHubState>(), registry);
+        else stateMachine.switchState(std::make_unique<FHubState>(), registry);
         break;
     case EStateTransition::ToBattle:
     case EStateTransition::ToPrototype:
-        stateMachine.switchState(std::make_unique<FBattleState>(), registry);
+        if (IsEmberMode(registry)) stateMachine.switchState(std::make_unique<FEmberBattleState>(), registry);
+        else stateMachine.switchState(std::make_unique<FBattleState>(), registry);
         break;
     case EStateTransition::Quit:
         applyEngineMarkRunningEffect(false);
@@ -400,6 +408,7 @@ void Engine::render() {
     (void)ApplyEngineClearBackbufferEffect(renderer.get());
 
     (void)ApplyEngineWorldRenderEffect(registry, systemMgr);
+    if (auto* state = stateMachine.currentState()) state->Render(registry);
 
     (void)ApplyEngineOverlayRenderEffect(registry, frameTime, systemMgr, overlayRenderer);
 

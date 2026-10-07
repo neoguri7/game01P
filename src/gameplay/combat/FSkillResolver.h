@@ -54,10 +54,12 @@ struct FResolvedSkill {
 
 /// Every cell a resolved skill affects, given the primary target cell: single = the target cell alone,
 /// spread = the target plus its orthogonal neighbors, zone = all cells within areaRadius (Manhattan,
-/// radius 0 = the center cell alone), pierce = the target cell alone until the line shape lands in the
-/// combat-completion slice.
+/// radius 0 = the center cell alone), pierce = the target cell plus the straight line from `origin`
+/// through the target (dominant axis) for at most `skill.range` cells. Every loop is bounded by range/radius.
 [[nodiscard]] std::vector<FGridPosition> ComputeSkillCells(
     const FResolvedSkill& skill, const FGridPosition& center);
+[[nodiscard]] std::vector<FGridPosition> ComputeSkillCells(
+    const FResolvedSkill& skill, const FGridPosition& center, const FGridPosition& origin);
 
 /// 서포트젬식 태그 판정 (docs/design/skill-rune-progression.md §3.2). 유효 태그 집합
 /// T = 베이스 스킬 태그 ∪ 장착된 모든 룬의 adds_tags. 모든 룬이 requires_all ⊆ T,

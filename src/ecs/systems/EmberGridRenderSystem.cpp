@@ -1,4 +1,4 @@
-#include "ecs/systems/GridRenderSystem.h"
+#include "ecs/systems/EmberGridRenderSystem.h"
 
 #include <algorithm>
 #include <cmath>
@@ -15,7 +15,7 @@
 
 namespace game::ecs {
 
-void GridRenderSystem::render(entt::registry& registry) {
+void EmberGridRenderSystem::render(entt::registry& registry) {
     const auto* rendererContext = registry.ctx().find<SDL_Renderer*>();
     const auto* grid = registry.ctx().find<FGridMetrics>();
     const auto* terrain = registry.ctx().find<FGridTerrain>();

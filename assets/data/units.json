@@ -4,8 +4,9 @@
   "units": [
     {
       "id": "char.warrior",
-      "display_name": "전사",
+      "display_name": "Warrior",
       "class": "warrior",
+      "sprite": "generated/forest-local/warrior",
       "max_health": 140,
       "speed": 4,
       "move_ap": 1,
@@ -14,12 +15,13 @@
       "magic_attack": 2,
       "defense": 5,
       "magic_defense": 3,
-      "skills": ["skill.strike", "skill.cleave"]
+      "skills": ["skill.strike", "skill.cleave", "skill.lunge"]
     },
     {
       "id": "char.archer",
-      "display_name": "궁수",
+      "display_name": "Archer",
       "class": "archer",
+      "sprite": "generated/forest-local/archer",
       "max_health": 100,
       "speed": 7,
       "move_ap": 1,
@@ -28,12 +30,13 @@
       "magic_attack": 3,
       "defense": 3,
       "magic_defense": 3,
-      "skills": ["skill.arrow", "skill.volley"]
+      "skills": ["skill.arrow", "skill.volley", "skill.snipe"]
     },
     {
       "id": "char.mage",
-      "display_name": "법사",
+      "display_name": "Mage",
       "class": "mage",
+      "sprite": "generated/forest-local/mage",
       "max_health": 90,
       "speed": 5,
       "move_ap": 1,
@@ -42,7 +45,7 @@
       "magic_attack": 8,
       "defense": 2,
       "magic_defense": 5,
-      "skills": ["skill.bolt", "skill.fog", "skill.heal", "skill.buff", "skill.debuff"]
+      "skills": ["skill.bolt", "skill.fog", "skill.heal", "skill.buff", "skill.debuff", "skill.firebolt"]
     },
     {
       "id": "char.healer",
@@ -73,7 +76,8 @@
     },
     {
       "id": "enemy.imp",
-      "display_name": "임프",
+      "display_name": "Imp",
+      "sprite": "generated/forest-local/imp",
       "max_health": 45,
       "speed": 5,
       "move_ap": 1,
@@ -86,7 +90,8 @@
     },
     {
       "id": "enemy.imp_archer",
-      "display_name": "임프 궁수",
+      "display_name": "Imp Archer",
+      "sprite": "generated/forest-local/imp-archer",
       "max_health": 35,
       "speed": 6,
       "move_ap": 1,
@@ -99,7 +104,8 @@
     },
     {
       "id": "enemy.imp_shaman",
-      "display_name": "임프 주술사",
+      "display_name": "Imp Hexer",
+      "sprite": "generated/forest-local/imp-shaman",
       "max_health": 30,
       "speed": 5,
       "move_ap": 1,

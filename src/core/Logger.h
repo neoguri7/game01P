@@ -34,6 +34,7 @@ struct FLogger {
 
         auto logger = std::make_shared<spdlog::logger>(std::string(LOGGER_NAME), sinks.begin(), sinks.end());
         logger->set_level(spdlog::level::trace);
+        logger->flush_on(spdlog::level::info); // keep a trail if the process crashes
         spdlog::register_logger(logger);
 
         reg.ctx().emplace<FLogger>(FLogger{logger});

@@ -68,18 +68,18 @@ private:
         auto* position = registry.try_get<FPosition>(request.actor);
         const auto* grid = registry.ctx().find<FGridMetrics>();
         const auto* terrain = registry.ctx().find<FGridTerrain>();
-        if (!IsAlive(registry, request.actor) || !points || !cell || !position || !grid || !terrain) {
+        if (!IsAlive(registry, request.actor) || !points || !cell || !position || !grid) {
             return Reject(log, "Cannot move: unit or grid is unavailable.");
         }
         if (points->move <= 0) return Reject(log, "No movement AP remaining.");
-        const auto path = FindGridPath(registry, request.actor, request.destination, terrain->moveRange);
+        const auto path = FindGridPath(registry, request.actor, request.destination, terrain ? terrain->moveRange : 1);
         if (path.empty()) return Reject(log, "Blocked: wall, occupied cell or movement range.");
         --points->move;
         for (const auto step : path) {
             *cell = step;
             const auto world = GridCellTopLeftToWorld(*grid, cell->x, cell->y);
             *position = FPosition{world.x, world.y};
-            if (terrain->at(cell->x, cell->y) == ETile::Trap) {
+            if (terrain && terrain->at(cell->x, cell->y) == ETile::Trap) {
                 const bool knockedOut = ApplyDamageToUnit(registry, request.actor, terrain->trapDamage);
                 if (log) log->push(UnitDisplayName(registry, request.actor) + " crossed spikes: -" +
                                    std::to_string(terrain->trapDamage) + " HP.");
@@ -126,7 +126,8 @@ private:
             return Reject(log, UnitDisplayName(registry, actor) + ": skill resolution failed.");
         }
 
-        if (!IsAlive(registry, request.target)) {
+        const bool cellTarget = resolved->target == "cell";
+        if (!cellTarget && !IsAlive(registry, request.target)) {
             return Reject(log, UnitDisplayName(registry, actor) + ": no living target.");
         }
         const bool targetIsParty = registry.all_of<FPartyMember>(request.target);
@@ -135,14 +136,18 @@ private:
         const bool casterIsParty = registry.all_of<FPartyMember>(actor);
         const bool targetsOwnSide = resolved->target == "ally" || resolved->target == "self";
         const bool affectsParty = targetsOwnSide ? casterIsParty : !casterIsParty;
-        if (affectsParty != targetIsParty) {
+        if (!cellTarget && affectsParty != targetIsParty) {
             return Reject(log, "Wrong target faction for this skill.");
         }
         if (resolved->target == "self" && request.target != actor) {
             return Reject(log, "This skill can only target its caster.");
         }
 
-        const auto* targetCell = registry.try_get<FGridPosition>(request.target);
+        const auto* targetCell = cellTarget ? &request.cell : registry.try_get<FGridPosition>(request.target);
+        const auto* metrics = registry.ctx().find<FGridMetrics>();
+        if (!metrics || !targetCell || !IsInsideGrid(*metrics, targetCell->x, targetCell->y)) {
+            return Reject(log, "Target is outside the battlefield.");
+        }
         if (targetCell == nullptr || !IsInRange(*actorCell, *targetCell, resolved->range)) {
             return Reject(log, UnitDisplayName(registry, actor) + ": target out of range.");
         }
@@ -160,13 +165,9 @@ private:
         const gameplay::FSkillContent* skillRow = content.skills.find(slot->skillId);
         const std::string skillName = skillRow != nullptr ? skillRow->displayName : slot->skillId;
 
-        if (resolved->shape == "pierce") {
-            Reject(log, "Pierce is not available in this prototype.");
-        }
-
         // Shape semantics live in gameplay/combat so the resolver, the HUD and later slices share one
         // definition of what a skill affects (docs/design/skill-rune-progression.md §3.2).
-        const std::vector<FGridPosition> cells = ComputeSkillCells(*resolved, *targetCell);
+        const std::vector<FGridPosition> cells = ComputeSkillCells(*resolved, *targetCell, *actorCell);
         const std::vector<entt::entity> affected = FindUnitsOnCells(registry, cells, affectsParty);
 
         // §1.1: 공격 항은 damage_type이 고른다. 버프/디버프(stat 상태)는 어느 쪽 공격 항에도 더해진다.
@@ -178,13 +179,13 @@ private:
 
         for (const entt::entity target : affected) {
             const auto& affectedCell = registry.get<FGridPosition>(target);
-            if (!HasGridLineOfSight(registry, *targetCell, affectedCell)) continue;
+            if (!HasGridLineOfSight(registry, *actorCell, affectedCell)) continue;
             const std::string targetName = UnitDisplayName(registry, target);
             bool died = false;
 
             if (targetsOwnSide) {
-                // Support skills: 회복량 = 마법공격력 + power (docs/design/skill-rune-progression.md §8, 잠정).
-                const int heal = std::max(0, stats->magicAttack + resolved->power);
+                // Zero-power support skills apply statuses without also becoming heals.
+                const int heal = resolved->power > 0 ? std::max(0, stats->magicAttack + resolved->power) : 0;
                 if (auto* health = registry.try_get<FHealth>(target); health && heal > 0) {
                     const int before = health->current;
                     health->current = std::min(health->max, health->current + heal);

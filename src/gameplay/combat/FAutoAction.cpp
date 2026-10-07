@@ -38,18 +38,19 @@ std::optional<FBattleAction> ChooseAutoAction(
             if (!IsAlive(registry, target) || registry.all_of<FPartyMember>(target) !=
                 (ownSide ? !targetPartySide : targetPartySide)) continue;
             if (resolved->target == "self" && target != actor) continue;
-            if (ownSide && registry.get<FHealth>(target).current >= registry.get<FHealth>(target).max) continue;
+            if (ownSide && resolved->power > 0 &&
+                registry.get<FHealth>(target).current >= registry.get<FHealth>(target).max) continue;
             const auto targetCell = registry.get<FGridPosition>(target);
             if (IsInRange(*actorCell, targetCell, resolved->range) &&
                 HasGridLineOfSight(registry, *actorCell, targetCell)) {
-                return FActionRequest{actor, target, slot.skillId, token};
+                return FActionRequest{actor, target, slot.skillId, token, targetCell};
             }
         }
     }
     if (points->move <= 0) return std::nullopt;
     const auto* terrain = registry.ctx().find<FGridTerrain>();
-    if (!terrain) return std::nullopt;
-    const auto reachable = ComputeReachableCells(registry, actor, terrain->moveRange);
+    const int moveRange = terrain ? terrain->moveRange : 1;
+    const auto reachable = ComputeReachableCells(registry, actor, moveRange);
     // Score full paths so the AI can route around obstacles, not just approach in a straight line.
     int bestScore = std::numeric_limits<int>::max();
     std::optional<FGridPosition> best;
@@ -59,13 +60,13 @@ std::optional<FBattleAction> ChooseAutoAction(
         for (const auto neighbor : OrthogonalNeighbors(targetCell)) {
             const auto path = FindGridPath(registry, actor, neighbor, kGridWidth * kGridHeight);
             if (path.empty()) continue;
-            const auto destination = path[std::min(path.size(), static_cast<std::size_t>(terrain->moveRange)) - 1];
+            const auto destination = path[std::min(path.size(), static_cast<std::size_t>(moveRange)) - 1];
             if (std::ranges::find_if(reachable, [&](auto cell) {
                     return cell.x == destination.x && cell.y == destination.y;
                 }) == reachable.end()) continue;
             int score = static_cast<int>(path.size()) * 10;
-            for (const auto cell : FindGridPath(registry, actor, destination, terrain->moveRange)) {
-                if (terrain->at(cell.x, cell.y) == ETile::Trap) score += 15;
+            for (const auto cell : FindGridPath(registry, actor, destination, moveRange)) {
+                if (terrain && terrain->at(cell.x, cell.y) == ETile::Trap) score += 15;
             }
             if (score < bestScore) { bestScore = score; best = destination; }
         }

@@ -68,14 +68,18 @@ if(BUILD_TESTING)
     set_target_properties(dungeon_tests PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON)
     add_test(NAME dungeon_rules COMMAND dungeon_tests)
     set_tests_properties(dungeon_rules PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
-    add_test(NAME dungeon_title_smoke COMMAND game01P --smoke-test)
-    add_test(NAME dungeon_battle_smoke COMMAND game01P --smoke-test)
-    set_tests_properties(dungeon_title_smoke dungeon_battle_smoke PROPERTIES
+    add_test(NAME dungeon_title_smoke COMMAND game01P --ember --smoke-test)
+    add_test(NAME dungeon_battle_smoke COMMAND game01P --ember --smoke-test)
+    add_test(NAME forest_title_smoke COMMAND game01P --forest --smoke-test)
+    add_test(NAME forest_battle_smoke COMMAND game01P --forest --smoke-test)
+    add_test(NAME forest_prototype_checks COMMAND game01P --forest --verify-prototype)
+    set_tests_properties(dungeon_title_smoke dungeon_battle_smoke forest_title_smoke forest_battle_smoke forest_prototype_checks PROPERTIES
         WORKING_DIRECTORY "$<TARGET_FILE_DIR:game01P>"
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy;SDL_RENDER_DRIVER=software"
         TIMEOUT 30
         RUN_SERIAL TRUE)
     set_property(TEST dungeon_battle_smoke APPEND PROPERTY ENVIRONMENT "GAME01P_START=battle")
+    set_property(TEST forest_battle_smoke APPEND PROPERTY ENVIRONMENT "GAME01P_START=battle")
     if(WIN32)
         add_custom_command(TARGET dungeon_tests POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
