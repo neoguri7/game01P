@@ -92,3 +92,5 @@ tools/pixellab/__pycache__/
 tools/
 tools/*
 style.md
+!/style.md
+.serena/

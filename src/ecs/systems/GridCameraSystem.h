@@ -10,6 +10,7 @@
 #include "ecs/components/FCamera.h"
 #include "ecs/components/FTag.h"
 #include "ecs/systems/ISystem.h"
+#include "gameplay/grid/FGridTypes.h"
 
 namespace game::ecs {
 
@@ -28,16 +29,14 @@ struct GridCameraSystem : ISystem {
         if (cameraEntity == entt::null) return;
 
         auto& camera = registry.get<FCamera>(cameraEntity);
-        camera.zoom = std::clamp(camera.zoom, 0.25f, 4.f);
-        const float panSpeed = 480.f * deltaTime / camera.zoom;
-        if (input->isActionHeld(EInputAction::MoveLeft)) camera.position.x -= panSpeed;
-        if (input->isActionHeld(EInputAction::MoveRight)) camera.position.x += panSpeed;
-        if (input->isActionHeld(EInputAction::MoveUp)) camera.position.y -= panSpeed;
-        if (input->isActionHeld(EInputAction::MoveDown)) camera.position.y += panSpeed;
-
-        if (input->mouseWheelDelta != 0.f) {
-            camera.zoom = std::clamp(camera.zoom * std::pow(1.1f, input->mouseWheelDelta), 0.25f, 4.f);
-        }
+        (void)deltaTime;
+        const auto* window = registry.ctx().find<FEngineWindowState>();
+        const auto* metrics = registry.ctx().find<FGridMetrics>();
+        if (!window || !metrics) return;
+        camera.zoom = std::clamp(std::min((window->width * .58f - 64.f) / (8 * metrics->tileSize),
+                                          (window->height - 220.f) / (8 * metrics->tileSize)), .25f, 1.f);
+        camera.position = metrics->origin + glm::vec2{4 * metrics->tileSize} +
+            glm::vec2{window->width * .21f, -25.f} / camera.zoom;
     }
 
     std::string name() const override { return "GridCameraSystem"; }

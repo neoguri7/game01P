@@ -9,16 +9,11 @@
 
 namespace game {
 
-/// The fallback action when a unit is not player-driven (enemies; both sides under GAME01P_AUTOPLAY):
-/// pick the first loadout slot whose resolved skill has a living target on `targetPartySide` within
-/// range, and strike the nearest one. Movement joins a later slice, so a unit with no in-range target
-/// has no action and its turn passes.
-///
-/// Combat policy lives here, not in the turn system (TurnFlowSystem), so the likely next changes
-/// (movement, smarter targeting) stay isolated from turn bookkeeping.
-[[nodiscard]] std::optional<FActionRequest> ChooseAutoAction(
+/// Choose an affordable skill or an obstacle-aware move for the caller's turn token.
+/// The caller owns turn scheduling; queued actions are validated again by the action resolver.
+[[nodiscard]] std::optional<FBattleAction> ChooseAutoAction(
     entt::registry& registry,
-    entt::entity actor,
+    FTurnToken token,
     bool targetPartySide,
     const gameplay::FContentRegistry& content);
 

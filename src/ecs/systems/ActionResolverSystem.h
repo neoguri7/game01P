@@ -20,12 +20,15 @@
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/grid/FGridQuery.h"
+#include "gameplay/grid/FGridTerrain.h"
+#include "ecs/components/FPosition.h"
+#include "ecs/systems/TurnSystem.h"
 
 namespace game::ecs {
 
 /// Applies queued battle actions: validates the actor, AP, target side and range, then resolves the
-/// skill through the rune pipeline (docs/design/skill-rune-progression.md §3/§8) onto every affected
-/// target. Movement joins in a later slice.
+/// skill through the rune pipeline onto every affected target, or moves along a collision-checked path.
 struct ActionResolverSystem {
     void update(entt::registry& registry, float /*deltaTime*/) {
         auto* queue = registry.ctx().find<FActionQueue>();
@@ -35,18 +38,57 @@ struct ActionResolverSystem {
             return;
         }
 
-        const std::vector<FActionRequest> requests = std::move(queue->pending);
+        const std::vector<FBattleAction> requests = std::move(queue->pending);
         queue->pending.clear();
 
         auto* log = registry.ctx().find<FCombatLog>();
-        for (const FActionRequest& request : requests) {
-            Resolve(registry, request, *content, log);
+        for (const auto& request : requests) {
+            std::visit([&](const auto& typed) {
+                const auto* runtime = registry.ctx().find<FTurnRuntime>();
+                const auto snapshot = runtime ? runtime->controller.snapshot() : FTurnSnapshot{};
+                if (!snapshot.currentTurn || typed.token != *snapshot.currentTurn || typed.actor != typed.token.actor) {
+                    Reject(log, "Not your turn: stale action rejected.");
+                    return;
+                }
+                if constexpr (std::is_same_v<std::decay_t<decltype(typed)>, FMoveRequest>) {
+                    Move(registry, typed, log);
+                } else {
+                    Resolve(registry, typed, *content, log);
+                }
+            }, request);
         }
     }
 
     [[nodiscard]] std::string name() const { return "ActionResolverSystem"; }
 
 private:
+    static void Move(entt::registry& registry, const FMoveRequest& request, FCombatLog* log) {
+        auto* points = registry.try_get<FActionPoints>(request.actor);
+        auto* cell = registry.try_get<FGridPosition>(request.actor);
+        auto* position = registry.try_get<FPosition>(request.actor);
+        const auto* grid = registry.ctx().find<FGridMetrics>();
+        const auto* terrain = registry.ctx().find<FGridTerrain>();
+        if (!IsAlive(registry, request.actor) || !points || !cell || !position || !grid || !terrain) {
+            return Reject(log, "Cannot move: unit or grid is unavailable.");
+        }
+        if (points->move <= 0) return Reject(log, "No movement AP remaining.");
+        const auto path = FindGridPath(registry, request.actor, request.destination, terrain->moveRange);
+        if (path.empty()) return Reject(log, "Blocked: wall, occupied cell or movement range.");
+        --points->move;
+        for (const auto step : path) {
+            *cell = step;
+            const auto world = GridCellTopLeftToWorld(*grid, cell->x, cell->y);
+            *position = FPosition{world.x, world.y};
+            if (terrain->at(cell->x, cell->y) == ETile::Trap) {
+                const bool knockedOut = ApplyDamageToUnit(registry, request.actor, terrain->trapDamage);
+                if (log) log->push(UnitDisplayName(registry, request.actor) + " crossed spikes: -" +
+                                   std::to_string(terrain->trapDamage) + " HP.");
+                if (knockedOut) break;
+            }
+        }
+        if (log) log->push(UnitDisplayName(registry, request.actor) + " moved.");
+    }
+
     static void Reject(FCombatLog* log, const std::string& reason) {
         if (log != nullptr) {
             log->push(reason);
@@ -57,7 +99,7 @@ private:
                         const gameplay::FContentRegistry& content, FCombatLog* log) {
         const entt::entity actor = request.actor;
         if (!IsAlive(registry, actor)) {
-            return Reject(log, "행동 불가(쓰러짐)");
+            return Reject(log, "Cannot act: knocked out.");
         }
 
         const auto* loadout = registry.try_get<FSkillLoadout>(actor);
@@ -65,7 +107,7 @@ private:
         const auto* stats = registry.try_get<FStats>(actor);
         const auto* actorCell = registry.try_get<FGridPosition>(actor);
         if (loadout == nullptr || points == nullptr || stats == nullptr || actorCell == nullptr) {
-            return Reject(log, "행동 불가(구성 요소 없음)");
+            return Reject(log, "Cannot act: missing combat components.");
         }
 
         const FSkillSlot* slot = nullptr;
@@ -76,16 +118,16 @@ private:
             }
         }
         if (slot == nullptr) {
-            return Reject(log, UnitDisplayName(registry, actor) + " 알 수 없는 스킬");
+            return Reject(log, UnitDisplayName(registry, actor) + ": unknown skill.");
         }
 
         const auto resolved = ResolveSkillSlot(*slot, content);
         if (!resolved) {
-            return Reject(log, UnitDisplayName(registry, actor) + " 스킬 해석 실패");
+            return Reject(log, UnitDisplayName(registry, actor) + ": skill resolution failed.");
         }
 
         if (!IsAlive(registry, request.target)) {
-            return Reject(log, UnitDisplayName(registry, actor) + " 대상이 없다");
+            return Reject(log, UnitDisplayName(registry, actor) + ": no living target.");
         }
         const bool targetIsParty = registry.all_of<FPartyMember>(request.target);
         // Target sides are read from the CASTER's perspective: "enemy"/"cell" hit the other side,
@@ -94,16 +136,22 @@ private:
         const bool targetsOwnSide = resolved->target == "ally" || resolved->target == "self";
         const bool affectsParty = targetsOwnSide ? casterIsParty : !casterIsParty;
         if (affectsParty != targetIsParty) {
-            return Reject(log, affectsParty ? "아군이 아닌 대상" : "적이 아닌 대상");
+            return Reject(log, "Wrong target faction for this skill.");
+        }
+        if (resolved->target == "self" && request.target != actor) {
+            return Reject(log, "This skill can only target its caster.");
         }
 
         const auto* targetCell = registry.try_get<FGridPosition>(request.target);
         if (targetCell == nullptr || !IsInRange(*actorCell, *targetCell, resolved->range)) {
-            return Reject(log, UnitDisplayName(registry, actor) + " 사거리 밖");
+            return Reject(log, UnitDisplayName(registry, actor) + ": target out of range.");
+        }
+        if (!HasGridLineOfSight(registry, *actorCell, *targetCell)) {
+            return Reject(log, "Line of sight blocked by stone.");
         }
 
         if (points->skill < resolved->apCost) {
-            return Reject(log, UnitDisplayName(registry, actor) + " 스킬 AP 부족 ("
+            return Reject(log, UnitDisplayName(registry, actor) + ": not enough skill AP ("
                 + std::to_string(points->skill) + "/" + std::to_string(resolved->apCost) + ")");
         }
         points->skill -= resolved->apCost;
@@ -113,7 +161,7 @@ private:
         const std::string skillName = skillRow != nullptr ? skillRow->displayName : slot->skillId;
 
         if (resolved->shape == "pierce") {
-            Reject(log, "관통 형태는 아직 구현되지 않아 단일 대상으로 처리한다");
+            Reject(log, "Pierce is not available in this prototype.");
         }
 
         // Shape semantics live in gameplay/combat so the resolver, the HUD and later slices share one
@@ -129,6 +177,8 @@ private:
         }
 
         for (const entt::entity target : affected) {
+            const auto& affectedCell = registry.get<FGridPosition>(target);
+            if (!HasGridLineOfSight(registry, *targetCell, affectedCell)) continue;
             const std::string targetName = UnitDisplayName(registry, target);
             bool died = false;
 
@@ -139,8 +189,8 @@ private:
                     const int before = health->current;
                     health->current = std::min(health->max, health->current + heal);
                     if (log && health->current > before) {
-                        log->push(actorName + "의 " + skillName + " → " + targetName + " "
-                                  + std::to_string(health->current - before) + " 회복");
+                        log->push(actorName + " / " + skillName + " -> " + targetName + " +"
+                                  + std::to_string(health->current - before) + " HP");
                     }
                 }
             } else if (resolved->power > 0) {
@@ -152,15 +202,15 @@ private:
                 const int damage = ComputeDamage(offense, resolved->power, defense);
                 died = ApplyDamageToUnit(registry, target, damage);
                 if (log) {
-                    std::string line = actorName + "의 " + skillName + " → " + targetName + " "
-                        + std::to_string(damage) + " 피해";
+                    std::string line = actorName + " / " + skillName + " -> " + targetName + " -"
+                        + std::to_string(damage) + " HP";
                     if (const auto* health = registry.try_get<FHealth>(target)) {
                         line += " (" + std::to_string(health->current) + "/" + std::to_string(health->max) + ")";
                     }
-                    if (died) line += " — 처치";
+                    if (died) line += " / KO";
                     log->push(std::move(line));
                     if (died) {
-                        log->push(targetName + " 쓰러짐!");
+                        log->push(targetName + " knocked out!");
                     }
                 }
                 // §3.3 흡혈: 피해를 준 공격자의 HP를 회복한다(대상이 쓰러져도 적용).
@@ -170,12 +220,12 @@ private:
                         const int before = actorHealth->current;
                         actorHealth->current = std::min(actorHealth->max, actorHealth->current + resolved->lifeOnHit);
                         if (log && actorHealth->current > before) {
-                            log->push(actorName + " 흡혈 +" + std::to_string(actorHealth->current - before));
+                            log->push(actorName + " leech +" + std::to_string(actorHealth->current - before));
                         }
                     }
                 }
             } else if (log && !resolved->statuses.empty()) {
-                log->push(actorName + "의 " + skillName + " → " + targetName + " 상태 부여");
+                log->push(actorName + " / " + skillName + " -> " + targetName + " status applied");
             }
 
             if (died) {

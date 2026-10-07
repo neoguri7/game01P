@@ -5,22 +5,33 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <variant>
 
 #include <entt/entt.hpp>
 
 #include "core/Logger.h"
+#include "gameplay/turn/TurnTypes.h"
+#include "ecs/components/FGridPosition.h"
 
 namespace game {
 
-/// One queued battle action. Skill-only for now; 이동은 다음 슬라이스에서 추가한다.
 struct FActionRequest {
     entt::entity actor{entt::null};
     entt::entity target{entt::null};
     std::string skillId;
+    FTurnToken token;
 };
 
+struct FMoveRequest {
+    entt::entity actor{entt::null};
+    FGridPosition destination;
+    FTurnToken token;
+};
+
+using FBattleAction = std::variant<FActionRequest, FMoveRequest>;
+
 struct FActionQueue {
-    std::vector<FActionRequest> pending;
+    std::vector<FBattleAction> pending;
 };
 
 /// Battle result, written once when one side is wiped. `resolved` guards repeated evaluation;
@@ -83,6 +94,7 @@ struct FCombatRuntime {
     std::uint64_t scheduledTurnSerial{0};
     bool autoPlay{false};
     FBattleRng rng;
+    float thinkDelay{0.f};
 };
 
 } // namespace game

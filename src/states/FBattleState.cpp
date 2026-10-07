@@ -14,12 +14,13 @@
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/grid/FGridSelection.h"
 #include "gameplay/grid/FGridTypes.h"
+#include "gameplay/dungeon/FDungeonRun.h"
+#include "presentation/FDungeonArt.h"
 
 std::span<const std::string_view> FBattleState::RequiredSystems() const noexcept
 {
     static constexpr std::string_view systems[]{
         "GridCameraSystem",
-        "GridSelectSystem",
         "GridRenderSystem",
         "TurnSystem",
         "TurnFlowSystem",
@@ -36,17 +37,17 @@ void FBattleState::OnEnter(entt::registry& Registry)
     scene = std::make_unique<game::FScene>(Registry, "BattleGrid");
     scene->Load();
 
-    const auto document = game::FJsonLoader::Load("assets/data/battlefield.json");
-    if (!document) {
-        LOG_ERROR("Battlefield data load failed: {}", document.error().message);
-        return;
+    if (!Registry.ctx().contains<game::FDungeonRun>()) {
+        game::StartDungeonRun(Registry, static_cast<std::uint32_t>(SDL_GetTicks()));
     }
-
-    const auto battlefield = game::FEntityFactory::CreateBattlefield(*scene, *document);
+    const auto document = game::BuildDungeonBattlefield(Registry);
+    const auto battlefield = game::FEntityFactory::CreateBattlefield(*scene, document);
     if (!battlefield) {
         LOG_ERROR("Battlefield creation failed: {}", battlefield.error().message);
         return;
     }
+    Registry.ctx().erase<game::FGridTerrain>();
+    Registry.ctx().emplace<game::FGridTerrain>(battlefield->terrain);
 
     if (auto* metrics = Registry.ctx().find<game::FGridMetrics>()) {
         *metrics = battlefield->metrics;
@@ -81,6 +82,8 @@ void FBattleState::OnEnter(entt::registry& Registry)
         LOG_ERROR("Battle units could not be made combat-ready.");
         return;
     }
+    game::ApplyRunParty(Registry);
+    game::AssignDungeonSprites(Registry, battlefield->units);
 
     Registry.ctx().erase<game::FActionQueue>();
     Registry.ctx().emplace<game::FActionQueue>();
@@ -90,6 +93,9 @@ void FBattleState::OnEnter(entt::registry& Registry)
     Registry.ctx().emplace<game::FCombatLog>();
     Registry.ctx().erase<game::FCombatRuntime>();
     Registry.ctx().emplace<game::FCombatRuntime>();
+    Registry.ctx().get<game::FCombatRuntime>().rng.state =
+        Registry.ctx().get<game::FDungeonRun>().seed + static_cast<std::uint32_t>(
+            Registry.ctx().get<game::FDungeonRun>().depth * 3 + Registry.ctx().get<game::FDungeonRun>().room);
     if (const char* autoPlay = SDL_getenv("GAME01P_AUTOPLAY"); autoPlay != nullptr && std::string_view(autoPlay) == "1") {
         if (auto* combat = Registry.ctx().find<game::FCombatRuntime>()) {
             combat->autoPlay = true;
@@ -98,7 +104,7 @@ void FBattleState::OnEnter(entt::registry& Registry)
     }
     if (auto* runtime = Registry.ctx().find<game::FTurnRuntime>()) {
         runtime->stop();
-        runtime->requests.push_back(game::FStartTurnSession{1234u}); // 잠정 시드 — 런 시드 슬라이스에서 대체
+        runtime->requests.push_back(game::FStartTurnSession{Registry.ctx().get<game::FCombatRuntime>().rng.state});
     }
 
     LOG_INFO("Battle ready: {} unit(s).", battlefield->units.size());
@@ -116,6 +122,7 @@ void FBattleState::OnExit(entt::registry& Registry)
     Registry.ctx().erase<game::FCombatRuntime>();
     Registry.ctx().erase<game::FGridSelection>();
     Registry.ctx().erase<game::FGridMetrics>();
+    Registry.ctx().erase<game::FGridTerrain>();
     scene.reset();
     battleReady = false;
 }
@@ -127,19 +134,19 @@ EStateTransition FBattleState::Update(entt::registry& Registry, float DeltaTime)
         return EStateTransition::ToHub;
     }
 
-    const auto* input = Registry.ctx().find<game::FInputState>();
-    if (input && input->isActionPressed(game::EInputAction::Cancel)) {
+    auto* run = Registry.ctx().find<game::FDungeonRun>();
+    if (run && run->abandonRequested) {
+        Registry.ctx().erase<game::FDungeonRun>();
         return EStateTransition::ToHub;
+    }
+    if (run && run->advanceRequested) {
+        run->advanceRequested = false;
+        return EStateTransition::ToBattle;
     }
 
     const auto* outcome = Registry.ctx().find<game::FBattleOutcome>();
     if (outcome && outcome->resolved) {
-        if (outcome->exitRequested) {
-            return EStateTransition::ToHub;
-        }
-        if (input && input->isActionPressed(game::EInputAction::Confirm)) {
-            return EStateTransition::ToHub;
-        }
+        game::CompleteDungeonBattle(Registry, outcome->victory);
     }
     return EStateTransition::None;
 }

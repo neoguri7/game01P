@@ -1,0 +1,105 @@
+# Ember Dungeon / Game01P
+
+A playable SDL3 + EnTT turn-based grid-tactics roguelike prototype.
+
+## Play
+
+On Windows, with CMake, Visual Studio 2026 and `VCPKG_ROOT` configured:
+
+```powershell
+cmake --preset windows-msvc-debug
+cmake --build --preset windows-msvc-debug --parallel
+.\out\build\windows-msvc-debug\Debug\game01P.exe
+```
+
+The executable loads its adjacent `assets` directory, so the build folder can
+be moved together with its DLLs and assets. CI packages all three.
+
+| Control | Action |
+|---|---|
+| Click an empty cyan cell | Move the active adventurer up to three orthogonal cells |
+| WASD | Move one cell; key repeat does not spend extra turns |
+| 1-4 or skill list | Choose a skill |
+| Click a unit or a valid target button | Use the selected skill |
+| Space or End turn | Finish the current adventurer's turn |
+| Escape | Confirm abandoning the expedition |
+| Backtick | Toggle the developer overlay |
+
+Blue marks party units, red enemies, yellow the active unit/hover, and cyan
+reachable cells. Spikes damage units **along the entire traversed path**.
+Walls and living units block movement; walls also block skill line of sight.
+KO units no longer block cells or take turns. Invalid actions are reported in
+the battle journal and do not spend AP.
+
+## Prototype loop
+
+Lead a warrior, archer, mage and healer through three seeded 8×8 combat rooms,
+a shrine/cache decision after the first room, and a guardian in the third.
+Initiative uses the existing speed scheduler. Each turn has separate movement
+AP and skill AP; neither can substitute for the other.
+
+Room clears grant run EXP, a growth-node choice, reinforcement materials and a
+rune. HP, nodes and loadouts carry between rooms. At camp, freely fit/remove
+collected runes subject to the existing socket, duplicate and tag rules; spend
+materials on stat reinforcement or descend without spending them. Dungeons
+continue with stronger enemies rather than ending the run at a fixed depth.
+Rune changes are camp-only gameplay operations, not UI mutations. Removing a
+rune that another fitted rune requires is rejected; remove the dependent rune
+first. Rejected edits leave both the loadout and collected inventory unchanged.
+
+Clearing a dungeon saves its checkpoint in SDL's user preferences directory
+(`Game01P/EmberDungeon/checkpoint.json`). A new run may start at the next
+unlocked dungeon, or start fresh at dungeon 1. Defeat/abandonment resets run
+EXP, stat growth, materials and runes, not cleared checkpoints. KO is temporary;
+room-clear recovery restores knocked-out members without permanent injuries.
+
+This slice has a small authored room pool with seeded order, a minimal
+party-wide growth choice, static unit sprites, and checkpoint persistence.
+It does not implement the full planned individual node tree, expanded theme
+content, multi-part bosses, character animations, or saving an in-progress run.
+Ending an expedition at camp keeps the checkpoint, **not** a suspended build.
+
+## Art
+
+[`style.md`](style.md) is the user-provided style-v2 source of truth.
+`assets/art` contains native 32×32 PixelLab MCP outputs, sampled with nearest
+neighbor at runtime. No existing PNG was used as a reference. The manifest
+records tool/job/seed provenance and rejected candidates. Family and repeated
+tile previews were checked before integration; these remain prototype art,
+not automatically approved style-reference images.
+
+The historical CLI guide linked by the supplied style document is not present
+in this checkout. Assets were requested through PixelLab MCP with its explicit
+style controls and subject-specific text, not through that absent CLI.
+
+## Verify
+
+```powershell
+ctest --preset windows-msvc-debug --output-on-failure
+.\out\build\windows-msvc-debug\Debug\game01P.exe --smoke-test
+.\out\build\windows-msvc-debug\Debug\game01P.exe --capture .\out\title.png
+$env:GAME01P_START = "battle"
+.\out\build\windows-msvc-debug\Debug\game01P.exe --capture .\out\battle.png
+```
+
+CTest covers collisions, path traversal/traps, LOS including diagonal corners,
+AP separation, stale turn tokens, KO occupancy, three seeded complete dungeons,
+AI progress, rewards, rune legality, checkpoint advancement and defeat reset.
+It also verifies focused-HUD keyboard shortcuts, modal keyboard capture, bad
+rune-drop content rejection, scheduler-independent AI token propagation, camp
+rune conservation/rejections, and actual choice-window text under changed
+balance data. It boots title/battle with SDL's dummy video/
+software renderer. Tests use isolated checkpoint files, not the player's save.
+
+Content and balance live in `assets/data/dungeon.json`, `units.json`,
+`skills.json`, `runes.json`, and `statuses.json`. Gameplay rules remain separate
+from SDL/ImGui presentation. For automated combat, set `GAME01P_AUTOPLAY=1`
+together with `GAME01P_START=battle`; this does not choose run rewards for you.
+Use `--frames 800 --capture .\out\reward.png` for a bounded capture after
+combat, or `--frames N` to quit automatically after 1-100000 frames.
+
+For semantic tooling, place a generated CMake `compile_commands.json` in the
+repository root (ignored by Git). `.clangd` uses its compiler driver and C++
+standard rather than forcing Clang flags onto MSVC commands. CMake's Visual
+Studio generator does not export this database; use a Ninja configuration
+with `CMAKE_EXPORT_COMPILE_COMMANDS=ON` for indexing.

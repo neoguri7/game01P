@@ -7,6 +7,7 @@
 #include <tracy/Tracy.hpp>
 
 #include <string_view>
+#include <SDL3_image/SDL_image.h>
 
 #include "core/AssetManager.h"
 #include "core/AudioManager.h"
@@ -108,7 +109,7 @@ void Engine::initializeContextServices() {
     FInputState::Initialize(registry);
     FAudioManager::Initialize(registry);
     InitializeEventBus(registry);
-    FAssetManager::Initialize(registry);
+    FAssetManager::Initialize(registry, {std::string(SDL_GetBasePath()) + "assets", "assets"});
 
     auto& windowState = registry.ctx().emplace<FEngineWindowState>();
     SDL_GetWindowSize(window.get(), &windowState.width, &windowState.height);
@@ -140,13 +141,14 @@ bool Engine::applyEngineInitializeSdlEffect() {
 }
 
 bool Engine::applyEngineCreateWindowEffect(const std::string& title, int w, int h) {
-    SDL_Window* rawWin = SDL_CreateWindow(title.c_str(), w, h, SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    SDL_Window* rawWin = SDL_CreateWindow(title.c_str(), w, h, SDL_WINDOW_RESIZABLE);
     if (!rawWin) {
         SDL_Log("Window create failed: %s", SDL_GetError());
         return false;
     }
 
     window = FWindowPtr(rawWin);
+    SDL_SetWindowMinimumSize(rawWin, 1100, 740);
     return true;
 }
 
@@ -158,6 +160,7 @@ bool Engine::applyEngineCreateRendererEffect() {
     }
 
     renderer = FRendererPtr(rawRend);
+    SDL_SetRenderVSync(rawRend, 1);
     return true;
 }
 
@@ -256,9 +259,12 @@ void Engine::shutdownContextServices() {
     registry.ctx().erase<FInputState>();
 }
 
-void Engine::run() {
+bool Engine::run(std::uint32_t maxFrames, std::string screenshotPath) {
     ZoneScopedNC("Engine::run", 0x00FF00);
-
+    maxFrames_ = maxFrames;
+    screenshotPath_ = std::move(screenshotPath);
+    captureSucceeded_ = true;
+    std::uint32_t frames = 0;
     while (running) {
         const float dt = frameTime.updateDeltaTime();
 
@@ -277,7 +283,9 @@ void Engine::run() {
         EndEngineFrameEffects(registry);
 
         FrameMark; // Tracy frame marker
+        if (maxFrames_ > 0 && ++frames >= maxFrames_) applyEngineMarkRunningEffect(false);
     }
+    return captureSucceeded_;
 }
 
 void Engine::processInput() {
@@ -396,6 +404,12 @@ void Engine::render() {
     (void)ApplyEngineOverlayRenderEffect(registry, frameTime, systemMgr, overlayRenderer);
 
     (void)ApplyEngineRenderImGuiDrawDataEffect(renderer.get());
+    if (!screenshotPath_.empty() && CurrentEngineFrameIndex(registry) == maxFrames_) {
+        SDL_Surface* surface = SDL_RenderReadPixels(renderer.get(), nullptr);
+        captureSucceeded_ = surface && IMG_SavePNG(surface, screenshotPath_.c_str());
+        if (!captureSucceeded_) { LOG_ERROR("Frame capture failed: {}", SDL_GetError()); }
+        SDL_DestroySurface(surface);
+    }
     const FEngineEffectResult presentResult = ApplyEnginePresentBackbufferEffect(renderer.get());
 
     const FEngineAbilityRequest presentRequest{

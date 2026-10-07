@@ -30,7 +30,7 @@ public:
     Engine& operator=(const Engine&) = delete;
 
     bool initialize(const std::string& title = "Game01P", int w = 1280, int h = 720);
-    void run();
+    bool run(std::uint32_t maxFrames = 0, std::string screenshotPath = {});
     void shutdown();
     void setOverlayRenderer(std::function<void(entt::registry&, const Time&, const SystemManager&)> renderer);
 
@@ -85,6 +85,9 @@ private:
     GameStateMachine stateMachine;
     std::function<void(entt::registry&, const Time&, const SystemManager&)> overlayRenderer;
     bool           running{false};
+    std::uint32_t maxFrames_{0};
+    std::string screenshotPath_;
+    bool captureSucceeded_{true};
 };
 
 } // namespace game

@@ -14,5 +14,8 @@ namespace game {
     entt::entity unit,
     int moveAp
 );
+[[nodiscard]] std::vector<FGridPosition> FindGridPath(
+    entt::registry& registry, entt::entity unit, FGridPosition destination, int maxDistance);
+[[nodiscard]] bool HasGridLineOfSight(entt::registry& registry, FGridPosition from, FGridPosition to);
 
 } // namespace game

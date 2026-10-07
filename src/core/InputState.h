@@ -14,7 +14,12 @@ enum class EInputAction {
     MoveRight,
     Confirm,
     Cancel,
-    DebugToggle
+    DebugToggle,
+    EndTurn,
+    Skill1,
+    Skill2,
+    Skill3,
+    Skill4
 };
 
 /// Centralised input state — lives in registry.ctx() (no singleton).
@@ -103,6 +108,11 @@ private:
         case EInputAction::Confirm: return SDL_SCANCODE_RETURN;
         case EInputAction::Cancel: return SDL_SCANCODE_ESCAPE;
         case EInputAction::DebugToggle: return SDL_SCANCODE_GRAVE;
+        case EInputAction::EndTurn: return SDL_SCANCODE_SPACE;
+        case EInputAction::Skill1: return SDL_SCANCODE_1;
+        case EInputAction::Skill2: return SDL_SCANCODE_2;
+        case EInputAction::Skill3: return SDL_SCANCODE_3;
+        case EInputAction::Skill4: return SDL_SCANCODE_4;
         }
         return SDL_SCANCODE_UNKNOWN;
     }

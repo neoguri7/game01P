@@ -1,8 +1,6 @@
 CompileFlags:
   Add:
-    - -std=c++23
     - -Isrc
-  Compiler: clang++
 
 Index:
   Background: Build

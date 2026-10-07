@@ -24,7 +24,7 @@ namespace game::ecs {
 /// actor's turn start, and one auto action through gameplay/combat (FAutoAction). Player turns wait for
 /// the HUD to queue an action.
 struct TurnFlowSystem {
-    void update(entt::registry& registry, float /*deltaTime*/) {
+    void update(entt::registry& registry, float deltaTime) {
         auto* runtime = registry.ctx().find<FTurnRuntime>();
         auto* combat = registry.ctx().find<FCombatRuntime>();
         auto* outcome = registry.ctx().find<FBattleOutcome>();
@@ -39,42 +39,34 @@ struct TurnFlowSystem {
         }
 
         const FTurnToken token = *snapshot.currentTurn;
-        if (token.turnSerial == combat->scheduledTurnSerial) {
-            return; // this turn was already handled
-        }
-        combat->scheduledTurnSerial = token.turnSerial;
-
         auto* log = registry.ctx().find<FCombatLog>();
         const entt::entity actor = token.actor;
         if (!IsAlive(registry, actor)) {
             return; // synchronize() advances past a dead actor
         }
 
-        // Turn start: refill both AP pools (design §4: 서로 전환되지 않는 두 풀).
-        if (auto* points = registry.try_get<FActionPoints>(actor)) {
-            points->move = points->moveMax;
-            points->skill = points->skillMax;
-            LOG_DEBUG("[turn] {} AP 보충 — 이동 {}/{} 스킬 {}/{}", UnitDisplayName(registry, actor),
-                      points->move, points->moveMax, points->skill, points->skillMax);
-        }
-
-        // Turn start: status tick (docs/design/skill-rune-progression.md §4).
-        if (auto* active = registry.try_get<FActiveStatuses>(actor); active && !active->effects.empty()) {
-            const std::vector<const gameplay::FStatusContent*> definitions = CollectStatuses(*active, *content);
-            const FStatusTickResult tick = TickStatuses(*active, definitions, combat->rng);
-            if (tick.damage > 0) {
-                if (log) log->push(UnitDisplayName(registry, actor) + " 상태 피해 " + std::to_string(tick.damage));
-                if (ApplyDamageToUnit(registry, actor, tick.damage) && log) {
-                    log->push(UnitDisplayName(registry, actor) + " 쓰러짐!");
+        if (token.turnSerial != combat->scheduledTurnSerial) {
+            combat->scheduledTurnSerial = token.turnSerial;
+            combat->thinkDelay = 0.45f;
+            if (auto* points = registry.try_get<FActionPoints>(actor)) {
+                points->move = points->moveMax;
+                points->skill = points->skillMax;
+            }
+            if (auto* active = registry.try_get<FActiveStatuses>(actor); active && !active->effects.empty()) {
+                const auto definitions = CollectStatuses(*active, *content);
+                const auto tick = TickStatuses(*active, definitions, combat->rng);
+                if (tick.damage > 0) {
+                    if (log) log->push(UnitDisplayName(registry, actor) + " status damage: " + std::to_string(tick.damage));
+                    if (ApplyDamageToUnit(registry, actor, tick.damage) && log) {
+                        log->push(UnitDisplayName(registry, actor) + " knocked out!");
+                    }
                 }
-            }
-            if (!IsAlive(registry, actor)) {
-                return;
-            }
-            if (tick.skipTurn) {
-                if (log) log->push(UnitDisplayName(registry, actor) + " 행동 불가 — 턴을 넘긴다");
-                runtime->requests.push_back(FEndTurn{token});
-                return;
+                if (!IsAlive(registry, actor)) return;
+                if (tick.skipTurn) {
+                    if (log) log->push(UnitDisplayName(registry, actor) + " cannot act this turn.");
+                    runtime->requests.push_back(FEndTurn{token});
+                    return;
+                }
             }
         }
 
@@ -82,6 +74,9 @@ struct TurnFlowSystem {
         if (isParty && !combat->autoPlay) {
             return; // party turns wait for player input
         }
+        combat->thinkDelay -= deltaTime;
+        if (combat->thinkDelay > 0.f && !combat->autoPlay) return;
+        combat->thinkDelay = 0.45f;
 
         // Auto action (enemies; both sides when auto-play is on). The decision lives in gameplay/combat;
         // this system only applies it to the queue and closes the turn.
@@ -92,12 +87,12 @@ struct TurnFlowSystem {
             return;
         }
 
-        if (const auto request = ChooseAutoAction(registry, actor, !isParty, *content)) {
+        if (!queue->pending.empty()) return;
+        if (const auto request = ChooseAutoAction(registry, token, !isParty, *content)) {
             queue->pending.push_back(*request);
-        } else if (log) {
-            log->push(UnitDisplayName(registry, actor) + " 사거리 밖 — 턴을 넘긴다");
+        } else {
+            runtime->requests.push_back(FEndTurn{token});
         }
-        runtime->requests.push_back(FEndTurn{token});
     }
 
     [[nodiscard]] std::string name() const { return "TurnFlowSystem"; }

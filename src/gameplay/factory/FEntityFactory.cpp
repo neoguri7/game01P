@@ -194,6 +194,36 @@ std::expected<FBattlefieldData, FFactoryError> FEntityFactory::CreateBattlefield
     }
 
     FBattlefieldData battlefield{.metrics = metrics};
+    if (const auto terrain = document.find("terrain"); terrain != document.end()) {
+        if (!terrain->is_array() || terrain->size() != kGridHeight) {
+            return std::unexpected(FFactoryError{"terrain must contain eight rows"});
+        }
+        for (int y = 0; y < kGridHeight; ++y) {
+            const auto& row = (*terrain)[y];
+            if (!row.is_string() || row.get_ref<const std::string&>().size() != kGridWidth) {
+                return std::unexpected(FFactoryError{"terrain rows must contain eight cells"});
+            }
+            for (int x = 0; x < kGridWidth; ++x) {
+                const char tile = row.get_ref<const std::string&>()[x];
+                if (tile != '.' && tile != '#' && tile != '^') {
+                    return std::unexpected(FFactoryError{"terrain supports only '.', '#' and '^'"});
+                }
+                battlefield.terrain.cells[y * kGridWidth + x] =
+                    tile == '#' ? ETile::Wall : tile == '^' ? ETile::Trap : ETile::Floor;
+            }
+        }
+    }
+    for (const auto [key, destination] : {
+             std::pair{"move_range", &battlefield.terrain.moveRange},
+             std::pair{"trap_damage", &battlefield.terrain.trapDamage}}) {
+        if (document.contains(key)) {
+            const auto value = ReadInteger(document, key);
+            if (!value || *value < 0 || *value > 64 || (std::string_view(key) == "move_range" && *value == 0)) {
+                return std::unexpected(FFactoryError{"invalid movement or trap balance value"});
+            }
+            *destination = *value;
+        }
+    }
     std::set<std::pair<int, int>> occupiedCells;
     for (const auto& unit : *units) {
         auto definition = ReadUnitDefinition(unit);
@@ -205,6 +235,9 @@ std::expected<FBattlefieldData, FFactoryError> FEntityFactory::CreateBattlefield
 
         if (!IsInsideGrid(metrics, *x, *y)) {
             return std::unexpected(FFactoryError{ "unit placement is outside the battlefield" });
+        }
+        if (battlefield.terrain.at(*x, *y) == ETile::Wall) {
+            return std::unexpected(FFactoryError{"unit placement intersects a wall"});
         }
         if (!occupiedCells.emplace(*x, *y).second) {
             return std::unexpected(FFactoryError{ "multiple units occupy the same battlefield cell" });

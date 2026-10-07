@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "rune_drops": ["rune.fire", "rune.range", "rune.swift", "rune.leech", "rune.power", "rune.cold"],
+  "balance": {
+    "move_range": 3,
+    "trap_damage": 8,
+    "reward_health": 15,
+    "reward_attack": 2,
+    "reward_magic": 2,
+    "room_heal": 8,
+    "event_heal": 35,
+    "event_materials": 3,
+    "camp_heal": 45,
+    "camp_cost": 3,
+    "room_materials": 1,
+    "room_experience": 25,
+    "level_experience": 25,
+    "enemy_health_per_depth": 5,
+    "enemy_attack_per_depth": 1
+  },
+  "party": [
+    {"id":"party.warrior","display_name":"Alden / Warrior","unit":"char.warrior","faction":"party","grid_x":1,"grid_y":6},
+    {"id":"party.archer","display_name":"Rowan / Archer","unit":"char.archer","faction":"party","grid_x":2,"grid_y":6},
+    {"id":"party.mage","display_name":"Mira / Mage","unit":"char.mage","faction":"party","grid_x":4,"grid_y":6},
+    {"id":"party.healer","display_name":"Lumen / Healer","unit":"char.healer","faction":"party","grid_x":5,"grid_y":6}
+  ],
+  "rooms": [
+    {
+      "name":"The broken gate",
+      "terrain":["########","#......#","#..#...#","#......#","#..^#..#","#......#","#......#","########"],
+      "enemies":[
+        {"id":"enemy.1","display_name":"Imp","unit":"enemy.imp","faction":"enemy","grid_x":2,"grid_y":1},
+        {"id":"enemy.2","display_name":"Imp archer","unit":"enemy.imp_archer","faction":"enemy","grid_x":5,"grid_y":1},
+        {"id":"enemy.3","display_name":"Imp shaman","unit":"enemy.imp_shaman","faction":"enemy","grid_x":5,"grid_y":2}
+      ]
+    },
+    {
+      "name":"Hall of echoes",
+      "terrain":["########","#......#","#.#..#.#","#......#","#.^....#","#..#...#","#......#","########"],
+      "enemies":[
+        {"id":"enemy.1","display_name":"Imp","unit":"enemy.imp","faction":"enemy","grid_x":1,"grid_y":2},
+        {"id":"enemy.2","display_name":"Imp archer","unit":"enemy.imp_archer","faction":"enemy","grid_x":4,"grid_y":1},
+        {"id":"enemy.3","display_name":"Imp shaman","unit":"enemy.imp_shaman","faction":"enemy","grid_x":6,"grid_y":2}
+      ]
+    },
+    {
+      "name":"The sunken vault",
+      "terrain":["########","#......#","#......#","#.#^#..#","#......#","#...#..#","#......#","########"],
+      "enemies":[
+        {"id":"enemy.1","display_name":"Imp archer","unit":"enemy.imp_archer","faction":"enemy","grid_x":1,"grid_y":1},
+        {"id":"enemy.2","display_name":"Imp","unit":"enemy.imp","faction":"enemy","grid_x":4,"grid_y":1},
+        {"id":"enemy.3","display_name":"Imp shaman","unit":"enemy.imp_shaman","faction":"enemy","grid_x":6,"grid_y":2}
+      ]
+    }
+  ]
+}

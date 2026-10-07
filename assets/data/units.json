@@ -45,6 +45,33 @@
       "skills": ["skill.bolt", "skill.fog", "skill.heal", "skill.buff", "skill.debuff"]
     },
     {
+      "id": "char.healer",
+      "display_name": "Healer",
+      "class": "mage",
+      "max_health": 90,
+      "speed": 3,
+      "move_ap": 1,
+      "skill_ap": 2,
+      "attack": 2,
+      "magic_attack": 7,
+      "defense": 3,
+      "magic_defense": 5,
+      "skills": ["skill.heal", "skill.bolt", "skill.buff"]
+    },
+    {
+      "id": "enemy.guardian",
+      "display_name": "Stone guardian",
+      "max_health": 110,
+      "speed": 3,
+      "move_ap": 1,
+      "skill_ap": 2,
+      "attack": 10,
+      "magic_attack": 2,
+      "defense": 5,
+      "magic_defense": 3,
+      "skills": ["skill.cleave", "skill.strike"]
+    },
+    {
       "id": "enemy.imp",
       "display_name": "임프",
       "max_health": 45,

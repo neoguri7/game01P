@@ -4,7 +4,7 @@
   "skills": [
     {
       "id": "skill.strike",
-      "display_name": "강타",
+      "display_name": "Strike",
       "ap_cost": 2,
       "power": 4,
       "range": 1,
@@ -17,7 +17,7 @@
     },
     {
       "id": "skill.cleave",
-      "display_name": "회전베기",
+      "display_name": "Cleave",
       "ap_cost": 2,
       "power": 3,
       "range": 1,
@@ -30,7 +30,7 @@
     },
     {
       "id": "skill.arrow",
-      "display_name": "에로우",
+      "display_name": "Arrow",
       "ap_cost": 2,
       "power": 3,
       "range": 4,
@@ -43,7 +43,7 @@
     },
     {
       "id": "skill.volley",
-      "display_name": "연사",
+      "display_name": "Volley",
       "ap_cost": 2,
       "power": 2,
       "range": 3,
@@ -56,7 +56,7 @@
     },
     {
       "id": "skill.bolt",
-      "display_name": "볼트",
+      "display_name": "Bolt",
       "ap_cost": 2,
       "power": 3,
       "range": 3,
@@ -69,7 +69,7 @@
     },
     {
       "id": "skill.fog",
-      "display_name": "안개",
+      "display_name": "Weakening fog",
       "ap_cost": 2,
       "power": 0,
       "range": 3,
@@ -83,7 +83,7 @@
     },
     {
       "id": "skill.heal",
-      "display_name": "힐",
+      "display_name": "Heal",
       "ap_cost": 2,
       "power": 4,
       "range": 3,
@@ -96,7 +96,7 @@
     },
     {
       "id": "skill.buff",
-      "display_name": "버프",
+      "display_name": "Battle blessing",
       "ap_cost": 2,
       "power": 0,
       "range": 3,
@@ -109,7 +109,7 @@
     },
     {
       "id": "skill.debuff",
-      "display_name": "디버프",
+      "display_name": "Curse",
       "ap_cost": 2,
       "power": 0,
       "range": 3,

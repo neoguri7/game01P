@@ -8,6 +8,7 @@
 #include "ecs/components/FSkillLoadout.h"
 #include "gameplay/factory/FEntityDefinitions.h"
 #include "gameplay/grid/FGridTypes.h"
+#include "gameplay/grid/FGridTerrain.h"
 
 namespace game {
 
@@ -28,6 +29,7 @@ struct FUnitPlacement {
 struct FBattlefieldData {
     FGridMetrics metrics;
     std::vector<FUnitPlacement> units;
+    FGridTerrain terrain;
 };
 
 } // namespace game
