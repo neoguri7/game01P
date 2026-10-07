@@ -61,13 +61,13 @@ struct GridRenderSystem : ISystem {
             const auto handle = resources->loadTexture(*assets, id);
             return handle ? resources->find(*handle) : nullptr;
         };
-        const auto* ground = texture("generated/forest-local/ground");
+        const auto* ground = texture("art/forest_ground");
         for (int y = -3; y < metrics.height + 3; ++y) {
             for (int x = -5; x < metrics.width + 5; ++x) {
                 const auto rect = CellRect(metrics, {x, y}, camera, viewport);
                 const bool path = (x == 3 || x == 4) && y >= -1 && y <= metrics.height;
                 const int variant = path ? 4 + ((x + y + 32) % 2) : ((x * 7 + y * 11 + 256) % 4);
-                const SDL_FRect source{static_cast<float>(variant * 32), 0.f, 32.f, 32.f};
+                const SDL_FRect source{static_cast<float>(variant * 64), 0.f, 64.f, 64.f};
                 if (ground) SDL_RenderTexture(renderer, ground->texture, &source, &rect);
                 if (!IsInsideGrid(metrics, x, y)) {
                     SDL_SetRenderDrawColor(renderer, 10, 26, 24, 95);
@@ -81,7 +81,7 @@ struct GridRenderSystem : ISystem {
             const SDL_FRect rect{screen.x, screen.y, size * metrics.tileSize * camera.zoom, size * metrics.tileSize * camera.zoom};
             SDL_RenderTexture(renderer, image->texture, nullptr, &rect);
         };
-        const auto* oak = texture("generated/forest-local/oak");
+        const auto* oak = texture("art/forest_oak");
         for (int y = -2; y <= metrics.height; y += 2) {
             prop(oak, -2.1f, static_cast<float>(y), 2.f);
             prop(oak, static_cast<float>(metrics.width) + 0.1f, static_cast<float>(y) - 0.5f, 2.f);
@@ -90,7 +90,7 @@ struct GridRenderSystem : ISystem {
             prop(oak, static_cast<float>(x), -2.2f, 2.f);
             prop(oak, static_cast<float>(x), static_cast<float>(metrics.height) + 0.3f, 2.f);
         }
-        const auto* stone = texture("generated/forest-local/waystone");
+        const auto* stone = texture("art/forest_waystone");
         prop(stone, -0.9f, 3.f, 0.8f);
         prop(stone, static_cast<float>(metrics.width) + 0.1f, 4.5f, 0.8f);
 

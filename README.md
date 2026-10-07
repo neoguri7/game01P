@@ -4,15 +4,15 @@ A playable SDL3 + EnTT turn-based grid-tactics roguelike prototype.
 
 ## Two preserved game modes
 
-The default executable opens the **forest prototype**: the user's title, prepared
+The default executable opens **Ember Dungeon** (controls and loop below). The **forest prototype** (`--forest`) offers the user's title, prepared
 party/equipment and individual passive tree, forest encounters, event and camp
-flow, and local forest art. Click an action in the dock, then its target; movement
+flow, and the shared 64×64 art set (`assets/art`, same as Ember). Click an action in the dock, then its target; movement
 spends one move AP for one orthogonal step. WASD pans the forest camera and the
 mouse wheel zooms it. The three-room lifecycle and checkpoint progression stay
 independent of Ember's save.
 
-Launch **Ember Dungeon** with `game01P.exe --ember`, or set
-`$env:GAME01P_MODE = "ember"`. `--forest` explicitly selects the default again.
+Launch the forest prototype with `game01P.exe --forest`, or set
+`$env:GAME01P_MODE = "forest"`. `--ember` explicitly selects the default again.
 Mode selection happens at startup, not during an active battle. The Ember
 controls and expedition loop are described below.
 
@@ -30,7 +30,7 @@ On Windows, with CMake, Visual Studio 2026 and `VCPKG_ROOT` configured:
 ```powershell
 cmake --preset windows-msvc-debug
 cmake --build --preset windows-msvc-debug --parallel
-.\out\build\windows-msvc-debug\Debug\game01P.exe --ember
+.\out\build\windows-msvc-debug\Debug\game01P.exe
 ```
 
 The executable loads its adjacent `assets` directory, so the build folder can

@@ -227,7 +227,7 @@ private:
         const auto* assets = registry.ctx().find<FAssetManager>();
         auto* resources = registry.ctx().find<FResourceManager>();
         if (assets && resources) {
-            if (const auto handle = resources->loadTexture(*assets, std::string("generated/forest-local/") + icon)) {
+            if (const auto handle = resources->loadTexture(*assets, std::string("art/icon_") + icon)) {
                 if (const auto* texture = resources->find(*handle)) draw->AddImage(TextureId(texture), {p.x + width * 0.5f - 16.f, p.y + 4.f},
                     {p.x + width * 0.5f + 16.f, p.y + 36.f}, {0.f, 0.f}, {1.f, 1.f}, IM_COL32(255, 255, 255, affordable ? 255 : 85));
             }

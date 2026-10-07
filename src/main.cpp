@@ -105,9 +105,9 @@ int main(int argc, char* argv[])
 {
     std::uint32_t maxFrames = 0;
     std::string screenshotPath;
-    game::EGameMode mode = game::EGameMode::Forest;
-    if (const char* value = SDL_getenv("GAME01P_MODE"); value && std::string_view(value) == "ember") {
-        mode = game::EGameMode::Ember;
+    game::EGameMode mode = game::EGameMode::Ember;
+    if (const char* value = SDL_getenv("GAME01P_MODE"); value && std::string_view(value) == "forest") {
+        mode = game::EGameMode::Forest;
     }
     bool verifyPrototype = false;
     bool checkAnimation = false;
