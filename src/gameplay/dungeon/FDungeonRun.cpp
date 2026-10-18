@@ -11,6 +11,7 @@
 #include "ecs/components/FDead.h"
 #include "ecs/components/FFaction.h"
 #include "ecs/components/FHealth.h"
+#include "ecs/components/FSpeed.h"
 #include "ecs/components/FStats.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
@@ -102,6 +103,11 @@ std::optional<gameplay::FRoomGenConfig> ParseRoomGeneration(
     return config;
 }
 
+bool IsKnownStatUpgrade(std::string_view stat) {
+    return stat == "health" || stat == "attack" || stat == "magic_attack" || stat == "defense"
+        || stat == "magic_defense" || stat == "speed";
+}
+
 std::vector<std::pair<int, int>> PartyCells(const nlohmann::json& party) {
     std::vector<std::pair<int, int>> cells;
     for (const auto& member : party) cells.emplace_back(member.at("grid_x").get<int>(), member.at("grid_y").get<int>());
@@ -151,10 +157,10 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath) {
             LOG_ERROR("Dungeon needs schema version 1, four party members and a room generation block.");
             return false;
         }
-        for (const char* key : {"move_range", "trap_damage", "reward_health", "reward_attack",
-                               "reward_magic", "room_heal", "event_heal", "event_materials",
-                               "camp_heal", "camp_cost", "room_materials", "room_experience",
-                               "level_experience", "enemy_health_per_depth", "enemy_attack_per_depth"}) {
+        for (const char* key : {"move_range", "trap_damage", "room_heal", "event_heal", "event_materials",
+                               "camp_heal", "room_materials", "room_experience",
+                               "level_experience", "level_experience_step",
+                               "enemy_health_per_depth", "enemy_attack_per_depth"}) {
             const auto& value = data.at("balance").at(key);
             if (!value.is_number_integer() || value < 0 || value > 1000) {
                 LOG_ERROR("Invalid dungeon balance field '{}'.", key);
@@ -166,6 +172,46 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath) {
             LOG_ERROR("Dungeon movement, trap damage or level threshold is out of bounds.");
             return false;
         }
+        // 런 성장 콘텐츠 (정본 §5/§6). passive_tree는 asset id, stat_upgrades는 항목 목록이다.
+        FDungeonGrowth growth;
+        growth.levelExperienceBase = data["balance"]["level_experience"].get<int>();
+        growth.levelExperienceStep = data["balance"]["level_experience_step"].get<int>();
+        const auto treeAsset = registry.ctx().get<FAssetManager>().digest(data.at("passive_tree").get<std::string>());
+        if (!treeAsset) {
+            LOG_ERROR("Dungeon passive_tree asset is missing.");
+            return false;
+        }
+        const auto tree = FPassiveTree::Load(treeAsset->json());
+        if (!tree) {
+            LOG_ERROR("Dungeon passive tree is unusable (see the passive tree errors above).");
+            return false;
+        }
+        growth.passiveTree = *tree;
+        const auto upgradeRows = data.find("stat_upgrades");
+        if (upgradeRows == data.end() || !upgradeRows->is_array() || upgradeRows->empty()) {
+            LOG_ERROR("Dungeon stat_upgrades must be a nonempty array.");
+            return false;
+        }
+        std::set<std::string> upgradeIds;
+        for (const auto& row : *upgradeRows) {
+            FStatUpgrade upgrade;
+            upgrade.id = row.at("id").get<std::string>();
+            upgrade.displayName = row.at("display_name").get<std::string>();
+            upgrade.stat = row.at("stat").get<std::string>();
+            upgrade.amount = row.at("amount").get<int>();
+            upgrade.cost = row.at("cost").get<int>();
+            upgrade.cap = row.at("cap").get<int>();
+            if (upgrade.id.empty() || upgrade.displayName.empty() || !IsKnownStatUpgrade(upgrade.stat)
+                || upgrade.amount < 1 || upgrade.amount > 100 || upgrade.cost < 0 || upgrade.cost > 100
+                || upgrade.cap < upgrade.amount || upgrade.cap > 100 || !upgradeIds.insert(upgrade.id).second) {
+                LOG_ERROR("Dungeon stat upgrade '{}' is invalid.", upgrade.id);
+                return false;
+            }
+            growth.statUpgrades.push_back(std::move(upgrade));
+        }
+        // 재초기화(테스트/디버그)에도 안전하도록 기존 ctx 성장 콘텐츠를 덮어쓴다.
+        registry.ctx().erase<FDungeonGrowth>();
+        registry.ctx().emplace<FDungeonGrowth>(std::move(growth));
         const auto& content = registry.ctx().get<gameplay::FContentRegistry>();
         const auto drops = data.find("rune_drops");
         if (drops == data.end() || !drops->is_array() || drops->empty()) {
@@ -211,6 +257,8 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath) {
         LOG_ERROR("Dungeon content invalid: {}", error.what());
         return false;
     }
+    // 재초기화(테스트/디버그)에도 안전하도록 덮어쓴다.
+    registry.ctx().erase<FDungeonCheckpoint>();
     auto& checkpoint = registry.ctx().emplace<FDungeonCheckpoint>();
     if (checkpointPath.empty()) {
         if (const char* path = SDL_GetPrefPath("Game01P", "EmberDungeon")) {
@@ -239,6 +287,7 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath) {
         LOG_ERROR("SDL_GetPrefPath: {}", SDL_GetError());
     }
     if (!checkpoint.error.empty()) { LOG_WARN("{}", checkpoint.error); }
+    registry.ctx().erase<FMenuRequest>();
     registry.ctx().emplace<FMenuRequest>();
     return true;
 }
@@ -250,7 +299,10 @@ void StartDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh) {
     run.depth = fresh ? 1 : registry.ctx().get<FDungeonCheckpoint>().cleared + 1;
     run.cleared = run.depth - 1;
     for (const auto& member : Definition(registry).at("party")) {
-        run.party.push_back(FRunMember{member.at("id").get<std::string>()});
+        FRunMember runMember;
+        runMember.id = member.at("id").get<std::string>();
+        runMember.displayName = member.at("display_name").get<std::string>();
+        run.party.push_back(std::move(runMember));
     }
 }
 
@@ -268,6 +320,8 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
 
 void ApplyRunParty(entt::registry& registry) {
     const auto& run = registry.ctx().get<FDungeonRun>();
+    const auto* growth = registry.ctx().find<FDungeonGrowth>();
+    if (growth == nullptr) LOG_ERROR("Run growth content is missing; node bonuses are not applied.");
     for (const auto entity : registry.view<FUnitData, FHealth, FStats>()) {
         auto& health = registry.get<FHealth>(entity);
         auto& stats = registry.get<FStats>(entity);
@@ -275,11 +329,16 @@ void ApplyRunParty(entt::registry& registry) {
             const auto& id = registry.get<FUnitData>(entity).definition.id;
             const auto found = std::ranges::find(run.party, id, &FRunMember::id);
             if (found == run.party.end()) continue;
-            health.max += found->bonusHealth;
+            const FPassiveStatBonuses nodes = growth != nullptr
+                ? growth->passiveTree.Bonuses(found->allocatedNodes) : FPassiveStatBonuses{};
+            health.max += found->bonusHealth + nodes.maxHealth;
             if (found->health >= 0) health.current = std::clamp(found->health, 1, health.max);
             else health.current = health.max;
-            stats.attack += found->bonusAttack;
-            stats.magicAttack += found->bonusMagic;
+            stats.attack += found->bonusAttack + nodes.attack;
+            stats.magicAttack += found->bonusMagic + nodes.magicAttack;
+            stats.defense += found->bonusDefense + nodes.defense;
+            stats.magicDefense += found->bonusMagicDefense + nodes.magicDefense;
+            if (auto* speed = registry.try_get<FSpeed>(entity)) speed->value += found->bonusSpeed + nodes.speed;
             if (!found->skills.empty()) registry.get<FSkillLoadout>(entity).slots = found->skills;
         } else {
             const int extra = std::min(run.depth - 1, 100);
@@ -316,27 +375,29 @@ void CompleteDungeonBattle(entt::registry& registry, bool victory) {
     run.materials += DungeonBalance(registry, "room_materials");
     const auto& drops = Definition(registry).at("rune_drops");
     run.runes.push_back(drops.at((run.seed + run.depth * 3u + run.room) % drops.size()).get<std::string>());
-    run.experience += DungeonBalance(registry, "room_experience");
-    run.level = 1 + run.experience / DungeonBalance(registry, "level_experience");
-    run.phase = EDungeonPhase::Reward;
-    run.message = "Room secured. Choose one run-growth node for the party.";
-    LOG_INFO("Dungeon {} room {} cleared. Run EXP {}", run.depth, run.room + 1, run.experience);
-}
-
-void ChooseDungeonReward(entt::registry& registry, int choice) {
-    auto& run = registry.ctx().get<FDungeonRun>();
-    if (run.phase != EDungeonPhase::Reward || choice < 0 || choice > 2) return;
-    for (auto& member : run.party) {
-        if (choice == 0) {
-            const int bonus = DungeonBalance(registry, "reward_health");
-            member.bonusHealth += bonus;
-            member.health += bonus;
-        } else if (choice == 1) {
-            member.bonusAttack += DungeonBalance(registry, "reward_attack");
-        } else {
-            member.bonusMagic += DungeonBalance(registry, "reward_magic");
+    // 정본 §6: 런 EXP는 캐릭터별로 쌓이고 레벨업마다 노드 포인트 1을 준다(런마다 0부터).
+    const int experienceReward = DungeonBalance(registry, "room_experience");
+    int levelsGained = 0;
+    if (const auto* growth = registry.ctx().find<FDungeonGrowth>()) {
+        for (auto& member : run.party) {
+            member.experience += experienceReward;
+            while (member.experience >= growth->ExperienceForNextLevel(member.level)) {
+                member.experience -= growth->ExperienceForNextLevel(member.level);
+                ++member.level;
+                ++member.passivePoints;
+                ++levelsGained;
+            }
         }
     }
+    run.phase = EDungeonPhase::Reward;
+    run.message = "Room secured. Each member gains " + std::to_string(experienceReward) + " EXP.";
+    if (levelsGained > 0) run.message += " Level up: allocate a passive node.";
+    LOG_INFO("Dungeon {} room {} cleared. {} EXP per member.", run.depth, run.room + 1, experienceReward);
+}
+
+void ContinueDungeonReward(entt::registry& registry) {
+    auto& run = registry.ctx().get<FDungeonRun>();
+    if (run.phase != EDungeonPhase::Reward) return;
     if (run.room == 0) {
         run.phase = EDungeonPhase::Event;
         run.message = "A quiet shrine offers shelter, or a sealed cache of reinforcement materials.";
@@ -347,7 +408,7 @@ void ChooseDungeonReward(entt::registry& registry, int choice) {
         checkpoint.cleared = std::max(checkpoint.cleared, std::min(run.cleared, 999));
         (void)SaveCheckpoint(registry);
         RestoreParty(registry, DungeonBalance(registry, "camp_heal"));
-        run.message = "Dungeon cleared. Checkpoint reached. Rest, fit runes, then descend.";
+        run.message = "Dungeon cleared. Checkpoint reached. Rest, fit runes, reinforce stats, then descend.";
     } else {
         ++run.room;
         Advance(registry);
@@ -363,24 +424,69 @@ void ChooseDungeonEvent(entt::registry& registry, bool rest) {
     Advance(registry);
 }
 
-void LeaveDungeonCamp(entt::registry& registry, bool reinforce) {
+void LeaveDungeonCamp(entt::registry& registry) {
     auto& run = registry.ctx().get<FDungeonRun>();
     if (run.phase != EDungeonPhase::Camp) return;
-    if (reinforce) {
-        const int cost = DungeonBalance(registry, "camp_cost");
-        if (run.materials < cost) {
-            run.message = "Not enough reinforcement materials.";
-            return;
-        }
-        run.materials -= cost;
-        for (auto& member : run.party) {
-            member.bonusAttack += DungeonBalance(registry, "reward_attack");
-            member.bonusMagic += DungeonBalance(registry, "reward_magic");
-        }
-    }
     run.depth = std::min(run.depth + 1, 1000);
     run.room = 0;
     Advance(registry);
+}
+
+int FDungeonGrowth::ExperienceForNextLevel(int level) const {
+    return std::max(1, levelExperienceBase + levelExperienceStep * std::max(0, level - 1));
+}
+
+bool CanAllocateDungeonNode(const entt::registry& registry, std::size_t memberIndex, std::string_view nodeId) {
+    const auto* run = registry.ctx().find<FDungeonRun>();
+    const auto* growth = registry.ctx().find<FDungeonGrowth>();
+    if (run == nullptr || growth == nullptr) return false;
+    if (run->phase == EDungeonPhase::Battle || run->phase == EDungeonPhase::Defeat) return false;
+    if (memberIndex >= run->party.size()) return false;
+    const FRunMember& member = run->party[memberIndex];
+    if (member.passivePoints <= 0) return false;
+    return growth->passiveTree.CanAllocate(member.allocatedNodes, nodeId);
+}
+
+bool AllocateDungeonNode(entt::registry& registry, std::size_t memberIndex, std::string_view nodeId) {
+    if (!CanAllocateDungeonNode(registry, memberIndex, nodeId)) return false;
+    auto& member = registry.ctx().get<FDungeonRun>().party[memberIndex];
+    member.allocatedNodes.emplace_back(nodeId);
+    --member.passivePoints;
+    return true;
+}
+
+std::optional<std::string> ValidateDungeonStatUpgrade(
+    const entt::registry& registry, std::size_t memberIndex, std::size_t upgradeIndex) {
+    const auto* run = registry.ctx().find<FDungeonRun>();
+    const auto* growth = registry.ctx().find<FDungeonGrowth>();
+    if (run == nullptr || growth == nullptr) return "Run state is unavailable.";
+    if (run->phase != EDungeonPhase::Camp) return "Stats can be reinforced at camp only.";
+    if (memberIndex >= run->party.size()) return "Unknown party member.";
+    if (upgradeIndex >= growth->statUpgrades.size()) return "Unknown stat upgrade.";
+    const FStatUpgrade& upgrade = growth->statUpgrades[upgradeIndex];
+    if (run->materials < upgrade.cost) return "Not enough reinforcement materials.";
+    if (DungeonMemberStatBonus(run->party[memberIndex], upgrade.stat) + upgrade.amount > upgrade.cap) {
+        return "This stat is at its run cap.";
+    }
+    return std::nullopt;
+}
+
+std::optional<std::string> UpgradeDungeonStat(
+    entt::registry& registry, std::size_t memberIndex, std::size_t upgradeIndex) {
+    if (const auto problem = ValidateDungeonStatUpgrade(registry, memberIndex, upgradeIndex)) return problem;
+    auto& run = registry.ctx().get<FDungeonRun>();
+    const FStatUpgrade upgrade = registry.ctx().get<FDungeonGrowth>().statUpgrades[upgradeIndex];
+    FRunMember& member = run.party[memberIndex];
+    if (upgrade.stat == "health") {
+        member.bonusHealth += upgrade.amount;
+        if (member.health >= 0) member.health += upgrade.amount;  // 최대 HP가 늘면 그만큼 채운다
+    } else if (upgrade.stat == "attack") member.bonusAttack += upgrade.amount;
+    else if (upgrade.stat == "magic_attack") member.bonusMagic += upgrade.amount;
+    else if (upgrade.stat == "defense") member.bonusDefense += upgrade.amount;
+    else if (upgrade.stat == "magic_defense") member.bonusMagicDefense += upgrade.amount;
+    else if (upgrade.stat == "speed") member.bonusSpeed += upgrade.amount;
+    run.materials -= upgrade.cost;
+    return std::nullopt;
 }
 
 std::optional<std::string> ValidateDungeonRuneEquip(

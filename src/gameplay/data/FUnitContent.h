@@ -29,6 +29,10 @@ struct FUnitContent {
     int magicAttack{0};  // 마법공격력 (마법 공격 항)
     int defense{0};      // 방어력 (물리 감소 항)
     int magicDefense{0}; // 마법방어력 (마법 감소 항)
+
+    // docs/design/enemy-ai.md: the behavior-tree profile this unit runs (`assets/data/ai.json`). Empty =
+    // the default profile, which plays any loadout from its skill roles, so a new monster needs no AI work.
+    std::string aiProfile;
 };
 
 /// Field order IS the projection order FContentLoader uses (R22).
@@ -48,6 +52,7 @@ inline constexpr FContentField kUnitFields[] = {
     {"magic_attack", EContentFieldType::Number, false},  // boundary: asset key
     {"defense", EContentFieldType::Number, false},       // boundary: asset key
     {"magic_defense", EContentFieldType::Number, false}, // boundary: asset key
+    {"ai", EContentFieldType::Id, false},                // boundary: asset key; names a profile in data/ai
 };
 
 inline constexpr std::size_t kUnitFieldId = 0;
@@ -63,8 +68,9 @@ inline constexpr std::size_t kUnitFieldAttack = 9;
 inline constexpr std::size_t kUnitFieldMagicAttack = 10;
 inline constexpr std::size_t kUnitFieldDefense = 11;
 inline constexpr std::size_t kUnitFieldMagicDefense = 12;
+inline constexpr std::size_t kUnitFieldAi = 13;
 
-static_assert(std::size(kUnitFields) == 13, "kUnitFields and the kUnitField* indices drifted apart");
+static_assert(std::size(kUnitFields) == 14, "kUnitFields and the kUnitField* indices drifted apart");
 
 /// Projects one validated row into a unit. Cannot fail: FContentLoader already rejected wrong types and
 /// missing required keys, which is why this stays a straight field-by-field copy (R22).

@@ -187,7 +187,9 @@ int main(int argc, char* argv[])
     }
     engine.getRegistry().ctx().emplace<game::FPrototypeRun>(std::move(*run));
     if (verifyPrototype) {
-        const bool passed = game::RunPrototypeChecks(*content, engine.getRegistry().ctx().get<game::FPrototypeRun>());
+        const bool passed = game::RunPrototypeChecks(
+            *content, engine.getRegistry().ctx().get<game::ai::FAiLibrary>(),
+            engine.getRegistry().ctx().get<game::FPrototypeRun>());
         shutdown();
         return passed ? EXIT_SUCCESS : EXIT_FAILURE;
     }

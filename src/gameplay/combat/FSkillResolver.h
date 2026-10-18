@@ -6,6 +6,7 @@
 
 #include "ecs/components/FGridPosition.h"
 #include "ecs/components/FSkillLoadout.h"
+#include "ecs/components/FStats.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/data/FRuneContent.h"
 #include "gameplay/data/FSkillContent.h"
@@ -51,6 +52,16 @@ struct FResolvedSkill {
 [[nodiscard]] std::optional<FResolvedSkill> ResolveSkillSlot(
     const FSkillSlot& slot,
     const gameplay::FContentRegistry& content);
+
+/// The damage rule for one hit (docs/design/skill-rune-progression.md §1.1/§8): the attack term follows the
+/// skill's damage type, the reduction term is the defender's matching defense, `attackModifier` is the
+/// attacker's stat-status sum. The action resolver and anything that predicts a hit (the enemy AI) both go
+/// through here, so a prediction can never drift from the real outcome.
+[[nodiscard]] int ComputeSkillDamage(
+    const FStats& attacker, int attackModifier, const FResolvedSkill& skill, const FStats& defender);
+
+/// Healing granted by a support skill to one ally; zero for a skill without power.
+[[nodiscard]] int ComputeSkillHeal(const FStats& caster, const FResolvedSkill& skill);
 
 /// Every cell a resolved skill affects, given the primary target cell: single = the target cell alone,
 /// spread = the target plus its orthogonal neighbors, zone = all cells within areaRadius (Manhattan,

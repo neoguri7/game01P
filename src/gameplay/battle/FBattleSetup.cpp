@@ -12,6 +12,7 @@
 #include "ecs/components/FSpeed.h"
 #include "ecs/components/FStats.h"
 #include "ecs/components/FTurnParticipant.h"
+#include "gameplay/ai/FAiBrain.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
 
@@ -77,6 +78,18 @@ bool SetupCombatUnits(
         registry.emplace<FSkillLoadout>(placement.entity, loadout);
         registry.emplace<FActiveStatuses>(placement.entity);
         registry.emplace<FTurnParticipant>(placement.entity);
+
+        // The unit's mind: its authored profile, or the default one that plays any loadout from skill roles.
+        // Registries without an AI library (validation probes) get a brain lazily, on first use.
+        if (const auto* library = registry.ctx().find<ai::FAiLibrary>()) {
+            const ai::FAiProfile* profile =
+                unit->aiProfile.empty() ? &library->fallback() : library->find(unit->aiProfile);
+            if (profile == nullptr) {
+                LOG_ERROR("battle: unit '{}' references unknown AI profile '{}'.", unit->id, unit->aiProfile);
+                return false;
+            }
+            registry.emplace_or_replace<ai::FAiBrain>(placement.entity, ai::MakeBrain(*profile));
+        }
     }
     return true;
 }

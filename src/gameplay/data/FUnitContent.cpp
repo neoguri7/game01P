@@ -24,6 +24,9 @@ FUnitContent decodeUnit(const FContentRow& row) {
     unit.magicAttack = row.integer(kUnitFieldMagicAttack, 0);
     unit.defense = row.integer(kUnitFieldDefense, 0);
     unit.magicDefense = row.integer(kUnitFieldMagicDefense, 0);
+
+    // The profile id is resolved against data/ai by FAiLibrary at boot; empty selects the default profile.
+    unit.aiProfile = row.text(kUnitFieldAi);
     return unit;
 }
 

@@ -7,6 +7,7 @@
 
 #include "ecs/components/FSkillLoadout.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/progression/FPassiveTree.h"
 
 namespace game {
 
@@ -17,25 +18,6 @@ struct FPrototypeRoom {
 	std::string title;
 	std::string battlefield;
 	int experienceReward{0};
-};
-
-struct FPassiveStatBonuses {
-	int maxHealth{0};
-	int attack{0};
-	int magicAttack{0};
-	int defense{0};
-	int magicDefense{0};
-	int speed{0};
-};
-
-struct FPassiveNode {
-	std::string id;
-	std::string displayName;
-	std::string description;
-	std::string parentId;
-	float x{0.0f};
-	float y{0.0f};
-	FPassiveStatBonuses bonuses;
 };
 
 struct FPreparedMember {
@@ -54,8 +36,7 @@ struct FPrototypeRun {
 	std::vector<FPrototypeRoom> rooms;
 	std::vector<FPreparedMember> party;
 	std::vector<std::string> runeInventory;
-	std::vector<FPassiveNode> passiveNodes;
-	std::string passiveRootNodeId;
+	FPassiveTree tree;
 	int skillSlots{4};
 	int experiencePerLevelBase{10};
 	int experiencePerLevelStep{5};

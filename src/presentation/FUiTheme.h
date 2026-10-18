@@ -30,6 +30,27 @@ inline constexpr ImVec4 kPartyV{0.31f, 0.55f, 1.f, 1.f};
 inline constexpr ImVec4 kEnemyV{0.90f, 0.31f, 0.31f, 1.f};
 } // namespace palette
 
+/// One piece of the carved-metal UI skin. An empty piece (size 0) means "draw the procedural fallback".
+struct FSkinPiece {
+    ImTextureRef texture{};
+    ImVec2 size{0.f, 0.f};
+    [[nodiscard]] bool valid() const noexcept { return size.x > 0.f && size.y > 0.f; }
+};
+
+/// Parchment panel with ornate corners, bronze plaque frame (hollow center) and square item slot.
+struct FSkin {
+    FSkinPiece panel;
+    FSkinPiece plaque;
+    FSkinPiece slot;
+};
+
+/// Installs the skin textures; panels, slots and buttons then draw them instead of the procedural trim.
+void InstallSkin(const FSkin& skin);
+
+/// Stretches `piece` over [min, max]: corners keep their pixel size, edges and center stretch.
+void DrawNineSlice(ImDrawList* draw, const FSkinPiece& piece, ImVec2 min, ImVec2 max, float corner,
+                   ImU32 tint = IM_COL32_WHITE);
+
 /// Loads the bundled fonts (when present) and installs the dark-fantasy ImGui style. Call once per
 /// ImGui context; without font files the built-in font is used and everything keeps working.
 void ApplyTheme();

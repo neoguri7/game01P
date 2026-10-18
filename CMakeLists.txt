@@ -68,6 +68,11 @@ if(BUILD_TESTING)
     set_target_properties(dungeon_tests PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON)
     add_test(NAME dungeon_rules COMMAND dungeon_tests)
     set_tests_properties(dungeon_rules PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+    add_executable(ai_tests "tests/AiTests.cpp")
+    target_link_libraries(ai_tests PRIVATE game01P_runtime)
+    set_target_properties(ai_tests PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON)
+    add_test(NAME ai_behavior COMMAND ai_tests)
+    set_tests_properties(ai_behavior PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME dungeon_title_smoke COMMAND game01P --ember --smoke-test)
     add_test(NAME dungeon_battle_smoke COMMAND game01P --ember --smoke-test)
     add_test(NAME forest_title_smoke COMMAND game01P --forest --smoke-test)
@@ -84,6 +89,10 @@ if(BUILD_TESTING)
         add_custom_command(TARGET dungeon_tests POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 $<TARGET_RUNTIME_DLLS:dungeon_tests> $<TARGET_FILE_DIR:dungeon_tests>
+            COMMAND_EXPAND_LISTS)
+        add_custom_command(TARGET ai_tests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_RUNTIME_DLLS:ai_tests> $<TARGET_FILE_DIR:ai_tests>
             COMMAND_EXPAND_LISTS)
     endif()
 endif()

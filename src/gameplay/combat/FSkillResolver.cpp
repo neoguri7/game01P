@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "gameplay/combat/FCombatRules.h"
 #include "gameplay/grid/FGridTypes.h"
 
 namespace game {
@@ -110,6 +111,18 @@ std::optional<FResolvedSkill> ResolveSkillSlot(
         }
     }
     return ResolveSkill(*skill, runes);
+}
+
+int ComputeSkillDamage(
+    const FStats& attacker, int attackModifier, const FResolvedSkill& skill, const FStats& defender) {
+    const bool magical = skill.damageType == gameplay::kDamageTypeMagical;
+    const int offense = (magical ? attacker.magicAttack : attacker.attack) + attackModifier;
+    const int defense = magical ? defender.magicDefense : defender.defense;
+    return ComputeDamage(offense, skill.power, defense);
+}
+
+int ComputeSkillHeal(const FStats& caster, const FResolvedSkill& skill) {
+    return skill.power > 0 ? std::max(0, caster.magicAttack + skill.power) : 0;
 }
 
 std::vector<FGridPosition> ComputeSkillCells(

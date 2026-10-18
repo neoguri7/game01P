@@ -16,6 +16,12 @@ struct FStatusTickResult {
     bool skipTurn{false};
 };
 
+/// What a status is worth once applied: the definition plus the rune deltas, clamped the way ApplyStatus
+/// stores it. One definition shared by ApplyStatus and by anything that wants to predict an application
+/// (the enemy AI values a status by what it will really do, not by what the data row says).
+[[nodiscard]] int EffectiveStatusDuration(const gameplay::FStatusContent& status, int durationDelta = 0);
+[[nodiscard]] int EffectiveStatusMagnitude(const gameplay::FStatusContent& status, int magnitudeDelta = 0);
+
 /// 중첩 = 갱신: reapplying refreshes the duration (never stacks a second entry) and takes the latest
 /// magnitude. Rune deltas (§3.3) arrive from FResolvedStatus; this is the only place they are folded
 /// into the status definition values.

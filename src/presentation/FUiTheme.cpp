@@ -14,6 +14,7 @@ struct FFontSet {
     ImFont* heading{nullptr};
 };
 FFontSet g_fonts;
+FSkin g_skin;
 
 std::filesystem::path FindFont(const char* file) {
     std::error_code error;
@@ -40,6 +41,26 @@ void Diamond(ImDrawList* draw, ImVec2 center, float radius, ImU32 color) {
 }
 
 } // namespace
+
+void InstallSkin(const FSkin& skin) { g_skin = skin; }
+
+void DrawNineSlice(ImDrawList* draw, const FSkinPiece& piece, ImVec2 min, ImVec2 max, float corner, ImU32 tint) {
+    if (!draw || !piece.valid()) return;
+    tint = Fade(tint);
+    // Keep corners from overlapping when the target is smaller than two corners.
+    const float cx = std::min(corner, std::floor((max.x - min.x) * .5f));
+    const float cy = std::min(corner, std::floor((max.y - min.y) * .5f));
+    const float xs[4]{min.x, min.x + cx, max.x - cx, max.x};
+    const float ys[4]{min.y, min.y + cy, max.y - cy, max.y};
+    const float us[4]{0.f, cx / piece.size.x, 1.f - cx / piece.size.x, 1.f};
+    const float vs[4]{0.f, cy / piece.size.y, 1.f - cy / piece.size.y, 1.f};
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            draw->AddImage(piece.texture, {xs[col], ys[row]}, {xs[col + 1], ys[row + 1]}, {us[col], vs[row]},
+                           {us[col + 1], vs[row + 1]}, tint);
+        }
+    }
+}
 
 ImU32 Fade(ImU32 color) {
     const float alpha = ImGui::GetStyle().Alpha;
@@ -111,6 +132,11 @@ void ApplyTheme() {
 
 void DrawPanel(ImDrawList* draw, ImVec2 min, ImVec2 max, bool fill) {
     draw->PushClipRectFullScreen();
+    if (fill && g_skin.panel.valid()) {
+        DrawNineSlice(draw, g_skin.panel, min, max, 16.f);
+        draw->PopClipRect();
+        return;
+    }
     if (fill) {
         draw->AddRectFilledMultiColor(min, max, Fade(palette::kPanelTop), Fade(palette::kPanelTop),
                                       Fade(palette::kPanelBottom), Fade(palette::kPanelBottom));
@@ -156,6 +182,16 @@ void DrawGem(ImDrawList* draw, ImVec2 center, float radius, ImU32 color, bool fi
 }
 
 void DrawSlotFrame(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 trim, bool glow) {
+    if (g_skin.slot.valid()) {
+        if (glow) {
+            draw->AddRectFilled(Offset(min, -4, -4), Offset(max, 4, 4), Fade(IM_COL32(240, 206, 128, 46)), 3.f);
+            draw->AddRect(Offset(min, -2, -2), Offset(max, 2, 2), Fade(IM_COL32(240, 206, 128, 200)), 3.f, 0, 2.f);
+        }
+        // The slot art is bronze already; only faction colors (party blue / enemy red) tint it.
+        const bool plain = trim == palette::kBronze || trim == palette::kGold || trim == palette::kGoldBright;
+        DrawNineSlice(draw, g_skin.slot, min, max, 12.f, plain ? IM_COL32_WHITE : trim);
+        return;
+    }
     draw->AddRectFilled(min, max, Fade(IM_COL32(10, 7, 8, 255)));
     if (glow) {
         draw->AddRectFilled(Offset(min, -3, -3), Offset(max, 3, 3), Fade(IM_COL32(240, 206, 128, 40)));
@@ -226,6 +262,11 @@ bool Button(const char* label, ImVec2 size) {
     const ImVec2 max = ImGui::GetItemRectMax();
     ImDrawList* draw = ImGui::GetWindowDrawList();
     const bool hot = ImGui::IsItemHovered();
+    // The plaque's corner rivets swallow the label on small buttons, which keep the procedural trim.
+    if (g_skin.plaque.valid() && max.y - min.y >= 40.f && max.x - min.x >= 80.f) {
+        DrawNineSlice(draw, g_skin.plaque, min, max, 12.f, hot ? IM_COL32(255, 236, 190, 255) : IM_COL32_WHITE);
+        return pressed;
+    }
     draw->AddRect(Offset(min, -1, -1), Offset(max, 1, 1), Fade(palette::kOutline));
     draw->AddRect(min, max, Fade(hot ? palette::kGold : palette::kBronze), 0.f, 0, 2.f);
     draw->AddLine(Offset(min, 3, 3), {max.x - 3.f, min.y + 3.f}, Fade(IM_COL32(255, 220, 160, hot ? 90 : 45)));

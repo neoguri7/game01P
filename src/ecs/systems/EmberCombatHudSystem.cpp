@@ -22,6 +22,7 @@
 #include "gameplay/grid/FGridQuery.h"
 #include "gameplay/grid/FGridSelection.h"
 #include "gameplay/grid/FGridTerrain.h"
+#include "presentation/FIsoView.h"
 
 namespace game::ecs {
 
@@ -73,15 +74,11 @@ void EmberCombatHudSystem::update(entt::registry& registry, float) {
     else if (input->isActionPressed(EInputAction::MoveRight)) { ++destination.x; keyMove = true; }
     if (keyMove) { queue.pending.push_back(FMoveRequest{actor, destination, token}); return; }
     if (input->uiCapturesMouse) return;
-    FCamera camera{};
-    for (const auto entity : registry.view<FCamera, FTag>()) {
-        if (registry.get<FTag>(entity).value == "battle_camera") camera = registry.get<FCamera>(entity);
-    }
     const auto& window = registry.ctx().get<FEngineWindowState>();
     const auto& grid = registry.ctx().get<FGridMetrics>();
+    const auto view = MakeIsoView(grid, static_cast<float>(window.width), static_cast<float>(window.height));
     int x = 0, y = 0;
-    if (!WorldToGridCell(grid, ScreenToWorld(input->mousePos, camera,
-            FViewport{static_cast<float>(window.width), static_cast<float>(window.height)}), x, y)) return;
+    if (!IsoScreenToCell(view, grid, input->mousePos, x, y)) return;
     selection->hovered = FGridPosition{x, y};
     const auto target = FindGridOccupant(registry, x, y);
     if (selectedSkill >= 0 && selectedSkill < static_cast<int>(loadout.slots.size())) {

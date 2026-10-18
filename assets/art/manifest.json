@@ -38,6 +38,7 @@
     ],
     "forest": "Forest mode (default executable) now uses the same art set as Ember: units from art/*.png via units.json, forest_* props/ground, icon_* HUD icons. The old 32x32 locally drawn assets/generated/ set was removed. Rejected ground jobs: ce3d53ba-51a7-4a67-9f2c-d4d4486de6d8, 0c1fc44c-378a-4bb2-91f1-a9e9088a418c, 204ed345-62f6-49b8-879a-5a06585cd550, d3abcc44-34e2-4c70-bfdf-5359b64783ae (vignette borders), 3dcf3bef/bed0f1a7 kept only as noted.",
     "theme": "Dark fantasy forest (style v4): near-black green walls of roots and mossy boulders, mossy fern/grass floors, thorn traps, canopy backdrop. UI uses a Diablo-like stone/bronze/gold treatment with Cinzel headings and Alegreya Sans body (OFL fonts in assets/fonts).",
+    "iso": "Ember battles render on an isometric projection (presentation/FIsoView.h; logic stays orthogonal): dark-forest ground blocks, tree/boulder/thorn obstacles, a wider forest floor beyond the arena. UI follows Pillars of Eternity 2 (carved bronze/gunmetal plaques, parchment panels, slot frames).",
     "tiles_v4_rejected": [
       "c5e33797-9c34-456f-bb85-4bf51fc86fa8",
       "4be50375-80a8-46f8-bb9c-9471534dc7b8",
@@ -231,6 +232,37 @@
       "transparent": true,
       "seed": 3204,
       "tool": "create_image_pixflux"
+    },
+    {
+      "file": "iso_floor_0.png .. iso_floor_7.png, iso_trap.png, iso_root.png",
+      "tool": "create_tiles_pro",
+      "job_id": "8be8eb13-ae10-4991-b0ad-75d1059fcf7b",
+      "seed": 5101,
+      "transparent": true,
+      "note": "isometric 64x64 dark-forest ground blocks (diamond face 64x34, 12px thickness); tile_0-3 -> floor_0-3, tile_10/11 -> floor_4/5, tile_4/5 -> floor_6/7, tile_12 -> trap, tile_14 -> root"
+    },
+    {
+      "file": "iso_tree.png (64x96), iso_boulders.png, iso_thorns.png",
+      "tool": "create_object_pro_flash",
+      "job_ids": [
+        "c628883e-c76e-48d7-ba03-30c157891c6d",
+        "0f51192d-cdab-4624-9895-c1f9c18ea35f",
+        "45ed3d9d-3133-41c4-908f-9caded5c5705"
+      ],
+      "seeds": [7101, 7102, 7103],
+      "transparent": true,
+      "note": "obstacles drawn on Wall cells of the isometric battlefield"
+    },
+    {
+      "file": "ui_panel.png, ui_plaque.png, ui_slot.png",
+      "tool": "create_ui_asset",
+      "job_ids": [
+        "9405926a-199e-40f1-ad21-a6c35b144971",
+        "32f9ea35-36f4-477c-bf60-6eecc08014b6"
+      ],
+      "seeds": [6102, 6101],
+      "transparent": true,
+      "note": "UI skin cropped from the generated panel/action-bar atlases: parchment panel (9-slice, 16px corners), bronze plaque frame (hollow), bronze square slot. Installed via ui::InstallSkin."
     }
   ],
   "fonts": [

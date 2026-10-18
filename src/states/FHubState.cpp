@@ -3,6 +3,7 @@
 #include "core/InputState.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/run/FPrototypeRun.h"
+#include "presentation/FPassiveTreePanel.h"
 
 #include <algorithm>
 #include <string>
@@ -137,68 +138,14 @@ void DrawPassiveProgression(
                         bonuses.maxHealth, bonuses.attack, bonuses.magicAttack, bonuses.defense,
                         bonuses.magicDefense, bonuses.speed);
 
-    ImGui::BeginChild("passive-tree-map", ImVec2(0, 235), ImGuiChildFlags_Borders);
-    const ImVec2 mapOrigin = ImGui::GetCursorScreenPos();
-    const ImVec2 mapSize = ImGui::GetContentRegionAvail();
-    const auto positionFor = [&](const game::FPassiveNode& node) {
-        constexpr float margin = 28.0f;
-        return ImVec2(mapOrigin.x + margin + node.x * std::max(1.0f, mapSize.x - margin * 2.0f) / 100.0f,
-                      mapOrigin.y + margin + node.y * std::max(1.0f, mapSize.y - margin * 2.0f) / 100.0f);
-    };
-    ImDrawList* drawList = ImGui::GetWindowDrawList();
-    for (const game::FPassiveNode& node : run.passiveNodes) {
-        if (node.parentId.empty()) continue;
-        const auto parent = std::ranges::find(run.passiveNodes, node.parentId, &game::FPassiveNode::id);
-        if (parent == run.passiveNodes.end()) continue;
-        const bool connected = node.parentId == run.passiveRootNodeId
-            || std::ranges::find(member.allocatedNodes, node.parentId) != member.allocatedNodes.end();
-        const bool allocated = std::ranges::find(member.allocatedNodes, node.id) != member.allocatedNodes.end();
-        const ImU32 color = allocated ? IM_COL32(255, 211, 105, 255)
-            : connected ? IM_COL32(77, 174, 255, 210) : IM_COL32(76, 82, 99, 150);
-        drawList->AddLine(positionFor(node), positionFor(*parent), color, allocated ? 3.0f : 2.0f);
-    }
-    for (const game::FPassiveNode& node : run.passiveNodes) {
-        const bool allocated = node.id == run.passiveRootNodeId
-            || std::ranges::find(member.allocatedNodes, node.id) != member.allocatedNodes.end();
-        const bool available = run.CanAllocatePassiveNode(member.placementId, node.id);
-        const ImVec2 center = positionFor(node);
-        const ImU32 fill = allocated ? IM_COL32(255, 199, 82, 255)
-            : available ? IM_COL32(56, 132, 190, 255) : IM_COL32(59, 63, 76, 255);
-        drawList->AddCircleFilled(center, 15.0f, fill, 20);
-        drawList->AddCircle(center, 15.0f, IM_COL32(222, 228, 240, 220), 20, 2.0f);
-        const std::string mark = node.displayName.substr(0, 1);
-        const ImVec2 markSize = ImGui::CalcTextSize(mark.c_str());
-        drawList->AddText(ImVec2(center.x - markSize.x * 0.5f, center.y - markSize.y * 0.5f),
-                          IM_COL32(20, 24, 32, 255), mark.c_str());
-        const ImVec2 labelSize = ImGui::CalcTextSize(node.displayName.c_str());
-        drawList->AddText(ImVec2(center.x - labelSize.x * 0.5f, center.y + 17.0f),
-                          IM_COL32(220, 224, 234, 255), node.displayName.c_str());
-    }
-    ImGui::SetCursorScreenPos(ImVec2(mapOrigin.x, mapOrigin.y + mapSize.y));
-    ImGui::Dummy(ImVec2(1.0f, 1.0f));
-    ImGui::EndChild();
-    ImGui::TextDisabled("Gold: allocated   Blue: connected   Gray: locked");
-
-    for (const game::FPassiveNode& node : run.passiveNodes) {
-        if (node.id == run.passiveRootNodeId) continue;
-        const bool allocated = std::ranges::find(member.allocatedNodes, node.id) != member.allocatedNodes.end();
-        const bool canAllocate = run.CanAllocatePassiveNode(member.placementId, node.id);
-        const char* state = allocated ? " (Allocated)" : canAllocate ? " (Connected)" : " (Locked)";
-        if (!ImGui::TreeNode(node.id.c_str(), "%s%s", node.displayName.c_str(), state)) continue;
-        ImGui::TextWrapped("%s", node.description.c_str());
-        if (canAllocate) {
-            ImGui::BeginDisabled(member.passivePoints <= 0);
-            if (ImGui::Button("Allocate passive point")) {
-                (void)run.AllocatePassiveNode(member.placementId, node.id);
-            }
-            ImGui::EndDisabled();
-        } else if (!allocated) {
-            const auto parent = std::ranges::find(run.passiveNodes, node.parentId, &game::FPassiveNode::id);
-            ImGui::TextDisabled("Connect %s first.", parent == run.passiveNodes.end()
-                ? node.parentId.c_str() : parent->displayName.c_str());
-        }
-        ImGui::TreePop();
-    }
+    game::ui::DrawPassiveTreePanel(game::ui::FPassiveTreePanel{
+        .nodes = &run.tree.nodes,
+        .rootNodeId = run.tree.rootNodeId,
+        .allocated = &member.allocatedNodes,
+        .points = member.passivePoints,
+        .canAllocate = [&](std::string_view nodeId) { return run.CanAllocatePassiveNode(member.placementId, nodeId); },
+        .allocate = [&](std::string_view nodeId) { (void)run.AllocatePassiveNode(member.placementId, nodeId); },
+    });
 }
 
 } // namespace

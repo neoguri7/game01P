@@ -2,6 +2,7 @@
 
 #include "core/AssetManager.h"
 #include "core/Logger.h"
+#include "gameplay/ai/FAiLibrary.h"
 #include "gameplay/data/FContentRegistry.h"
 
 #include <tracy/Tracy.hpp>
@@ -28,11 +29,22 @@ bool FGameplayServices::Initialize(entt::registry& registry) {
         return false;
     }
 
+    // Behavior trees reference skills, statuses and units, so they load (and are validated) after content.
+    std::optional<ai::FAiLibrary> library = ai::FAiLibrary::load(*assets, *content);
+    if (!library) {
+        LOG_ERROR("gameplay AI profiles are unusable; boot stopped (see the ai errors above).");
+        return false;
+    }
+
     registry.ctx().emplace<FContentRegistry>(std::move(*content));
+    registry.ctx().emplace<ai::FAiLibrary>(std::move(*library));
     return true;
 }
 
 void FGameplayServices::Shutdown(entt::registry& registry) {
+    if (registry.ctx().contains<ai::FAiLibrary>()) {
+        registry.ctx().erase<ai::FAiLibrary>();
+    }
     if (registry.ctx().contains<FContentRegistry>()) {
         registry.ctx().erase<FContentRegistry>();
     }

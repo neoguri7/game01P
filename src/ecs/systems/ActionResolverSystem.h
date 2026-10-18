@@ -171,10 +171,9 @@ private:
         const std::vector<entt::entity> affected = FindUnitsOnCells(registry, cells, affectsParty);
 
         // §1.1: 공격 항은 damage_type이 고른다. 버프/디버프(stat 상태)는 어느 쪽 공격 항에도 더해진다.
-        const bool magical = resolved->damageType == gameplay::kDamageTypeMagical;
-        int offense = magical ? stats->magicAttack : stats->attack;
+        int attackModifier = 0;
         if (const auto* active = registry.try_get<FActiveStatuses>(actor); active && !active->effects.empty()) {
-            offense += StatusAttackModifier(*active, CollectStatuses(*active, content));
+            attackModifier = StatusAttackModifier(*active, CollectStatuses(*active, content));
         }
 
         for (const entt::entity target : affected) {
@@ -185,7 +184,7 @@ private:
 
             if (targetsOwnSide) {
                 // Zero-power support skills apply statuses without also becoming heals.
-                const int heal = resolved->power > 0 ? std::max(0, stats->magicAttack + resolved->power) : 0;
+                const int heal = ComputeSkillHeal(*stats, *resolved);
                 if (auto* health = registry.try_get<FHealth>(target); health && heal > 0) {
                     const int before = health->current;
                     health->current = std::min(health->max, health->current + heal);
@@ -196,11 +195,8 @@ private:
                 }
             } else if (resolved->power > 0) {
                 // §1.1: 감소 항도 damage_type이 고른다(물리: 방어력, 마법: 마법방어력).
-                int defense = 0;
-                if (const auto* targetStats = registry.try_get<FStats>(target)) {
-                    defense = magical ? targetStats->magicDefense : targetStats->defense;
-                }
-                const int damage = ComputeDamage(offense, resolved->power, defense);
+                const auto* targetStats = registry.try_get<FStats>(target);
+                const int damage = ComputeSkillDamage(*stats, attackModifier, *resolved, targetStats ? *targetStats : FStats{});
                 died = ApplyDamageToUnit(registry, target, damage);
                 if (log) {
                     std::string line = actorName + " / " + skillName + " -> " + targetName + " -"

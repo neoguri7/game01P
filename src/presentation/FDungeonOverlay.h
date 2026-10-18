@@ -9,6 +9,7 @@ namespace game {
 struct FDungeonUiState {
     bool debugVisible{false};
     bool confirmAbandon{false};
+    int selectedGrowthMember{0};
 };
 
 void InitializeDungeonUi(entt::registry& registry);

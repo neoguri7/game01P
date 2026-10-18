@@ -1,23 +1,29 @@
 {
   "schema_version": 1,
+  "passive_tree": "data/passive-tree",
   "rune_drops": ["rune.fire", "rune.range", "rune.swift", "rune.leech", "rune.power", "rune.cold"],
   "balance": {
-    "move_range": 3,
+    "move_range": 1,
     "trap_damage": 8,
-    "reward_health": 15,
-    "reward_attack": 2,
-    "reward_magic": 2,
     "room_heal": 8,
     "event_heal": 35,
     "event_materials": 3,
     "camp_heal": 45,
-    "camp_cost": 3,
     "room_materials": 1,
     "room_experience": 25,
     "level_experience": 25,
+    "level_experience_step": 5,
     "enemy_health_per_depth": 5,
     "enemy_attack_per_depth": 1
   },
+  "stat_upgrades": [
+    {"id": "upgrade.attack", "display_name": "Attack", "stat": "attack", "amount": 1, "cost": 2, "cap": 6},
+    {"id": "upgrade.magic_attack", "display_name": "Magic attack", "stat": "magic_attack", "amount": 1, "cost": 2, "cap": 6},
+    {"id": "upgrade.defense", "display_name": "Defense", "stat": "defense", "amount": 1, "cost": 2, "cap": 5},
+    {"id": "upgrade.magic_defense", "display_name": "Magic defense", "stat": "magic_defense", "amount": 1, "cost": 2, "cap": 5},
+    {"id": "upgrade.health", "display_name": "Max health", "stat": "health", "amount": 5, "cost": 2, "cap": 12},
+    {"id": "upgrade.speed", "display_name": "Speed", "stat": "speed", "amount": 1, "cost": 4, "cap": 2}
+  ],
   "party": [
     {"id":"party.warrior","display_name":"Alden / Warrior","unit":"char.warrior","faction":"party","grid_x":1,"grid_y":6},
     {"id":"party.archer","display_name":"Rowan / Archer","unit":"char.archer","faction":"party","grid_x":2,"grid_y":6},

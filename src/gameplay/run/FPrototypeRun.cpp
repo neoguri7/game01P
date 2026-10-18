@@ -29,49 +29,9 @@ std::optional<FPrototypeRun> FPrototypeRun::Load(const gameplay::FContentRegistr
 
         const auto passiveTreeDocument = FJsonLoader::Load(document->at("passive_tree").get<std::string>());
         if (!passiveTreeDocument) return std::nullopt;
-        std::set<std::string> passiveNodeIds;
-        for (const auto& row : passiveTreeDocument->at("nodes")) {
-            FPassiveNode node;
-            node.id = row.at("id").get<std::string>();
-            node.displayName = row.at("display_name").get<std::string>();
-            node.description = row.at("description").get<std::string>();
-            if (!row.at("parent").is_null()) node.parentId = row.at("parent").get<std::string>();
-            node.x = row.at("x").get<float>();
-            node.y = row.at("y").get<float>();
-            const auto& bonuses = row.at("bonuses");
-            node.bonuses.maxHealth = bonuses.at("max_health").get<int>();
-            node.bonuses.attack = bonuses.at("attack").get<int>();
-            node.bonuses.magicAttack = bonuses.at("magic_attack").get<int>();
-            node.bonuses.defense = bonuses.at("defense").get<int>();
-            node.bonuses.magicDefense = bonuses.at("magic_defense").get<int>();
-            node.bonuses.speed = bonuses.at("speed").get<int>();
-            const bool validBonuses = node.bonuses.maxHealth >= 0 && node.bonuses.attack >= 0
-                && node.bonuses.magicAttack >= 0 && node.bonuses.defense >= 0
-                && node.bonuses.magicDefense >= 0 && node.bonuses.speed >= 0;
-            if (node.id.empty() || node.displayName.empty() || node.description.empty()
-                || !passiveNodeIds.insert(node.id).second || !std::isfinite(node.x) || !std::isfinite(node.y)
-                || node.x < 0.0f || node.x > 100.0f || node.y < 0.0f || node.y > 100.0f || !validBonuses) {
-                return std::nullopt;
-            }
-            if (node.parentId.empty()) {
-                if (!run.passiveRootNodeId.empty() || node.bonuses.maxHealth != 0 || node.bonuses.attack != 0
-                    || node.bonuses.magicAttack != 0 || node.bonuses.defense != 0
-                    || node.bonuses.magicDefense != 0 || node.bonuses.speed != 0) return std::nullopt;
-                run.passiveRootNodeId = node.id;
-            }
-            run.passiveNodes.push_back(std::move(node));
-        }
-        if (run.passiveNodes.size() < 2 || run.passiveRootNodeId.empty()) return std::nullopt;
-        for (const FPassiveNode& node : run.passiveNodes) {
-            std::set<std::string> visited{node.id};
-            std::string parentId = node.parentId;
-            while (!parentId.empty()) {
-                if (!visited.insert(parentId).second) return std::nullopt;
-                const auto parent = std::ranges::find(run.passiveNodes, parentId, &FPassiveNode::id);
-                if (parent == run.passiveNodes.end()) return std::nullopt;
-                parentId = parent->parentId;
-            }
-        }
+        const auto tree = FPassiveTree::Load(*passiveTreeDocument);
+        if (!tree) return std::nullopt;
+        run.tree = *tree;
 
         int battles = 0;
         int events = 0;
@@ -149,7 +109,7 @@ bool FPrototypeRun::CanStart(const gameplay::FContentRegistry& content) const {
                 || !selected.insert(slot.skillId).second || ValidateSkillSlot(slot, content)) return false;
         }
     }
-    return members > 0 && members <= 4 && !rooms.empty() && !passiveNodes.empty();
+    return members > 0 && members <= 4 && !rooms.empty() && !tree.empty();
 }
 
 bool FPrototypeRun::Start(const gameplay::FContentRegistry& content) {
@@ -267,12 +227,8 @@ bool FPrototypeRun::CanAllocatePassiveNode(std::string_view placementId, std::st
     const FPrototypeRoom* room = CurrentRoom();
     if (room != nullptr && room->kind == EPrototypeRoom::Battle) return false;
     const auto member = std::ranges::find(party, placementId, &FPreparedMember::placementId);
-    if (member == party.end() || !member->enabled || member->passivePoints <= 0
-        || std::ranges::find(member->allocatedNodes, nodeId) != member->allocatedNodes.end()) return false;
-    const auto node = std::ranges::find(passiveNodes, nodeId, &FPassiveNode::id);
-    if (node == passiveNodes.end() || node->id == passiveRootNodeId) return false;
-    return node->parentId == passiveRootNodeId
-        || std::ranges::find(member->allocatedNodes, node->parentId) != member->allocatedNodes.end();
+    if (member == party.end() || !member->enabled || member->passivePoints <= 0) return false;
+    return tree.CanAllocate(member->allocatedNodes, nodeId);
 }
 
 bool FPrototypeRun::AllocatePassiveNode(std::string_view placementId, std::string_view nodeId) {
@@ -288,20 +244,9 @@ int FPrototypeRun::ExperienceForNextLevel(const FPreparedMember& member) const {
 }
 
 FPassiveStatBonuses FPrototypeRun::PassiveBonuses(std::string_view placementId) const {
-    FPassiveStatBonuses total;
     const auto member = std::ranges::find(party, placementId, &FPreparedMember::placementId);
-    if (member == party.end()) return total;
-    for (const std::string& nodeId : member->allocatedNodes) {
-        const auto node = std::ranges::find(passiveNodes, nodeId, &FPassiveNode::id);
-        if (node == passiveNodes.end()) continue;
-        total.maxHealth += node->bonuses.maxHealth;
-        total.attack += node->bonuses.attack;
-        total.magicAttack += node->bonuses.magicAttack;
-        total.defense += node->bonuses.defense;
-        total.magicDefense += node->bonuses.magicDefense;
-        total.speed += node->bonuses.speed;
-    }
-    return total;
+    if (member == party.end()) return FPassiveStatBonuses{};
+    return tree.Bonuses(member->allocatedNodes);
 }
 
 const FPrototypeRoom* FPrototypeRun::CurrentRoom() const {

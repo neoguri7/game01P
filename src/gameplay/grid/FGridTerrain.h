@@ -10,7 +10,7 @@ enum class ETile { Floor, Wall, Trap };
 
 struct FGridTerrain {
     std::array<ETile, kGridWidth * kGridHeight> cells{};
-    int moveRange{3};
+    int moveRange{1};
     int trapDamage{8};
 
     [[nodiscard]] ETile at(int x, int y) const noexcept {

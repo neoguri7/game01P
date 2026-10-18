@@ -74,6 +74,7 @@
       "magic_attack": 2,
       "defense": 5,
       "magic_defense": 3,
+      "ai": "ai.boss",
       "skills": ["skill.cleave", "skill.strike"]
     },
     {

@@ -32,6 +32,7 @@
 #include "gameplay/grid/FGridQuery.h"
 #include "gameplay/grid/FCameraMath.h"
 #include "gameplay/grid/FGridTerrain.h"
+#include "presentation/FIsoView.h"
 #include "states/FEmberBattleState.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FDungeonArt.h"
@@ -104,6 +105,14 @@ struct FTestContent {
         root = std::filesystem::path("out") / ("test-content-" +
             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         std::filesystem::create_directories(root / "data");
+        // The passive tree is shared content; tests keep a copy so growth validation fails for the
+        // document under test, not because the temp root lacks the tree.
+        std::ifstream treeFile("assets/data/passive-tree.json");
+        CHECK(treeFile.good());
+        std::ofstream treeOut(root / "data" / "passive-tree.json");
+        treeOut << nlohmann::json::parse(treeFile).dump();
+        treeOut.flush();
+        CHECK(treeOut.good());
         write(data);
     }
 
@@ -115,7 +124,8 @@ struct FTestContent {
     }
 
     ~FTestContent() {
-        for (const auto& path : {root / "ui.log", root / "data" / "dungeon.json", root / "data", root}) {
+        for (const auto& path : {root / "ui.log", root / "data" / "dungeon.json",
+                                 root / "data" / "passive-tree.json", root / "data", root}) {
             std::error_code error;
             std::filesystem::remove(path, error);
             if (error) std::cerr << "Test content cleanup failed: " << error.message() << '\n';
@@ -154,10 +164,13 @@ void CollisionAndTurns() {
     CHECK(game::HasGridLineOfSight(registry, {1, 1}, {3, 1}));
     queue.pending.push_back(game::FMoveRequest{token.actor, {3, 1}, token});
     fixture.actions.update(registry, 0);
-    CHECK(cell.x == 3 && cell.y == 1 && points.move == 0);
+    CHECK(cell.x == 1 && points.move == 1);
+    queue.pending.push_back(game::FMoveRequest{token.actor, {2, 1}, token});
+    fixture.actions.update(registry, 0);
+    CHECK(cell.x == 2 && cell.y == 1 && points.move == 0);
     CHECK(hp.current == startingHp - terrain.trapDamage);
     CHECK(points.skill == points.skillMax);
-    queue.pending.push_back(game::FMoveRequest{token.actor, {3, 2}, token});
+    queue.pending.push_back(game::FMoveRequest{token.actor, {2, 2}, token});
     fixture.actions.update(registry, 0);
     CHECK(cell.y == 1 && hp.current == startingHp - terrain.trapDamage);
 
@@ -172,9 +185,9 @@ void CollisionAndTurns() {
     CHECK(game::FindGridOccupant(registry, enemyCell.x, enemyCell.y) == entt::null);
     CHECK(!game::IsGridCellOccupied(registry, enemyCell.x, enemyCell.y));
 
-    terrain.cells[1 * 8 + 2] = game::ETile::Wall;
-    CHECK(!game::HasGridLineOfSight(registry, {1, 1}, {2, 2}));
-    const auto path = game::FindGridPath(registry, token.actor, {1, 1}, 10);
+    terrain.cells[1 * 8 + 3] = game::ETile::Wall;
+    CHECK(!game::HasGridLineOfSight(registry, {2, 1}, {3, 2}));
+    const auto path = game::FindGridPath(registry, token.actor, {4, 1}, 10);
     CHECK(path.size() >= 4);
     for (const auto step : path) CHECK(terrain.at(step.x, step.y) != game::ETile::Wall);
     const auto world = game::GridCellTopLeftToWorld(registry.ctx().get<game::FGridMetrics>(), cell.x, cell.y);
@@ -234,6 +247,15 @@ void AutoActionTokenBoundary() {
     CHECK(std::get<game::FActionRequest>(*skill).actor == token.actor);
     auto& points = registry.get<game::FActionPoints>(token.actor);
     points.skill = 0;
+    // Without skill AP the AI no longer shuffles next to an enemy it is already facing (a wasted move); it
+    // moves when moving gets it somewhere. Put the actor and the enemies in opposite corners, out of every
+    // skill's reach, to force that case.
+    registry.get<game::FGridPosition>(token.actor) = {0, 7};
+    int corner = 0;
+    for (const auto entity : registry.view<game::FEnemy, game::FGridPosition>()) {
+        registry.get<game::FGridPosition>(entity) = {7 - corner % 2, corner / 2};
+        ++corner;
+    }
     const auto move = game::ChooseAutoAction(registry, token, false, content);
     CHECK(move.has_value() && std::holds_alternative<game::FMoveRequest>(*move));
     CHECK(std::get<game::FMoveRequest>(*move).token == token);
@@ -303,10 +325,8 @@ void SharedCellAndPierceActions() {
     window.width = 1280;
     window.height = 800;
     auto& input = registry.ctx().emplace<game::FInputState>();
-    game::FCamera camera{};
-    for (const auto entity : registry.view<game::FCamera>()) camera = registry.get<game::FCamera>(entity);
-    input.mousePos = game::WorldToScreen(game::GridCellCenterToWorld(
-        registry.ctx().get<game::FGridMetrics>(), 3, 1), camera, {1280, 800});
+    const auto isoView = game::MakeIsoView(registry.ctx().get<game::FGridMetrics>(), 1280.f, 800.f);
+    input.mousePos = isoView.cellCenter(3, 1);
     input.mouseLeftPressed = true;
     game::ecs::EmberCombatHudSystem hud;
     hud.boundTurn = token.turnSerial;
@@ -427,13 +447,14 @@ void BalanceDrivenChoiceUi() {
     std::ifstream source("assets/data/dungeon.json");
     auto data = nlohmann::json::parse(source);
     for (const auto& [key, value] : std::vector<std::pair<const char*, int>>{
-             {"reward_health", 37}, {"reward_attack", 7}, {"reward_magic", 11},
-             {"event_heal", 42}, {"event_materials", 6}, {"camp_cost", 5}, {"camp_heal", 61}}) {
+             {"event_heal", 42}, {"event_materials", 6}, {"camp_heal", 61}}) {
         data["balance"][key] = value;
     }
+    data["stat_upgrades"][0]["cost"] = 5;  // 재강화 라벨이 데이터를 따라가는지 확인
     FTestContent content(data);
     registry.ctx().erase<game::FAssetManager>();
     registry.ctx().emplace<game::FAssetManager>(std::vector<std::string>{content.root.string(), "assets"});
+    CHECK(game::InitializeDungeon(registry, fixture.checkpoint.string()));
     registry.ctx().emplace<game::FEngineWindowState>().width = 1280;
     registry.ctx().get<game::FEngineWindowState>().height = 800;
     registry.ctx().emplace<game::FResourceManager>().init(renderer.get());
@@ -462,20 +483,23 @@ void BalanceDrivenChoiceUi() {
         CHECK(capture.good());
         log.append(std::istreambuf_iterator<char>(capture), std::istreambuf_iterator<char>());
     }
-    for (const char* label : {"VIGOR  /  +37 max HP and heal", "MIGHT  /  +7 physical attack",
-             "FOCUS  /  +11 magic attack", "Rest at the shrine  /  heal 42 HP",
-             "Open the cache  /  gain 6 materials", "Healed up to 61 HP.",
-             "Reinforce (+7 attack/+11 magic, 5 materials) & descend"}) {
+    for (const char* label : {"ROOM SECURED", "Level 1   EXP 0 / 25   Node points 0",
+             "Rest at the shrine  /  heal 42 HP", "Open the cache  /  gain 6 materials",
+             "Healed up to 61 HP. Allocate nodes, reinforce stats and fit runes for free before descending.",
+             "Attack +1  (5 materials, 0/6)"}) {
         CHECK(log.find(label) != std::string::npos);
     }
     run.phase = game::EDungeonPhase::Reward;
-    game::ChooseDungeonReward(registry, 0);
-    CHECK(run.party[0].bonusHealth == 37);
+    CHECK(game::UpgradeDungeonStat(registry, 0, 0).has_value());  // 강화는 캠프 전용
+    game::ContinueDungeonReward(registry);
+    CHECK(run.phase == game::EDungeonPhase::Event);
     game::ChooseDungeonEvent(registry, false);
     CHECK(run.materials == 6);
     run.phase = game::EDungeonPhase::Camp;
-    game::LeaveDungeonCamp(registry, true);
-    CHECK(run.materials == 1 && run.party[0].bonusAttack == 7 && run.party[0].bonusMagic == 11);
+    CHECK(!game::UpgradeDungeonStat(registry, 0, 0).has_value());
+    CHECK(run.materials == 1 && run.party[0].bonusAttack == 1);
+    game::LeaveDungeonCamp(registry);
+    CHECK(run.depth == 2 && run.room == 0);
 }
 
 void CompleteRun(std::uint32_t seed) {
@@ -491,11 +515,23 @@ void CompleteRun(std::uint32_t seed) {
         CHECK(fixture.battle.Update(registry, 0) == EStateTransition::None);
         auto& run = registry.ctx().get<game::FDungeonRun>();
         CHECK(run.phase == game::EDungeonPhase::Reward);
-        CHECK(run.level == room + 2);
         CHECK(run.runes.size() == static_cast<std::size_t>(room + 1));
-        const int bonus = run.party.front().bonusAttack;
-        game::ChooseDungeonReward(registry, 1);
-        CHECK(run.party.front().bonusAttack > bonus);
+        // 정본 §6: 캐릭터별 EXP가 임계를 넘으면 레벨업 + 노드 포인트 1.
+        for (const auto& member : run.party) {
+            CHECK(member.level == (room == 2 ? 3 : 2));
+            CHECK(member.experience == (room == 0 ? 0 : room == 1 ? 25 : 20));
+        }
+        if (room == 0) {
+            CHECK(run.party.front().passivePoints == 1);
+            CHECK(game::AllocateDungeonNode(registry, 0, "node.might"));
+            CHECK(run.party.front().passivePoints == 0 && run.party.front().allocatedNodes.size() == 1);
+            CHECK(!game::AllocateDungeonNode(registry, 0, "node.vitality"));  // 포인트 소진
+        } else if (room == 2) {
+            CHECK(run.party.front().passivePoints == 1);
+        } else {
+            CHECK(run.party.front().passivePoints == 0);
+        }
+        game::ContinueDungeonReward(registry);
         if (room == 0) {
             CHECK(run.phase == game::EDungeonPhase::Event);
             game::ChooseDungeonEvent(registry, false);
@@ -516,18 +552,111 @@ void CompleteRun(std::uint32_t seed) {
     CHECK(!game::ValidateSkillSlot(candidate, registry.ctx().get<game::gameplay::FContentRegistry>()));
     candidate.runeIds.push_back("rune.fire");
     CHECK(game::ValidateSkillSlot(candidate, registry.ctx().get<game::gameplay::FContentRegistry>()).has_value());
+    // 캠프: 물질로 스탯을 강화하고 다음 던전으로 내려간다.
+    const auto& growth = registry.ctx().get<game::FDungeonGrowth>();
+    const auto upgrade = std::ranges::find(growth.statUpgrades, "upgrade.attack", &game::FStatUpgrade::id);
+    CHECK(upgrade != growth.statUpgrades.end());
     const int materials = run.materials;
-    game::LeaveDungeonCamp(registry, true);
-    CHECK(run.depth == 2 && run.room == 0 && run.materials == materials - 3);
+    CHECK(!game::UpgradeDungeonStat(registry, 0, static_cast<std::size_t>(upgrade - growth.statUpgrades.begin())).has_value());
+    CHECK(run.materials == materials - upgrade->cost && run.party.front().bonusAttack == 1);
+    game::LeaveDungeonCamp(registry);
+    CHECK(run.depth == 2 && run.room == 0);
     fixture.nextRoom();
-    CHECK(registry.get<game::FStats>(game::FindNearestAlive(registry,
-        registry.view<game::FEnemy>().front(), true)).attack > 2);
+    const auto* warriorUnit = registry.ctx().get<game::gameplay::FContentRegistry>().units.find("char.warrior");
+    CHECK(warriorUnit != nullptr);
+    entt::entity warriorEntity = entt::null;
+    for (const auto entity : registry.view<game::FPartyMember, game::FUnitData>()) {
+        if (registry.get<game::FUnitData>(entity).definition.id == "party.warrior") warriorEntity = entity;
+    }
+    CHECK(warriorEntity != entt::null);
+    // 캐릭터별 성장이 다음 전투 셋업에 합산된다: 기본 + 물질 강화(+1) + node.might(+1).
+    CHECK(registry.get<game::FStats>(warriorEntity).attack == warriorUnit->attack + 2);
     game::StartDungeonRun(registry, 999);
     const auto& restarted = registry.ctx().get<game::FDungeonRun>();
     CHECK(restarted.depth == 2 && restarted.room == 0);
-    CHECK(restarted.materials == 0 && restarted.runes.empty() && restarted.experience == 0);
-    CHECK(restarted.party.front().bonusAttack == 0);
+    CHECK(restarted.materials == 0 && restarted.runes.empty());
+    CHECK(restarted.party.front().level == 1 && restarted.party.front().passivePoints == 0
+          && restarted.party.front().allocatedNodes.empty() && restarted.party.front().bonusAttack == 0);
     std::cout << "  Seed " << seed << ": " << firstRoom << " -> full dungeon + checkpoint + next depth\n";
+}
+
+void PerCharacterRunGrowth() {
+    FFixture fixture;
+    auto& registry = fixture.registry;
+    auto& run = registry.ctx().get<game::FDungeonRun>();
+    const auto& growth = registry.ctx().get<game::FDungeonGrowth>();
+    CHECK(!growth.passiveTree.nodes.empty() && !growth.statUpgrades.empty());
+    CHECK(growth.ExperienceForNextLevel(1) == 25 && growth.ExperienceForNextLevel(2) == 30);
+
+    // 전투 중에는 노드 할당이 잠긴다.
+    CHECK(run.phase == game::EDungeonPhase::Battle);
+    CHECK(!game::CanAllocateDungeonNode(registry, 0, "node.vitality"));
+    CHECK(!game::AllocateDungeonNode(registry, 0, "node.vitality"));
+
+    // 방 클리어: 캐릭터별 EXP → 레벨 → 포인트(정본 §6).
+    game::CompleteDungeonBattle(registry, true);
+    CHECK(run.phase == game::EDungeonPhase::Reward);
+    for (const auto& member : run.party) {
+        CHECK(member.level == 2 && member.experience == 0 && member.passivePoints == 1);
+    }
+
+    // 인접 규칙: 루트 자체는 할당 불가, 부모가 없으면 잠김, 포인트가 있어야 할당.
+    CHECK(!game::CanAllocateDungeonNode(registry, 0, "node.origin"));
+    CHECK(!game::CanAllocateDungeonNode(registry, 0, "node.swiftstep"));
+    CHECK(game::AllocateDungeonNode(registry, 0, "node.might"));
+    CHECK(!game::CanAllocateDungeonNode(registry, 0, "node.guard"));  // 포인트 소진
+    CHECK(!game::CanAllocateDungeonNode(registry, 1, "node.endurance"));  // 부모 insight 미할당
+    CHECK(game::AllocateDungeonNode(registry, 1, "node.insight"));
+    CHECK(run.party[1].allocatedNodes == std::vector<std::string>{"node.insight"});
+
+    // 다음 전투 셋업에서 노드 보너스가 스탯에 합산된다(파이프라인 2단계).
+    const auto warriorMember = std::ranges::find(run.party, "party.warrior", &game::FRunMember::id);
+    CHECK(warriorMember != run.party.end());
+    warriorMember->health = -1;  // 다음 전투는 최대 HP로 시작
+    entt::entity warrior = entt::null;
+    entt::entity archer = entt::null;
+    for (const auto entity : registry.view<game::FPartyMember, game::FUnitData>()) {
+        const auto& id = registry.get<game::FUnitData>(entity).definition.id;
+        if (id == "party.warrior") warrior = entity;
+        if (id == "party.archer") archer = entity;
+    }
+    CHECK(warrior != entt::null && archer != entt::null);
+    const int warriorAttack = registry.get<game::FStats>(warrior).attack;
+    const int archerMagic = registry.get<game::FStats>(archer).magicAttack;
+    game::ApplyRunParty(registry);
+    CHECK(registry.get<game::FStats>(warrior).attack == warriorAttack + 1);
+    CHECK(registry.get<game::FStats>(archer).magicAttack == archerMagic + 1);
+    CHECK(registry.get<game::FHealth>(warrior).current == registry.get<game::FHealth>(warrior).max);
+
+    // 물질 강화: 캠프에서만, 비용·상한을 지킨다(정본 §5).
+    const auto upgradeIndex = [&](const std::string& id) {
+        const auto found = std::ranges::find(growth.statUpgrades, id, &game::FStatUpgrade::id);
+        CHECK(found != growth.statUpgrades.end());
+        return static_cast<std::size_t>(found - growth.statUpgrades.begin());
+    };
+    const std::size_t attackUpgrade = upgradeIndex("upgrade.attack");
+    const std::size_t speedUpgrade = upgradeIndex("upgrade.speed");
+    run.materials = 5;
+    CHECK(game::ValidateDungeonStatUpgrade(registry, 0, attackUpgrade).has_value());  // 캠프 전용
+    run.phase = game::EDungeonPhase::Camp;
+    CHECK(!game::UpgradeDungeonStat(registry, 0, attackUpgrade).has_value());
+    CHECK(run.party[0].bonusAttack == 1 && run.materials == 3);
+    run.materials = 1;
+    CHECK(game::UpgradeDungeonStat(registry, 0, attackUpgrade).has_value());  // 비용 부족
+    CHECK(run.party[0].bonusAttack == 1 && run.materials == 1);
+    run.materials = 100;
+    run.party[0].bonusAttack = growth.statUpgrades[attackUpgrade].cap;
+    CHECK(game::UpgradeDungeonStat(registry, 0, attackUpgrade).has_value());  // 상한
+    CHECK(run.party[0].bonusAttack == growth.statUpgrades[attackUpgrade].cap && run.materials == 100);
+    CHECK(!game::UpgradeDungeonStat(registry, 0, speedUpgrade).has_value());
+    CHECK(run.party[0].bonusSpeed == 1 && run.materials == 96);
+
+    // 다음 런은 0부터: 성장은 런 스코프다.
+    game::StartDungeonRun(registry, 77);
+    const auto& fresh = registry.ctx().get<game::FDungeonRun>();
+    CHECK(fresh.party[0].level == 1 && fresh.party[0].passivePoints == 0
+          && fresh.party[0].allocatedNodes.empty());
+    CHECK(fresh.party[0].bonusAttack == 0 && fresh.party[0].bonusSpeed == 0 && fresh.materials == 0);
 }
 
 void DefeatAndFactory() {
@@ -544,6 +673,7 @@ void DefeatAndFactory() {
     const auto checkpoint = registry.ctx().get<game::FDungeonCheckpoint>().cleared;
     game::StartDungeonRun(registry, 7);
     CHECK(registry.ctx().get<game::FDungeonRun>().party.front().bonusHealth == 0);
+    CHECK(registry.ctx().get<game::FDungeonRun>().party.front().level == 1);
     CHECK(registry.ctx().get<game::FDungeonCheckpoint>().cleared == checkpoint);
     auto document = game::BuildDungeonBattlefield(registry);
     document["units"][0]["grid_x"] = 0;
@@ -671,6 +801,15 @@ void InvalidRuneDrops() {
     missing = original;
     missing["generation"].erase("boss_unit");
     invalidDocuments.push_back(std::move(missing));
+    missing = original;
+    missing["stat_upgrades"] = nlohmann::json::array();
+    invalidDocuments.push_back(std::move(missing));
+    missing = original;
+    missing["stat_upgrades"][0]["stat"] = "unknown";
+    invalidDocuments.push_back(std::move(missing));
+    missing = original;
+    missing["passive_tree"] = "data/unknown-tree";
+    invalidDocuments.push_back(std::move(missing));
     for (const auto& data : invalidDocuments) {
         content.write(data);
         entt::registry registry;
@@ -682,10 +821,36 @@ void InvalidRuneDrops() {
     }
 }
 
+void IsometricProjection() {
+    const game::FGridMetrics metrics{};
+    for (const auto [width, height] : {std::pair{1280.f, 800.f}, std::pair{1920.f, 1080.f}, std::pair{960.f, 640.f}}) {
+        const auto view = game::MakeIsoView(metrics, width, height);
+        CHECK(view.scale >= 1.f);
+        for (int y = 0; y < metrics.height; ++y) {
+            for (int x = 0; x < metrics.width; ++x) {
+                int cellX = -1, cellY = -1;
+                CHECK(game::IsoScreenToCell(view, metrics, view.cellCenter(x, y), cellX, cellY));
+                CHECK(cellX == x && cellY == y);
+                // A point just inside each diamond corner still belongs to the same cell.
+                const auto nearTop = view.cellCenter(x, y) - glm::vec2{0.f, 14.f * view.scale};
+                CHECK(game::IsoScreenToCell(view, metrics, nearTop, cellX, cellY) && cellX == x && cellY == y);
+            }
+        }
+        int outX = 0, outY = 0;
+        CHECK(!game::IsoScreenToCell(view, metrics, view.corner(-0.5f, 2.f), outX, outY));
+        CHECK(!game::IsoScreenToCell(view, metrics, view.corner(2.f, static_cast<float>(metrics.height) + 0.5f), outX, outY));
+        // The arena stays between the HUD reserves so the bars never cover it.
+        CHECK(view.origin.y >= game::kIsoTopReserve - 1.f);
+        CHECK(view.corner(static_cast<float>(metrics.width), static_cast<float>(metrics.height)).y
+              <= height - game::kIsoBottomReserve + 1.f);
+    }
+}
+
 } // namespace
 
 int main() {
     try {
+        IsometricProjection();
         CollisionAndTurns();
         ActionValidation();
         AutoActionTokenBoundary();
@@ -695,11 +860,13 @@ int main() {
         CompleteRun(1);
         CompleteRun(2);
         CompleteRun(3);
+        PerCharacterRunGrowth();
         DefeatAndFactory();
         GameplayKeyboardCapture();
         InvalidRuneDrops();
         GeneratedRooms();
-        std::cout << "Dungeon collision, AP, tokens, LOS, generated layouts, AI, rewards, runes, checkpoints and defeat passed.\n";
+        std::cout << "Dungeon collision, AP, tokens, LOS, generated layouts, AI, rewards, runes, "
+                     "per-character run growth, checkpoints and defeat passed.\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAILED: " << error.what() << '\n';

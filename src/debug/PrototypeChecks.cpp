@@ -21,7 +21,8 @@
 
 namespace game {
 
-bool RunPrototypeChecks(const gameplay::FContentRegistry& content, const FPrototypeRun& definition) {
+bool RunPrototypeChecks(
+    const gameplay::FContentRegistry& content, const ai::FAiLibrary& aiLibrary, const FPrototypeRun& definition) {
     bool passed = true;
     int checks = 0;
     const auto check = [&](bool condition, const char* name) {
@@ -48,19 +49,19 @@ bool RunPrototypeChecks(const gameplay::FContentRegistry& content, const FProtot
     check(progressionRun.UnequipRune(placementId, skillId, runeId), "unsocketing returns rune to run inventory");
     check(progressionRun.Start(content), "prepared party starts a progression-check run");
     const auto allocatedMember = std::ranges::find(progressionRun.party, placementId, &FPreparedMember::placementId);
-    const auto firstNode = std::ranges::find(progressionRun.passiveNodes, "node.vitality", &FPassiveNode::id);
-    check(firstNode != progressionRun.passiveNodes.end() && !progressionRun.CanAllocatePassiveNode(placementId, firstNode->id),
+    const auto firstNode = std::ranges::find(progressionRun.tree.nodes, "node.vitality", &FPassiveNode::id);
+    check(firstNode != progressionRun.tree.nodes.end() && !progressionRun.CanAllocatePassiveNode(placementId, firstNode->id),
           "cannot allocate passive node before earning a point");
     check(allocatedMember != progressionRun.party.end() && progressionRun.ResolveCurrentBattle(true), "battle victory awards run experience");
     check(allocatedMember->experience == 10 && allocatedMember->level == 2 && allocatedMember->passivePoints == 1,
           "battle experience crosses the first level threshold and grants a point");
-    check(firstNode != progressionRun.passiveNodes.end() && progressionRun.AllocatePassiveNode(placementId, firstNode->id),
+    check(firstNode != progressionRun.tree.nodes.end() && progressionRun.AllocatePassiveNode(placementId, firstNode->id),
           "earned point allocates a node adjacent to the tree root");
     check(allocatedMember->passivePoints == 0 && progressionRun.PassiveBonuses(placementId).maxHealth > 0,
           "allocated passive node spends one point and applies stat bonus");
     const std::string disconnectedNode = "node.endurance";
-    auto disconnected = std::ranges::find(progressionRun.passiveNodes, disconnectedNode, &FPassiveNode::id);
-    if (disconnected != progressionRun.passiveNodes.end() && disconnected->parentId != progressionRun.passiveRootNodeId) {
+    auto disconnected = std::ranges::find(progressionRun.tree.nodes, disconnectedNode, &FPassiveNode::id);
+    if (disconnected != progressionRun.tree.nodes.end() && disconnected->parentId != progressionRun.tree.rootNodeId) {
         check(!progressionRun.CanAllocatePassiveNode(placementId, disconnectedNode), "cannot allocate passive beyond an unallocated connection");
     }
     progressionRun.End();
@@ -120,6 +121,7 @@ bool RunPrototypeChecks(const gameplay::FContentRegistry& content, const FProtot
     const auto battlefield = FEntityFactory::CreateBattlefield(scene, *document);
     if (!battlefield || !SetupCombatUnits(registry, *battlefield, content)) return false;
     registry.ctx().emplace<gameplay::FContentRegistry>(content);
+    registry.ctx().emplace<ai::FAiLibrary>(aiLibrary);
     registry.ctx().emplace<FGridMetrics>(battlefield->metrics);
     auto& queue = registry.ctx().emplace<FActionQueue>();
     auto& combat = registry.ctx().emplace<FCombatRuntime>();
@@ -269,6 +271,7 @@ bool RunPrototypeChecks(const gameplay::FContentRegistry& content, const FProtot
     const auto autoBattle = FEntityFactory::CreateBattlefield(autoScene, *document);
     if (!autoBattle || !SetupCombatUnits(automatic, *autoBattle, content)) return false;
     automatic.ctx().emplace<gameplay::FContentRegistry>(content);
+    automatic.ctx().emplace<ai::FAiLibrary>(aiLibrary);
     automatic.ctx().emplace<FGridMetrics>(autoBattle->metrics);
     automatic.ctx().emplace<FActionQueue>();
     auto& autoRuntime = automatic.ctx().emplace<FCombatRuntime>();
@@ -289,6 +292,7 @@ bool RunPrototypeChecks(const gameplay::FContentRegistry& content, const FProtot
     check(!turns.lastError, "automatic AP actions preserve turn-token ordering");
     entt::registry routed;
     routed.ctx().emplace<gameplay::FContentRegistry>(content);
+    routed.ctx().emplace<ai::FAiLibrary>(aiLibrary);
     auto& routedRun = routed.ctx().emplace<FPrototypeRun>(definition);
     routed.ctx().emplace<FTurnRuntime>();
     auto& routedInput = routed.ctx().emplace<FInputState>();

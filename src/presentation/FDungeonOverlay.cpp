@@ -2,16 +2,22 @@
 
 #include <imgui.h>
 #include <SDL3/SDL.h>
+#include <algorithm>
 #include "core/EngineState.h"
 #include "core/InputState.h"
 #include "debug/DebugOverlay.h"
 #include "ecs/components/FSkillLoadout.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "presentation/FDungeonArt.h"
+#include "presentation/FPassiveTreePanel.h"
 #include "presentation/FUiTheme.h"
 
 namespace game {
 namespace {
+
+const std::string& MemberName(const FRunMember& member) {
+    return member.displayName.empty() ? member.id : member.displayName;
+}
 
 void Menu(entt::registry& registry) {
     const auto& window = registry.ctx().get<FEngineWindowState>();
@@ -68,6 +74,28 @@ void Menu(entt::registry& registry) {
     ui::EndPanel();
 }
 
+void DrawGrowthPanel(
+    entt::registry& registry, const FDungeonGrowth& growth, FDungeonRun& run, std::size_t memberIndex) {
+    if (memberIndex >= run.party.size()) return;
+    FRunMember& member = run.party[memberIndex];
+    ImGui::PushID(static_cast<int>(memberIndex));
+    ImGui::Text("Level %d   EXP %d / %d   Node points %d", member.level, member.experience,
+                growth.ExperienceForNextLevel(member.level), member.passivePoints);
+    const FPassiveStatBonuses bonuses = growth.passiveTree.Bonuses(member.allocatedNodes);
+    ImGui::TextDisabled("Tree bonuses: +%d HP, +%d ATK, +%d MATK, +%d DEF, +%d MDEF, +%d speed",
+                        bonuses.maxHealth, bonuses.attack, bonuses.magicAttack, bonuses.defense,
+                        bonuses.magicDefense, bonuses.speed);
+    ui::DrawPassiveTreePanel(ui::FPassiveTreePanel{
+        .nodes = &growth.passiveTree.nodes,
+        .rootNodeId = growth.passiveTree.rootNodeId,
+        .allocated = &member.allocatedNodes,
+        .points = member.passivePoints,
+        .canAllocate = [&](std::string_view nodeId) { return CanAllocateDungeonNode(registry, memberIndex, nodeId); },
+        .allocate = [&](std::string_view nodeId) { (void)AllocateDungeonNode(registry, memberIndex, nodeId); },
+    });
+    ImGui::PopID();
+}
+
 void RunChoice(entt::registry& registry) {
     auto& run = registry.ctx().get<FDungeonRun>();
     auto& ui = registry.ctx().get<FDungeonUiState>();
@@ -114,16 +142,27 @@ void RunChoice(entt::registry& registry) {
         ImGui::TextWrapped("%s", run.message.c_str());
         ImGui::Separator();
         if (run.phase == EDungeonPhase::Reward) {
-            ImGui::TextDisabled("Run level %d  |  EXP %d  |  materials %d", run.level, run.experience, run.materials);
-            const std::string labels[]{
-                "VIGOR  /  +" + std::to_string(DungeonBalance(registry, "reward_health")) + " max HP and heal",
-                "MIGHT  /  +" + std::to_string(DungeonBalance(registry, "reward_attack")) + " physical attack",
-                "FOCUS  /  +" + std::to_string(DungeonBalance(registry, "reward_magic")) + " magic attack"};
-            for (int choice = 0; choice < 3; ++choice) {
-                if (ui::Button(labels[choice].c_str(), {-1, 42})) {
-                    ChooseDungeonReward(registry, choice);
-                    ImGui::CloseCurrentPopup();
+            const auto* growth = registry.ctx().find<FDungeonGrowth>();
+            ImGui::Text("Materials %d  |  collected runes %zu", run.materials, run.runes.size());
+            if (growth == nullptr) {
+                ImGui::TextColored({.9f, .31f, .31f, 1}, "Run growth content is missing.");
+            } else if (!run.party.empty()) {
+                ui.selectedGrowthMember = std::clamp(ui.selectedGrowthMember, 0, static_cast<int>(run.party.size()) - 1);
+                if (ImGui::BeginCombo("Character", MemberName(run.party[ui.selectedGrowthMember]).c_str())) {
+                    for (std::size_t index = 0; index < run.party.size(); ++index) {
+                        const bool selected = static_cast<int>(index) == ui.selectedGrowthMember;
+                        if (ImGui::Selectable(MemberName(run.party[index]).c_str(), selected)) {
+                            ui.selectedGrowthMember = static_cast<int>(index);
+                        }
+                        if (selected) ImGui::SetItemDefaultFocus();
+                    }
+                    ImGui::EndCombo();
                 }
+                DrawGrowthPanel(registry, *growth, run, static_cast<std::size_t>(ui.selectedGrowthMember));
+            }
+            if (ui::Button("Continue", {-1, 42})) {
+                ContinueDungeonReward(registry);
+                ImGui::CloseCurrentPopup();
             }
         } else if (run.phase == EDungeonPhase::Event) {
             const auto restLabel = "Rest at the shrine  /  heal " +
@@ -142,12 +181,15 @@ void RunChoice(entt::registry& registry) {
             const auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
             if (!checkpoint.error.empty()) ImGui::TextColored({.9f, .31f, .31f, 1}, "%s", checkpoint.error.c_str());
             ImGui::Text("Checkpoint: dungeon %d cleared  |  materials %d", run.cleared, run.materials);
-            ImGui::TextWrapped("Healed up to %d HP. Fit collected runes for free before descending.",
+            ImGui::TextWrapped("Healed up to %d HP. Allocate nodes, reinforce stats and fit runes for free before descending.",
                               DungeonBalance(registry, "camp_heal"));
+            const auto* growth = registry.ctx().find<FDungeonGrowth>();
             for (std::size_t memberIndex = 0; memberIndex < run.party.size(); ++memberIndex) {
-                const auto& member = run.party[memberIndex];
+                auto& member = run.party[memberIndex];
                 ImGui::PushID(static_cast<int>(memberIndex));
-                if (ImGui::TreeNode(member.id.c_str())) {
+                ImGui::SetNextItemOpen(memberIndex == 0, ImGuiCond_FirstUseEver);
+                if (ImGui::TreeNode(MemberName(member).c_str())) {
+                    ImGui::PushID("runes");
                     for (std::size_t slotIndex = 0; slotIndex < member.skills.size(); ++slotIndex) {
                         const auto& slot = member.skills[slotIndex];
                         ImGui::PushID(static_cast<int>(slotIndex));
@@ -188,21 +230,38 @@ void RunChoice(entt::registry& registry) {
                         }
                         ImGui::PopID();
                     }
+                    ImGui::PopID();
+                    if (growth != nullptr) {
+                        ImGui::SeparatorText("Stats");
+                        for (std::size_t upgradeIndex = 0; upgradeIndex < growth->statUpgrades.size(); ++upgradeIndex) {
+                            const auto& upgrade = growth->statUpgrades[upgradeIndex];
+                            const int current = DungeonMemberStatBonus(member, upgrade.stat);
+                            const auto problem = ValidateDungeonStatUpgrade(registry, memberIndex, upgradeIndex);
+                            const std::string label = upgrade.displayName + " +" + std::to_string(upgrade.amount)
+                                + "  (" + std::to_string(upgrade.cost) + " materials, " + std::to_string(current)
+                                + "/" + std::to_string(upgrade.cap) + ")";
+                            ImGui::BeginDisabled(problem.has_value());
+                            if (ImGui::SmallButton(label.c_str())) {
+                                if (const auto error = UpgradeDungeonStat(registry, memberIndex, upgradeIndex)) {
+                                    run.message = "Cannot reinforce: " + *error;
+                                } else {
+                                    run.message = upgrade.displayName + " reinforced.";
+                                }
+                            }
+                            ImGui::EndDisabled();
+                            if (problem && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                                ImGui::SetTooltip("%s", problem->c_str());
+                            }
+                        }
+                        ImGui::SeparatorText("Passive nodes");
+                        DrawGrowthPanel(registry, *growth, run, memberIndex);
+                    }
                     ImGui::TreePop();
                 }
                 ImGui::PopID();
             }
-            const auto reinforceLabel = "Reinforce (+" + std::to_string(DungeonBalance(registry, "reward_attack")) +
-                " attack/+" + std::to_string(DungeonBalance(registry, "reward_magic")) + " magic, " +
-                std::to_string(DungeonBalance(registry, "camp_cost")) + " materials) & descend";
-            ImGui::BeginDisabled(run.materials < DungeonBalance(registry, "camp_cost"));
-            if (ui::Button(reinforceLabel.c_str(), {-1, 42})) {
-                LeaveDungeonCamp(registry, true);
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::EndDisabled();
-            if (ui::Button("Descend without reinforcement", {-1, 36})) {
-                LeaveDungeonCamp(registry, false);
+            if (ui::Button("Descend to the next dungeon", {-1, 42})) {
+                LeaveDungeonCamp(registry);
                 ImGui::CloseCurrentPopup();
             }
             if (ui::Button("End expedition at checkpoint", {-1, 30})) {

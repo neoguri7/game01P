@@ -19,13 +19,21 @@ namespace {
 
 } // namespace
 
+int EffectiveStatusDuration(const gameplay::FStatusContent& status, int durationDelta) {
+    return std::max(1, status.durationTurns + durationDelta);
+}
+
+int EffectiveStatusMagnitude(const gameplay::FStatusContent& status, int magnitudeDelta) {
+    return std::max(0, status.magnitude + magnitudeDelta);
+}
+
 void ApplyStatus(
     FActiveStatuses& active,
     const gameplay::FStatusContent& status,
     int durationDelta,
     int magnitudeDelta) {
-    const int duration = std::max(1, status.durationTurns + durationDelta);
-    const int magnitude = std::max(0, status.magnitude + magnitudeDelta);
+    const int duration = EffectiveStatusDuration(status, durationDelta);
+    const int magnitude = EffectiveStatusMagnitude(status, magnitudeDelta);
     for (FStatusEffect& effect : active.effects) {
         if (effect.statusId == status.id) {
             // 갱신(§4): 지속은 긴 쪽을 유지하고, 강도는 최신 적용값을 쓴다.
