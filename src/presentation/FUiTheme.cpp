@@ -218,6 +218,35 @@ void EndPanel() {
     ImGui::PopStyleVar();
 }
 
+bool BeginZone(const char* name, ImVec2 pos, ImVec2 size) {
+    ImGui::SetNextWindowPos(pos);
+    ImGui::SetNextWindowSize(size);
+    ImGui::SetNextWindowScroll({0, 0});
+    const auto flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoNavInputs | ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.f, 0.f});
+    return ImGui::Begin(name, nullptr, flags);
+}
+
+void EndZone() {
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
+void DrawRecess(ImDrawList* draw, ImVec2 min, ImVec2 max) {
+    draw->AddRectFilled(min, max, Fade(IM_COL32(6, 4, 5, 150)));
+    draw->AddRect(min, max, Fade(IM_COL32(4, 2, 3, 210)));
+    draw->AddLine({min.x, max.y + 1.f}, {max.x, max.y + 1.f}, Fade(IM_COL32(201, 160, 82, 40)));
+}
+
+FBodyFont::FBodyFont(float size) : pushed_(HeadingFont() != nullptr) {
+    if (pushed_) ImGui::PushFont(nullptr, size);
+}
+
+FBodyFont::~FBodyFont() {
+    if (pushed_) ImGui::PopFont();
+}
+
 void DecorateCurrentWindow() {
     const ImVec2 pos = ImGui::GetWindowPos();
     const ImVec2 size = ImGui::GetWindowSize();
@@ -231,9 +260,9 @@ void HeadingText(const char* text, float size, ImVec4 color) {
     if (font) ImGui::PopFont();
 }
 
-void SectionTitle(const char* text) {
+void SectionTitle(const char* text, float size) {
     ImFont* font = HeadingFont();
-    if (font) ImGui::PushFont(font, 16.f);
+    if (font) ImGui::PushFont(font, size);
     const ImVec2 textSize = ImGui::CalcTextSize(text);
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const float width = ImGui::GetContentRegionAvail().x;

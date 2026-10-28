@@ -12,6 +12,7 @@
 #include "gameplay/grid/FGridTerrain.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FIsoView.h"
+#include "presentation/FUiFrame.h"
 
 namespace game::ecs {
 namespace {
@@ -159,7 +160,10 @@ void EmberGridRenderSystem::render(entt::registry& registry) {
     const auto& window = registry.ctx().get<FEngineWindowState>();
     const auto width = static_cast<float>(window.width);
     const auto height = static_cast<float>(window.height);
-    const auto view = MakeIsoView(*grid, width, height);
+    // The arena lives in the window the HUD frame leaves open; without the frame there is no layout to draw into.
+    const auto isoView = ui::FindBattleIsoView(registry, *grid);
+    if (!isoView) return;
+    const FIsoView& view = *isoView;
     const float scale = view.scale;
 
     DrawForestBackdrop(renderer, view, *grid, width, height);

@@ -11,6 +11,7 @@
 
 #include "core/AssetManager.h"
 #include "core/EngineState.h"
+#include "core/JsonLoader.h"
 #include "core/ResourceManager.h"
 #include "ecs/components/FActionPoints.h"
 #include "ecs/components/FActiveStatuses.h"
@@ -33,6 +34,8 @@
 #include "gameplay/grid/FCameraMath.h"
 #include "gameplay/grid/FGridTerrain.h"
 #include "presentation/FIsoView.h"
+#include "presentation/FUiFrame.h"
+#include "presentation/FUiLayout.h"
 #include "states/FEmberBattleState.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FDungeonArt.h"
@@ -325,8 +328,10 @@ void SharedCellAndPierceActions() {
     window.width = 1280;
     window.height = 800;
     auto& input = registry.ctx().emplace<game::FInputState>();
-    const auto isoView = game::MakeIsoView(registry.ctx().get<game::FGridMetrics>(), 1280.f, 800.f);
-    input.mousePos = isoView.cellCenter(3, 1);
+    CHECK(game::ui::InitializeUiFrame(registry));
+    const auto isoView = game::ui::FindBattleIsoView(registry, registry.ctx().get<game::FGridMetrics>());
+    CHECK(isoView.has_value());
+    input.mousePos = isoView->cellCenter(3, 1);
     input.mouseLeftPressed = true;
     game::ecs::EmberCombatHudSystem hud;
     hud.boundTurn = token.turnSerial;
@@ -821,10 +826,22 @@ void InvalidRuneDrops() {
     }
 }
 
+game::ui::FUiLayoutSpec LoadUiLayoutSpec() {
+    const auto document = game::FJsonLoader::Load("assets/data/ui_layout.json");
+    CHECK(document.has_value());
+    const game::FAssetDigest digest("data/ui_layout", *document);
+    auto spec = game::ui::ParseUiLayoutSpec(digest);
+    CHECK(spec.has_value());
+    return *spec;
+}
+
 void IsometricProjection() {
     const game::FGridMetrics metrics{};
+    const auto spec = LoadUiLayoutSpec();
     for (const auto [width, height] : {std::pair{1280.f, 800.f}, std::pair{1920.f, 1080.f}, std::pair{960.f, 640.f}}) {
-        const auto view = game::MakeIsoView(metrics, width, height);
+        const auto layout = game::ui::ComputeUiLayout(spec, width, height);
+        const auto view = game::MakeIsoView(
+            metrics, {layout.viewport.x, layout.viewport.y, layout.viewport.w, layout.viewport.h});
         CHECK(view.scale >= 1.f);
         for (int y = 0; y < metrics.height; ++y) {
             for (int x = 0; x < metrics.width; ++x) {
@@ -839,11 +856,61 @@ void IsometricProjection() {
         int outX = 0, outY = 0;
         CHECK(!game::IsoScreenToCell(view, metrics, view.corner(-0.5f, 2.f), outX, outY));
         CHECK(!game::IsoScreenToCell(view, metrics, view.corner(2.f, static_cast<float>(metrics.height) + 0.5f), outX, outY));
-        // The arena stays between the HUD reserves so the bars never cover it.
-        CHECK(view.origin.y >= game::kIsoTopReserve - 1.f);
-        CHECK(view.corner(static_cast<float>(metrics.width), static_cast<float>(metrics.height)).y
-              <= height - game::kIsoBottomReserve + 1.f);
+        // The arena stays inside the frame's viewport so the bars never cover it.
+        const auto& viewport = layout.viewport;
+        const auto gridWidth = static_cast<float>(metrics.width);
+        const auto gridHeight = static_cast<float>(metrics.height);
+        CHECK(view.origin.y >= viewport.y - 1.f);
+        CHECK(view.corner(gridWidth, gridHeight).y <= viewport.bottom() + 1.f);
+        CHECK(view.corner(0.f, gridHeight).x >= viewport.x - 1.f);
+        CHECK(view.corner(gridWidth, 0.f).x <= viewport.right() + 1.f);
     }
+}
+
+void UiFrameLayout() {
+    const auto spec = LoadUiLayoutSpec();
+    // The nominal window reproduces the authored design exactly.
+    const auto nominal = game::ui::ComputeUiLayout(spec, spec.designWidth, spec.designHeight);
+    CHECK(nominal.scale == 1.f);
+    CHECK(nominal.zones.skills.x == spec.zones.skills.rect.x && nominal.zones.skills.y == spec.zones.skills.rect.y);
+    CHECK(nominal.viewport.w == spec.designWidth - spec.bands.left - spec.bands.right);
+    CHECK(nominal.viewport.h == spec.designHeight - spec.bands.top - spec.bands.bottom);
+
+    // Every supported window shape keeps the zones inside their band and clear of each other.
+    for (const auto [width, height] : {std::pair{1280.f, 800.f}, std::pair{1920.f, 1080.f}, std::pair{960.f, 640.f},
+                                       std::pair{1140.f, 800.f}, std::pair{1000.f, 800.f}, std::pair{800.f, 600.f},
+                                       std::pair{2560.f, 1080.f}, std::pair{1280.f, 1024.f}}) {
+        const auto layout = game::ui::ComputeUiLayout(spec, width, height);
+        CHECK(layout.viewport.w > 0.f && layout.viewport.h > 0.f);
+        CHECK(layout.screen.contains(layout.viewport));
+        for (const auto* band : {&layout.topBar, &layout.dock, &layout.leftRail, &layout.rightRail}) {
+            CHECK(!layout.viewport.intersects(*band));
+        }
+        const auto& zones = layout.zones;
+        const game::ui::FRect* top[]{&zones.title, &zones.turnOrder, &zones.status};
+        const game::ui::FRect* dock[]{&zones.party, &zones.unit, &zones.skills, &zones.endTurn, &zones.journal, &zones.hints};
+        for (const auto* zone : top) CHECK(layout.topBar.contains(*zone));
+        for (const auto* zone : dock) CHECK(layout.dock.contains(*zone));
+        CHECK(layout.viewport.contains(zones.targets));
+        for (std::size_t first = 0; first < std::size(top); ++first) {
+            for (std::size_t second = first + 1; second < std::size(top); ++second) CHECK(!top[first]->intersects(*top[second]));
+        }
+        for (std::size_t first = 0; first < std::size(dock); ++first) {
+            for (std::size_t second = first + 1; second < std::size(dock); ++second) CHECK(!dock[first]->intersects(*dock[second]));
+        }
+    }
+
+    // A broken layout document is reported, not half-applied.
+    auto document = *game::FJsonLoader::Load("assets/data/ui_layout.json");
+    auto missing = document;
+    missing["zones"].erase("journal");
+    CHECK(!game::ui::ParseUiLayoutSpec(game::FAssetDigest("data/ui_layout", missing)).has_value());
+    auto badAnchor = document;
+    badAnchor["zones"]["hints"]["anchor"] = "middle";
+    CHECK(!game::ui::ParseUiLayoutSpec(game::FAssetDigest("data/ui_layout", badAnchor)).has_value());
+    auto noViewport = document;
+    noViewport["bands"]["top"] = 900;
+    CHECK(!game::ui::ParseUiLayoutSpec(game::FAssetDigest("data/ui_layout", noViewport)).has_value());
 }
 
 } // namespace
@@ -851,6 +918,7 @@ void IsometricProjection() {
 int main() {
     try {
         IsometricProjection();
+        UiFrameLayout();
         CollisionAndTurns();
         ActionValidation();
         AutoActionTokenBoundary();

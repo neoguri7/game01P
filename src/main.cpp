@@ -32,6 +32,7 @@
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
+#include "presentation/FUiFrame.h"
 #include "presentation/FUiTheme.h"
 
 #include <cstdlib>
@@ -194,7 +195,8 @@ int main(int argc, char* argv[])
         return passed ? EXIT_SUCCESS : EXIT_FAILURE;
     }
     if (ember) {
-        if (!game::InitializeDungeon(engine.getRegistry()) || !game::InitializeDungeonArt(engine.getRegistry())) {
+        if (!game::InitializeDungeon(engine.getRegistry()) || !game::InitializeDungeonArt(engine.getRegistry()) ||
+            !game::ui::InitializeUiFrame(engine.getRegistry())) {
             shutdown();
             return EXIT_FAILURE;
         }

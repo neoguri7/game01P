@@ -77,11 +77,31 @@ void DrawSlotFrame(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 trim, bool gl
 bool BeginPanel(const char* name, ImVec2 pos, ImVec2 size, ImGuiWindowFlags extraFlags = 0);
 void EndPanel();
 
+/// Borderless, transparent window pinned to a screen rectangle with no padding. The full-screen HUD frame
+/// drawn behind it provides the decoration. Pair with EndZone().
+bool BeginZone(const char* name, ImVec2 pos, ImVec2 size);
+void EndZone();
+
+/// Dark inset field so text and readouts stay legible over any frame art.
+void DrawRecess(ImDrawList* draw, ImVec2 min, ImVec2 max);
+
+/// Scopes the body font to `size` pixels; does nothing when the bundled fonts could not be loaded.
+class FBodyFont {
+public:
+    explicit FBodyFont(float size);
+    ~FBodyFont();
+    FBodyFont(const FBodyFont&) = delete;
+    FBodyFont& operator=(const FBodyFont&) = delete;
+
+private:
+    bool pushed_;
+};
+
 /// Draws trim over the current (popup) window; call right after Begin/BeginPopupModal.
 void DecorateCurrentWindow();
 
 /// Gold heading with ornamental rules on both sides, e.g. "YOUR PARTY".
-void SectionTitle(const char* text);
+void SectionTitle(const char* text, float size = 16.f);
 
 /// Text in the heading font at `size` pixels.
 void HeadingText(const char* text, float size, ImVec4 color = palette::kGoldV);

@@ -89,6 +89,38 @@ records tool/job/seed provenance and rejected candidates. Family and repeated
 tile previews were checked before integration; these remain prototype art,
 not automatically approved style-reference images. The theme is **dark fantasy forest** with a Diablo-style HUD; fonts (Cinzel, Alegreya Sans, SIL OFL) live in `assets/fonts` and the shared look is implemented in `presentation/FUiTheme`.
 
+### Full-screen HUD frame
+
+Ember battles draw their HUD inside one full-screen frame: a top bar, a tall bottom dock and two side rails
+around a transparent viewport that the isometric arena is fitted into (`presentation/FUiFrame`). Everything
+about the frame is data in [`assets/data/ui_layout.json`](assets/data/ui_layout.json), authored on a
+1280x800 design canvas: the band thickness, where the frame art is cut for stretching, and the named zones
+(`title`, `turn_order`, `status`, `party`, `unit`, `skills`, `end_turn`, `journal`, `hints`, `targets`) the HUD
+fills. Each zone has an anchor (`top-left`, `bottom-center`, ...) naming the screen edge it keeps its distance
+from, so other window shapes stretch the middle of the bars and the viewport rather than distorting portraits
+and slots. Moving a zone to fit new art needs no rebuild, only an edit of that file. `ctest` checks that the
+zones stay inside their bands and clear of each other for a range of window sizes.
+
+The frame image is optional. Without `assets/art/ui_frame.png` the four bands are drawn with the existing
+stone `ui_panel` skin, so the layout works today. To give it its own art, generate one PNG with PixelLab MCP
+and drop it in; no code change is needed:
+
+- Native 320x200 (a 4x design-pixel ratio, so the PNG's own size never matters), RGBA, nearest-neighbor.
+- The center rectangle (art x 8-311, y 14-147) is the viewport and must be fully transparent. PixelLab does not
+  produce alpha for large holes reliably; generate it as flat `#FF00FF` and key that color out afterwards.
+- Cut lines for stretching are columns 115 and 205 and rows 14 and 148: keep ornaments inside the corner blocks
+  and the strips between them (top bar middle, dock middle) plain enough to stretch.
+- Dock bays, in art pixels (design / 4): four 20x20 portrait wells at x 10, 33, 56, 79, y 154; a row of four
+  15x15 skill wells at x 117-203, y 172; a recessed journal field at x 220-310, y 151-177; a button plate at
+  x 264-310, y 179-193. No text, no characters, no baked grid lines (see `style.md`).
+- Suggested prompt: *dark fantasy forest game HUD frame, carved bronze and gunmetal plates with gnarled root and
+  thorn filigree, moss accents and rivets, thin top bar, wide bottom dock with recessed portrait wells, a row of
+  square skill slots and a wide inset panel, narrow side rails, empty flat magenta center, 16-bit pixel art,
+  single color outline, warm near-black stone, bronze and gold trim.*
+
+Record the job id and seed in `assets/art/manifest.json` as for any other generated asset, and nudge zone
+rectangles in `ui_layout.json` until the wells line up with the art.
+
 The historical CLI guide linked by the supplied style document is not present
 in this checkout. Assets were requested through PixelLab MCP with its explicit
 style controls and subject-specific text, not through that absent CLI.

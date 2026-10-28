@@ -11,18 +11,19 @@ constexpr float kTileThickness = 12.f;
 
 } // namespace
 
-FIsoView MakeIsoView(const FGridMetrics& metrics, float viewportWidth, float viewportHeight) noexcept {
+FIsoView MakeIsoView(const FGridMetrics& metrics, const FIsoViewport& viewport) noexcept {
     const float span = static_cast<float>(metrics.width + metrics.height);
     const float mapWidth = span * kIsoHalfWidth;
     const float mapHeight = span * kIsoHalfHeight + kTileThickness;
-    const float availableWidth = std::max(1.f, viewportWidth - 32.f);
-    const float availableHeight = std::max(1.f, viewportHeight - kIsoTopReserve - kIsoBottomReserve);
+    const float availableWidth = std::max(1.f, viewport.width - 32.f);
+    const float availableHeight = std::max(1.f, viewport.height);
     const float fit = std::min(availableWidth / mapWidth, availableHeight / mapHeight);
     FIsoView view;
-    view.scale = std::max(1.f, std::floor(fit * 2.f) / 2.f);
-    view.origin.x = std::floor(viewportWidth * .5f + kIsoCenterShift +
+    // The epsilon keeps a viewport that is exactly one step tall from rounding down to the smaller scale.
+    view.scale = std::max(1.f, std::floor(fit * 2.f + 1e-3f) / 2.f);
+    view.origin.x = std::floor(viewport.x + viewport.width * .5f +
                                static_cast<float>(metrics.height - metrics.width) * .5f * kIsoHalfWidth * view.scale);
-    view.origin.y = std::floor(kIsoTopReserve + (availableHeight - mapHeight * view.scale) * .5f);
+    view.origin.y = std::floor(viewport.y + (availableHeight - mapHeight * view.scale) * .5f);
     return view;
 }
 

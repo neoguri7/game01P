@@ -10,11 +10,6 @@ namespace game {
 /// and mouse picking go through this view. One cell is a 64x32 diamond at scale 1.
 inline constexpr float kIsoHalfWidth = 32.f;
 inline constexpr float kIsoHalfHeight = 16.f;
-/// Screen rows kept free for the HUD above and below the playfield.
-inline constexpr float kIsoTopReserve = 84.f;
-inline constexpr float kIsoBottomReserve = 168.f;
-/// The unit card sits on the left, so the arena is nudged right to keep it clear of the party.
-inline constexpr float kIsoCenterShift = 48.f;
 
 struct FIsoView {
     glm::vec2 origin{};  // screen position of grid corner (0, 0): the top vertex of cell (0, 0)
@@ -29,8 +24,16 @@ struct FIsoView {
     }
 };
 
-/// Fits the grid between the HUD reserves, centered, at a 0.5-step scale so pixel art stays even.
-[[nodiscard]] FIsoView MakeIsoView(const FGridMetrics& metrics, float viewportWidth, float viewportHeight) noexcept;
+/// Screen rectangle the arena may occupy: the part of the window the HUD frame leaves open.
+struct FIsoViewport {
+    float x{0.f};
+    float y{0.f};
+    float width{0.f};
+    float height{0.f};
+};
+
+/// Fits the grid inside the viewport, centered, at a 0.5-step scale so pixel art stays even.
+[[nodiscard]] FIsoView MakeIsoView(const FGridMetrics& metrics, const FIsoViewport& viewport) noexcept;
 
 /// Cell under a screen point; false when the point lies outside the grid.
 [[nodiscard]] bool IsoScreenToCell(const FIsoView& view, const FGridMetrics& metrics, glm::vec2 screen,
