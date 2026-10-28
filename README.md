@@ -101,25 +101,33 @@ from, so other window shapes stretch the middle of the bars and the viewport rat
 and slots. Moving a zone to fit new art needs no rebuild, only an edit of that file. `ctest` checks that the
 zones stay inside their bands and clear of each other for a range of window sizes.
 
-The frame image is optional. Without `assets/art/ui_frame.png` the four bands are drawn with the existing
-stone `ui_panel` skin, so the layout works today. To give it its own art, generate one PNG with PixelLab MCP
-and drop it in; no code change is needed:
+`assets/art/ui_frame.png` is the frame art. It is optional: without it the four bands are drawn with the existing
+stone `ui_panel` skin, so the layout still works. Replacing the art needs no code change:
 
 - Native 320x200 (a 4x design-pixel ratio, so the PNG's own size never matters), RGBA, nearest-neighbor.
-- The center rectangle (art x 8-311, y 14-147) is the viewport and must be fully transparent. PixelLab does not
-  produce alpha for large holes reliably; generate it as flat `#FF00FF` and key that color out afterwards.
-- Cut lines for stretching are columns 115 and 205 and rows 14 and 148: keep ornaments inside the corner blocks
-  and the strips between them (top bar middle, dock middle) plain enough to stretch.
-- Dock bays, in art pixels (design / 4): four 20x20 portrait wells at x 10, 33, 56, 79, y 154; a row of four
-  15x15 skill wells at x 117-203, y 172; a recessed journal field at x 220-310, y 151-177; a button plate at
-  x 264-310, y 179-193. No text, no characters, no baked grid lines (see `style.md`).
-- Suggested prompt: *dark fantasy forest game HUD frame, carved bronze and gunmetal plates with gnarled root and
-  thorn filigree, moss accents and rivets, thin top bar, wide bottom dock with recessed portrait wells, a row of
-  square skill slots and a wide inset panel, narrow side rails, empty flat magenta center, 16-bit pixel art,
-  single color outline, warm near-black stone, bronze and gold trim.*
+- The center rectangle (art x 8-311, y 14-147) is the viewport and must be fully transparent; every other pixel is
+  opaque. PixelLab does not produce alpha for large holes reliably: either generate the hole as flat `#FF00FF` and
+  key that color out, or (as the shipped art does) build the frame from pieces and never paint the viewport at all.
+- Cut lines for stretching are columns 100 and 220 (`frame.slice` left/right 400) and rows 14 and 148. The strip
+  between the two columns is the only part that stretches when the window is not 16:10, and it has to hold the skill
+  row at the narrowest window (`min_width - left - right >= 340`), so everything in it must stay uniform: the skill
+  slots sit on one continuous recess, not on separate wells. The side blocks keep their size, so the portrait wells
+  (left) and the journal and button (right) stay aligned at any window size.
+- Dock bays, in art pixels (design / 4): four 20x20 portrait wells at x 10, 33, 56, 79, y 154; one skill recess at
+  x 113-207, y 170-187 under the four 15x15 slots at x 117-203, y 172; a recessed journal field at x 220-310,
+  y 151-177; a button plate at x 264-310, y 179-193. No text, no characters, no baked grid lines (see `style.md`).
+- Keep the four outer corners clear of text: the title and status start 44 design px (11 art px) in from the
+  screen edge, so the corner ornaments are 8x8.
 
-Record the job id and seed in `assets/art/manifest.json` as for any other generated asset, and nudge zone
-rectangles in `ui_layout.json` until the wells line up with the art.
+The shipped PNG is a composite, because generating the whole frame in one go did not respect the dock layout
+(text-only prompts ignored it, img2img from a layout guide either copied the guide or dropped slots). It combines a
+stone texture and a corner filigree made with `create_image_pixflux` under a forced 20-colour Ember palette with the
+viewport lip, rivets, well bezels and bay rectangles drawn at exact coordinates; the stone is darkened per band so
+HUD text stays legible. `assets/art/manifest.json` lists the job ids and seeds of the two pieces and the rejected
+candidates.
+
+The narrowest window the engine allows is 1100x740 (`Engine.cpp`). `design.min_width` is 1160, so below that width
+the layout is compressed rather than reflowed, which keeps at least 10 design px between neighbouring zones.
 
 The historical CLI guide linked by the supplied style document is not present
 in this checkout. Assets were requested through PixelLab MCP with its explicit

@@ -51,6 +51,27 @@
       "6b068f5d-d56c-4e58-9eb8-c165f9577a63",
       "a39754b2-7d78-4ea5-966b-d1c1c1d14a85",
       "762e3913-fce7-4731-a83a-75ef4cdfbda8"
+    ],
+    "ui_frame": "Full-screen HUD frame (320x200 RGBA, viewport x8-311/y14-147 fully transparent, cut lines cols 115/205 rows 14/148). One-shot candidates did not work: text-only layouts ignored the dock, and img2img from a layout guide either copied the guide (strength 250-350) or lost slots (150). Final is a composite of two generated pieces (stone texture, corner filigree) with the viewport lip, rivets, bezels and well rectangles placed at exact coordinates.",
+    "ui_frame_rejected": [
+      "1735ca05-f595-4ca4-91c2-7a197de018a8",
+      "f7685c54-e6e0-4511-8874-41d937aaf01e",
+      "db47e483-fab6-4be9-b021-b2d7d0b267a6",
+      "f8310042-7767-471a-98f0-163634f81d68",
+      "524f043c-38f6-4140-8b92-1db5728ec971",
+      "e7274365-722a-4057-9340-cd019ef94292",
+      "7cdfff4d-56f7-42ea-8713-5374b56b8bd6",
+      "d1d9280e-ed2e-4e5e-b16e-5bb7b5da53cd",
+      "1aeccb51-dcbe-423b-9ea3-da39fb2285e6",
+      "4d96f2b0-a126-4a29-a3e0-da671e2bfd25",
+      "1cd3405d-4006-4c61-a78e-4b790342403b",
+      "3fbe4c63-5368-4e4c-8b85-2a19ce11381d",
+      "ec8be229-bd35-4a7c-9334-7ed2736cdd2a",
+      "9bd53b3b-1d8d-4320-ba34-d9bdd7742498",
+      "e283f200-b6ea-4d6b-9b8c-61ffbf071ec4",
+      "4108843d-12c0-4668-8c28-661e61e27b08",
+      "f90e31ef-c9d3-444e-b23f-dcb3b223f806",
+      "60a07b90-a8e0-48c1-8b76-2f473804e125"
     ]
   },
   "assets": [
@@ -263,6 +284,24 @@
       "seeds": [6102, 6101],
       "transparent": true,
       "note": "UI skin cropped from the generated panel/action-bar atlases: parchment panel (9-slice, 16px corners), bronze plaque frame (hollow), bronze square slot. Installed via ui::InstallSkin."
+    },
+    {
+      "file": "ui_frame.png",
+      "tool": "create_image_pixflux",
+      "job_ids": [
+        "48e53167-75fe-455b-88b4-b21641b530ad",
+        "a6c90304-faf3-4aa3-840d-73adea474e97"
+      ],
+      "seeds": [8301, 8311],
+      "transparent": true,
+      "native_size": [320, 200],
+      "settings": {
+        "outline": "single color outline",
+        "detail": "medium detail",
+        "palette": "20-colour Ember palette (stone ramp, bronze ramp, gold, moss, blood accent) forced through color_image_base64",
+        "pieces": "64x64 stone texture (job 48e53167, seed 8301, opaque) and 48x48 corner filigree (job a6c90304, seed 8311, no_background)"
+      },
+      "note": "Full-screen HUD frame, 320x200 native RGBA, nearest-neighbor, no upscaling. Composite of the two generated pieces: the stone is re-mapped inside the palette to a darker value per band (top bar, rails, dock, dock middle) so HUD text stays legible, and the filigree's corner clusters are cut to 8x8 for the four outer corners (clear of the title/status text and the button plate). The viewport lip, rail rivets, well bezels and the portrait/skill/journal/button rectangles are drawn at exact art coordinates, not generated. Viewport (x8-311, y14-147) is alpha 0 by construction; no magenta key pass was needed. Cut lines: columns 115/205, rows 14/148 (see data/ui_layout.json). Fits assets/data/ui_layout.json."
     }
   ],
   "fonts": [

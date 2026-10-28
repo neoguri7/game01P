@@ -8,13 +8,15 @@
     "zones: [x, y, w, h] on the design canvas. The anchor names the screen edge a zone keeps its distance from",
     "when the window is not exactly 16:10 (center = stays centered, right/bottom = moves with that edge).",
     "Keep (1280 - min_width) / 2 design px of clearance between a center zone and its left/right neighbours:",
-    "narrowing the window moves right-anchored zones twice as far as centered ones."
+    "narrowing the window moves right-anchored zones twice as far as centered ones.",
+    "The middle strip between the slice cuts (min_width - slice.left - slice.right) is what stretches. It must still hold",
+    "the skill row (340 px) at the narrowest window, and art inside it must stay uniform: the side blocks keep their size."
   ],
-  "design": { "width": 1280, "height": 800, "min_width": 1140 },
+  "design": { "width": 1280, "height": 800, "min_width": 1160 },
   "bands": { "left": 32, "right": 32, "top": 56, "bottom": 208 },
   "frame": {
     "texture": "art/ui_frame",
-    "slice": { "left": 460, "right": 460, "top": 56, "bottom": 208 }
+    "slice": { "left": 400, "right": 400, "top": 56, "bottom": 208 }
   },
   "zones": {
     "title":      { "anchor": "top-left",      "rect": [44, 6, 300, 44] },
