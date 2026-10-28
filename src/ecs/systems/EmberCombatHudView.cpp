@@ -134,9 +134,12 @@ void TopBar(entt::registry& registry, const FUiLayout& layout, const FDungeonRun
         ImGui::TextColored(pal::kGoldV, "%s", depth);
         if (heading) ImGui::PopFont();
     }
-    ui::FBodyFont body(14.f * u);
-    ImGui::SetCursorScreenPos({right - ImGui::CalcTextSize(stats).x, zones.status.y + 26.f * u});
-    ImGui::TextDisabled("%s", stats);
+    {
+        // The font scope must close before the window does; ImGui asserts on an unbalanced font stack in End().
+        ui::FBodyFont body(14.f * u);
+        ImGui::SetCursorScreenPos({right - ImGui::CalcTextSize(stats).x, zones.status.y + 26.f * u});
+        ImGui::TextDisabled("%s", stats);
+    }
     ui::EndZone();
 }
 
@@ -158,38 +161,43 @@ void TargetCard(entt::registry& registry, const FUiLayout& layout, const FTurnSn
         ui::EndPanel();
         return;
     }
-    ui::FBodyFont body(kBodySize * u);
-    const ImVec2 origin = ImGui::GetWindowPos();
-    const auto& points = registry.get<FActionPoints>(actor);
-    ImGui::SetCursorScreenPos({origin.x + 22.f * u, origin.y + 14.f * u});
-    ImGui::TextColored(pal::kGoldV, "%s", row->displayName.c_str());
-    ImGui::SetCursorScreenPos({origin.x + 22.f * u, origin.y + 38.f * u});
-    ImGui::TextDisabled("Range %d  |  AP %d  |  %s", skill->range, skill->apCost, skill->shape.c_str());
-    ImGui::SetCursorScreenPos({origin.x + 22.f * u, origin.y + 66.f * u});
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {8.f * u, 2.f * u});
-    const float available = card.w - 44.f * u;
-    const float spacing = ImGui::GetStyle().ItemSpacing.x;
-    float used = 0.f;
-    for (const auto target : registry.view<FHealth, FGridPosition>()) {
-        if (!CanTargetWithSkill(registry, actor, target, *skill)) continue;
-        const auto name = FirstName(UnitDisplayName(registry, target));
-        const float width = ImGui::CalcTextSize(name.c_str()).x + 16.f * u;
-        if (used > 0.f && used + spacing + width <= available) {
-            ImGui::SameLine();
-            used += spacing + width;
-        } else {
-            used = width;
+    {
+        // The font scope must close before the window does; ImGui asserts on an unbalanced font stack in End().
+        ui::FBodyFont body(kBodySize * u);
+        const ImVec2 origin = ImGui::GetWindowPos();
+        const auto& points = registry.get<FActionPoints>(actor);
+        ImGui::SetCursorScreenPos({origin.x + 22.f * u, origin.y + 14.f * u});
+        ImGui::TextColored(pal::kGoldV, "%s", row->displayName.c_str());
+        ImGui::SetCursorScreenPos({origin.x + 22.f * u, origin.y + 38.f * u});
+        ImGui::TextDisabled("Range %d  |  AP %d  |  %s", skill->range, skill->apCost, skill->shape.c_str());
+        ImGui::SetCursorScreenPos({origin.x + 22.f * u, origin.y + 66.f * u});
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {8.f * u, 2.f * u});
+        const float available = card.w - 44.f * u;
+        const float spacing = ImGui::GetStyle().ItemSpacing.x;
+        float used = 0.f;
+        for (const auto target : registry.view<FHealth, FGridPosition>()) {
+            if (!CanTargetWithSkill(registry, actor, target, *skill)) continue;
+            const auto name = FirstName(UnitDisplayName(registry, target));
+            const float width = ImGui::CalcTextSize(name.c_str()).x + 16.f * u;
+            if (used > 0.f && used + spacing + width <= available) {
+                ImGui::SameLine();
+                used += spacing + width;
+            } else {
+                used = width;
+            }
+            ImGui::PushID(static_cast<int>(entt::to_integral(target)));
+            ImGui::BeginDisabled(points.skill < skill->apCost || !queue.pending.empty());
+            if (ui::Button(name.c_str(), {0.f, 26.f * u})) {
+                queue.pending.push_back(FActionRequest{actor, target, slots[selectedSkill].skillId, *snapshot.currentTurn,
+                                                       registry.get<FGridPosition>(target)});
+            }
+            ImGui::EndDisabled();
+            ImGui::PopID();
         }
-        ImGui::PushID(static_cast<int>(entt::to_integral(target)));
-        ImGui::BeginDisabled(points.skill < skill->apCost || !queue.pending.empty());
-        if (ui::Button(name.c_str(), {0.f, 26.f * u})) {
-            queue.pending.push_back(FActionRequest{actor, target, slots[selectedSkill].skillId, *snapshot.currentTurn,
-                                                   registry.get<FGridPosition>(target)});
-        }
-        ImGui::EndDisabled();
-        ImGui::PopID();
+        ImGui::PopStyleVar();
+        // Without a target in range no item follows the cursor move above; ImGui asserts unless something validates it.
+        ImGui::NewLine();
     }
-    ImGui::PopStyleVar();
     ui::EndPanel();
 }
 
