@@ -23,8 +23,10 @@
 ## 2. 디렉터리와 약속
 
 ```
-style/anchors/<kind>/        종류별 앵커 (character, tile, item, ui)
-style/fingerprints/<kind>.json   앵커에서 측정한 스타일 수치 (스크립트가 생성)
+style/anchors/<이름>/        종류별 앵커 (character, tile, object, item, ui)
+style/fingerprints/<이름>.json   앵커에서 측정한 스타일 수치 (스크립트가 생성)
+                             <이름> 은 rules.json 프로파일의 fingerprint 파일 이름이다.
+                             kind 와 다를 수 있다 (character_sprite, character_sheet → character)
 specs/<id>.json              에셋 1개의 요구사항 (생성 전에 반드시 작성)
 assets/raw/<id>/             시도별 원본: a1.png, a2.png ... (+ .qa.json, compare.png)
 assets/candidates/<id>/      QA + 리뷰어 통과본과 REVIEW.md (사람 승인 대기)
@@ -55,6 +57,9 @@ assets/manifest.json         모든 시도와 승인 이력
 5. (선택) Layer 스타일 학습. `estimate_training_price` 결과를 보고하고 승인을 받은 뒤 진행한다. 학습 결과 id 는 `style/style.lock.json` 에 사람이 기록한다.
 
 완료 조건: 바이블, 팔레트, 지문이 모두 있고 사람이 "스타일 잠금 완료"라고 확인했다. 이 전에는 에셋을 만들지 않는다.
+
+`python scripts/phase0_check.py [--kind <kind>]` 가 이 조건을 코드로 판정한다 (`/make-asset` 이 첫 단계로 실행한다).
+바이블 맨 위의 `<!-- DRAFT ... -->` 줄을 사람이 지우는 것이 "스타일 잠금 완료"의 확인이다. 에이전트는 이 줄을 지우지 않는다.
 
 ## 4. Phase 1 — 마스터(정체성) 확정
 
@@ -141,7 +146,7 @@ assets/manifest.json         모든 시도와 승인 이력
 | `alpha_binary` | `snap_palette.py` (알파 이진화 포함) | — | 재생성 |
 | `palette`, `max_colors` | `snap_palette.py` | 벗어난 영역만 `inpaint_image` | 재생성 |
 | `native_pixel_grid` | 정수배 나눗셈이 되면 최근접 다운스케일 후 재검수 | — | 네이티브 크기로 재생성 |
-| `size`, `frame_grid`, `frame_count_exact` | (보정 불가) | — | 크기/프레임 수를 명시해 재생성 |
+| `size`, `spec_canvas`, `frame_grid`, `frame_count_exact` | (보정 불가) | — | 크기/프레임 수를 명시해 재생성 |
 | `anchor_drift`, `centroid_drift` | (보정 불가) | 어긋난 프레임만 `edit_image` | 재생성 (후보 수 늘림) |
 | `no_empty_frames`, `area_ratio` | — | 문제 프레임 재생성 후 시트에 교체 | 전체 재생성 |
 | `palette_overlap` | — | — | 마스터 `character_id` 로 재생성 |

@@ -89,6 +89,11 @@ records tool/job/seed provenance and rejected candidates. Family and repeated
 tile previews were checked before integration; these remain prototype art,
 not automatically approved style-reference images. The theme is **dark fantasy forest** with a Diablo-style HUD; fonts (Cinzel, Alegreya Sans, SIL OFL) live in `assets/fonts` and the shared look is implemented in `presentation/FUiTheme`.
 
+New art is meant to go through [`asset-pipeline/`](asset-pipeline/README.md): an agent-driven pipeline (PixelLab + Layer
+MCP) with a spec per asset, a code QA gate, an independent reviewer and explicit human approval, so every asset stays in the
+`style.md` look. It is a self-contained folder because `assets/` is copied wholesale into the build. Its style lock
+(palette, anchors, fingerprints) still needs to be completed by a person before it can generate anything.
+
 ### Full-screen HUD frame
 
 Ember battles draw their HUD inside one full-screen frame: a top bar, a tall bottom dock and two side rails

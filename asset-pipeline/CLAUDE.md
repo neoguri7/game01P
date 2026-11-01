@@ -43,7 +43,8 @@ Layer 결과는 **픽셀 격자를 보장하지 않으므로** 최종 픽셀 에
 ## 자주 쓰는 명령
 
 ```
-python scripts/qa_gate.py <파일> --spec specs/<id>.json        # 규칙 + 스타일 수치 + 부모 승인 검사
+python scripts/phase0_check.py --kind <kind>                   # Phase 0(스타일 잠금)이 끝났는지 확인. 실패하면 에셋을 만들지 않는다
+python scripts/qa_gate.py <파일> --spec specs/<id>.json        # 규칙 + 스타일 수치 + 부모 승인 검사 (+ 스펙 canvas 일치)
 python scripts/contact_sheet.py <out.png> <후보> <앵커1> <앵커2> <앵커3>   # 눈으로 비교
 python scripts/snap_palette.py <in> <out>                      # 팔레트/알파 결정론적 보정
 python scripts/style_fingerprint.py build ...                  # (Phase 0) 앵커에서 스타일 지문 생성
@@ -52,10 +53,15 @@ python scripts/approve.py verify                               # 승인본 무�
 
 슬래시 명령: `/make-asset <id> <kind> <설명>` (에셋 1개를 절차대로 진행), `/approve <id> <파일>` (사람이 승인).
 
-## 프로젝트 설정 (사람이 채움)
+## 프로젝트 설정
 
-- 엔진: (Godot / Unity / ...)
-- 뷰: (사이드뷰 / 탑다운 / 아이소메트릭)
-- 캐릭터 캔버스: (예: 64x64)
-- 타일 크기: (예: 16x16)
-- Layer 학습 스타일 id: (`style/style.lock.json` 참고)
+이 폴더는 저장소 루트의 게임(Game01P) 안에 있지만 독립된 프로젝트다. 여기서 Claude Code 를 실행한다 (`cd asset-pipeline`).
+승인된 에셋은 `assets/approved/` 에 머문다. 게임의 `../assets/art/` 로 옮기는 일은 사람이 시킬 때만 하고, 자동으로 하지 않는다.
+
+- 엔진: 자체 C++ 엔진 (SDL3 + EnTT + ImGui). 최근접 샘플링. 실행 파일 옆의 `assets/` 를 로드한다.
+- 뷰: 로직은 직교 그리드, 전투 화면은 아이소메트릭 투영(셀 64x32 다이아몬드). 유닛은 정면 스프라이트. (스타일 바이블에서 사람이 확인)
+- 캐릭터 캔버스: 64x64 (게임 내 모든 에셋이 네이티브 64x64. 큰 프롭은 64x96, UI 는 비정형)
+- 타일 크기: 64x64
+- 애니메이션 시트: 게임의 `assets/anim/clips.json` 이 `row`/`start`/`count` 로 프레임 구간을 읽는다. 행=방향, 열=프레임 규약과 호환된다.
+- 종류(kind)와 앵커/지문: `character_sprite`·`character_sheet` → `character`, `tile` → `tile`, `map_object` → `object`, `item_icon` → `item`, `ui_element` → `ui` (`style/anchors/<이름>/`, `style/fingerprints/<이름>.json`)
+- Layer 학습 스타일 id: 없음 (선택 사항. 학습하면 `style/style.lock.json` 에 사람이 기록)

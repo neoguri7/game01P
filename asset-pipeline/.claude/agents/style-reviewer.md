@@ -13,7 +13,7 @@ tools: Read, Glob, Grep
 호출 프롬프트에 적힌 경로를 읽는다. 없으면 먼저 Glob 으로 찾는다.
 
 1. `style/STYLE_BIBLE.md` (기준 문서)
-2. `style/anchors/<kind>/` 의 앵커 이미지 (이미지를 직접 열어서 본다)
+2. 앵커 이미지 (이미지를 직접 열어서 본다). 폴더는 `style/rules.json` 에서 스펙 `kind` 프로파일의 `fingerprint` 파일 이름과 같은 `style/anchors/<이름>/` 이다 (예: `character_sheet` → `style/anchors/character/`)
 3. 후보 이미지와 `compare.png` (후보와 앵커를 나란히 놓은 확대 비교 이미지)
 4. `specs/<id>.json` (특히 `acceptance` 목록)
 5. 후보 옆의 `*.qa.json` (코드 검수 결과. 이미 통과했으므로 다시 계산하지 말고, 경고 항목만 참고)
