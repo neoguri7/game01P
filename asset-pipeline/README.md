@@ -27,6 +27,8 @@ style/
   anchors/<이름>/            종류별 앵커 이미지 (character, tile, object, item, ui)
   fingerprints/<이름>.json   앵커에서 측정한 스타일 수치 (스크립트가 생성)
 specs/_template.json         에셋 스펙 템플릿 (생성 전에 반드시 작성)
+docs/REFERENCE_BRIEF.md      외부 게임(PoE, Divinity) 참고 분석: 글 규칙과 1차 작업 초안
+reference/                   참고 스크린샷 출처(sources.json). 이미지는 local/ (git 무시, 커밋 금지)
 assets/
   raw/  candidates/  approved/   시도 원본 → 검수 통과 → 승인본(읽기 전용)
   manifest.json              모든 시도와 승인 이력
@@ -38,6 +40,7 @@ scripts/
   snap_palette.py            미세한 색 오차 결정론적 보정 (팔레트가 다르면 거부)
   contact_sheet.py           후보와 앵커를 한 장에 나란히 (눈으로 비교)
   approve.py                 승인(읽기 전용 + sha256 기록) / 승인본 무결성 점검
+  fetch_references.py        reference/sources.json 의 참고 스크린샷을 reference/local/ 로 내려받기
 ```
 
 ## 네 가지 잠금
