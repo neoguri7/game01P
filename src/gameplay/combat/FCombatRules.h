@@ -11,7 +11,7 @@ inline constexpr int kMinimumDamage = 1;
 
 [[nodiscard]] int ComputeDamage(int offense, int power, int defense);
 
-/// Grid distance used by range checks: Manhattan (칸 단위, design §4 그리드 = 8x8).
+/// Grid distance used by range checks: Manhattan (칸 단위, design §4 그리드 = 12x12).
 [[nodiscard]] int GridDistance(const FGridPosition& from, const FGridPosition& to);
 
 [[nodiscard]] bool IsInRange(const FGridPosition& from, const FGridPosition& to, int range);

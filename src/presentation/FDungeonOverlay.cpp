@@ -19,6 +19,43 @@ const std::string& MemberName(const FRunMember& member) {
     return member.displayName.empty() ? member.id : member.displayName;
 }
 
+std::string DescribeSave(const FDungeonSave& save) {
+    const char* where = save.phase == EDungeonPhase::Battle ? "battle"
+        : save.phase == EDungeonPhase::Reward ? "room cleared"
+        : save.phase == EDungeonPhase::Event ? "shrine" : "camp";
+    std::string text = "Dungeon " + std::to_string(save.depth) + ", room " + std::to_string(save.room + 1) +
+        " (" + where + ")";
+    if (save.savedAt.size() >= 10) text += "  |  saved " + save.savedAt.substr(0, 10);
+    return text;
+}
+
+/// Starting over while a save exists asks first: that save is the only copy of the run.
+void NewExpeditionConfirm(entt::registry& registry) {
+    auto& state = registry.ctx().get<FDungeonUiState>();
+    if (!state.confirmNewExpedition) return;
+    const auto& save = registry.ctx().get<FDungeonSave>();
+    auto& request = registry.ctx().get<FMenuRequest>();
+    ImGui::OpenPopup("Start a new expedition?");
+    if (ImGui::BeginPopupModal("Start a new expedition?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
+        ui::DecorateCurrentWindow();
+        ui::HeadingText("NEW EXPEDITION?", 22.f);
+        ImGui::Text("Your saved expedition will be overwritten:");
+        ImGui::TextDisabled("%s", DescribeSave(save).c_str());
+        if (ui::Button("Keep my save", {200, 36})) {
+            state.confirmNewExpedition = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ui::Button("Start new", {160, 36})) {
+            request.value = EMenuRequest::Start;
+            request.fresh = state.newExpeditionFresh;
+            state.confirmNewExpedition = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
 void Menu(entt::registry& registry) {
     const auto& window = registry.ctx().get<FEngineWindowState>();
     const float w = static_cast<float>(window.width);
@@ -56,22 +93,37 @@ void Menu(entt::registry& registry) {
     ImGui::TextWrapped("3 combat rooms + a shrine event per dungeon.\nClear a dungeon to unlock its checkpoint.\nDefeat resets run growth, not cleared checkpoints.");
     ImGui::Spacing();
     const auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
+    const auto& save = registry.ctx().get<FDungeonSave>();
     auto& request = registry.ctx().get<FMenuRequest>();
+    auto& state = registry.ctx().get<FDungeonUiState>();
+    const auto startNew = [&](bool fresh) {
+        if (save.exists) {
+            state.confirmNewExpedition = true;
+            state.newExpeditionFresh = fresh;
+            return;
+        }
+        request.value = EMenuRequest::Start;
+        request.fresh = fresh;
+    };
+    if (save.exists) {
+        const std::string resume = "CONTINUE  -  " + DescribeSave(save);
+        if (ui::Button(resume.c_str(), {-1, 52})) request.value = EMenuRequest::Continue;
+        ImGui::Spacing();
+    }
     const std::string begin = checkpoint.cleared > 0
         ? "BEGIN AT DUNGEON " + std::to_string(checkpoint.cleared + 1) : "BEGIN EXPEDITION";
-    if (ui::Button(begin.c_str(), {-1, 52})) request.value = EMenuRequest::Start;
+    if (ui::Button(begin.c_str(), {-1, save.exists ? 36.f : 52.f})) startNew(false);
     ImGui::Spacing();
-    if (checkpoint.cleared > 0 && ui::Button("Fresh expedition from dungeon 1", {-1, 36})) {
-        request.value = EMenuRequest::Start;
-        request.fresh = true;
-    }
+    if (checkpoint.cleared > 0 && ui::Button("Fresh expedition from dungeon 1", {-1, 36})) startNew(true);
     if (ui::Button("Quit", {-1, 34})) request.value = EMenuRequest::Quit;
     if (!checkpoint.error.empty()) ImGui::TextColored({.9f, .31f, .31f, 1}, "%s", checkpoint.error.c_str());
+    if (!save.error.empty()) ImGui::TextColored({.9f, .31f, .31f, 1}, "%s", save.error.c_str());
     ImGui::Spacing();
     ImGui::TextDisabled("Mouse: move / target    WASD: one-cell move");
     ImGui::TextDisabled("1-4: skill    Space: end turn    Esc: abandon");
     ImGui::TextDisabled("` : developer overlay    No real-time pressure.");
     ui::EndPanel();
+    NewExpeditionConfirm(registry);
 }
 
 void DrawGrowthPanel(
@@ -105,14 +157,22 @@ void RunChoice(entt::registry& registry) {
         ImGui::OpenPopup("Abandon expedition?");
         if (ImGui::BeginPopupModal("Abandon expedition?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
             ui::DecorateCurrentWindow();
-            ui::HeadingText("ABANDON EXPEDITION?", 22.f);
-            ImGui::Text("Run growth and runes will be lost. Cleared checkpoints remain.");
-            if (ui::Button("Keep exploring", {220, 36})) {
+            ui::HeadingText("LEAVE EXPEDITION?", 22.f);
+            ImGui::Text("The expedition is saved at every room. Leaving mid-battle restarts this room");
+            ImGui::Text("when you continue. Abandoning deletes the save: run growth and runes are lost,");
+            ImGui::Text("cleared checkpoints remain.");
+            if (ui::Button("Keep exploring", {180, 36})) {
                 ui.confirmAbandon = false;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ui::Button("Abandon", {160, 36})) {
+            if (ui::Button("Save and leave", {180, 36})) {
+                run.leaveRequested = true;
+                ui.confirmAbandon = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ui::Button("Abandon", {140, 36})) {
                 run.abandonRequested = true;
                 ui.confirmAbandon = false;
                 ImGui::CloseCurrentPopup();

@@ -9,6 +9,8 @@ namespace game {
 struct FDungeonUiState {
     bool debugVisible{false};
     bool confirmAbandon{false};
+    bool confirmNewExpedition{false};  // starting over would overwrite a saved expedition
+    bool newExpeditionFresh{false};    // which "new expedition" button asked
     int selectedGrowthMember{0};
 };
 

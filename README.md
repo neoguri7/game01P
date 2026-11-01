@@ -54,7 +54,7 @@ the battle journal and do not spend AP.
 
 ## Prototype loop
 
-Lead a warrior, archer, mage and healer through three procedurally generated 8×8 combat rooms (the party starts at the bottom, a random enemy formation at the top, with random wall clusters and spike traps that never cut anyone off),
+Lead a warrior, archer, mage and healer through three procedurally generated 12×12 combat rooms (the party starts at the bottom, a random enemy formation at the top, with a few random wall clusters and spike traps that never cut anyone off; the map is open, with no wall ring around the edge),
 a shrine/cache decision after the first room, and a guardian in the third.
 Initiative uses the existing speed scheduler. Each turn has separate movement
 AP and skill AP; neither can substitute for the other.

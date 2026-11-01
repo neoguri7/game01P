@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "_comment": [
+    "How a battle looks, apart from what it does. Units play one clip per action (idle, walk, attack, hit, death) named <clips>.<action>;",
+    "every skill reuses the unit's attack clip, and the skill itself is shown by an effect picture (the old-Pokemon way): fx.* clips from clips.json.",
+    "units.<id>.impact_frame: the attack frame where the blow lands (effects and the target's reaction start then).",
+    "skills.<id>.kind: impact = plays on every unit reached | projectile = flies from the caster, then plays `impact` | zone = plays on every covered cell.",
+    "Optional per skill: scale, impact_scale, lift (px above the cell centre), speed (projectile px/s), stagger (s between targets), lunge (px the caster steps in),",
+    "rotate (turn a projectile toward its heading), ground (draw under units), from_sky (projectile falls onto its target).",
+    "A skill without an entry uses default_effect. Clips are built by tools/anim/build_sheets.py."
+  ],
+  "move_seconds": 0.22,
+  "units": {
+    "char.warrior":     { "clips": "unit.warrior",    "impact_frame": 4 },
+    "char.archer":      { "clips": "unit.archer",     "impact_frame": 5 },
+    "char.mage":        { "clips": "unit.mage",       "impact_frame": 4 },
+    "char.healer":      { "clips": "unit.healer",     "impact_frame": 3 },
+    "enemy.imp":        { "clips": "unit.imp",        "impact_frame": 3 },
+    "enemy.imp_archer": { "clips": "unit.imp_archer", "impact_frame": 5 },
+    "enemy.imp_shaman": { "clips": "unit.imp_shaman", "impact_frame": 4 },
+    "enemy.guardian":   { "clips": "unit.guardian",   "impact_frame": 5 }
+  },
+  "skills": {
+    "skill.strike":   { "kind": "impact", "clip": "fx.slash", "lift": 26, "lunge": 8 },
+    "skill.cleave":   { "kind": "impact", "clip": "fx.cleave", "lift": 26, "scale": 0.85, "lunge": 8, "stagger": 0.05 },
+    "skill.lunge":    { "kind": "impact", "clip": "fx.lunge", "lift": 26, "lunge": 12 },
+    "skill.arrow":    { "kind": "projectile", "clip": "fx.arrow", "impact": "fx.hit", "scale": 0.6, "impact_scale": 0.7, "lift": 28, "speed": 700, "rotate": true },
+    "skill.volley":   { "kind": "projectile", "clip": "fx.arrow", "impact": "fx.hit", "scale": 0.6, "impact_scale": 0.6, "lift": 28, "speed": 900, "stagger": 0.08, "rotate": true, "from_sky": true },
+    "skill.snipe":    { "kind": "projectile", "clip": "fx.arrow", "impact": "fx.hit", "scale": 0.85, "impact_scale": 1.0, "lift": 28, "speed": 1300, "rotate": true },
+    "skill.bolt":     { "kind": "projectile", "clip": "fx.orb_arcane", "impact": "fx.burst_arcane", "scale": 0.8, "impact_scale": 1.0, "lift": 28, "speed": 520 },
+    "skill.firebolt": { "kind": "projectile", "clip": "fx.orb_fire", "impact": "fx.explosion_fire", "scale": 0.8, "impact_scale": 0.8, "lift": 28, "speed": 480 },
+    "skill.fog":      { "kind": "zone", "clip": "fx.fog", "lift": 6, "scale": 1.1, "stagger": 0.05 },
+    "skill.heal":     { "kind": "impact", "clip": "fx.heal", "scale": 0.75, "ground": true },
+    "skill.buff":     { "kind": "impact", "clip": "fx.buff", "scale": 0.55, "ground": true },
+    "skill.debuff":   { "kind": "impact", "clip": "fx.curse", "scale": 0.55, "ground": true }
+  },
+  "default_effect": { "kind": "impact", "clip": "fx.hit", "lift": 26 }
+}

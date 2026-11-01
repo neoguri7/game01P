@@ -5,7 +5,47 @@
 #include "ecs/components/FAnimator.h"
 #include "ecs/components/FSprite.h"
 
+#include <cmath>
+
 namespace game::ecs {
+
+void AdvanceAnimator(FAnimator& animator, const FAnimClip& clip, double dt) {
+    if (animator.frame >= clip.frames.size()) {
+        animator.frame = 0;
+        animator.frameTime = 0.0;
+    }
+    if (!animator.playing || !std::isfinite(dt) || dt <= 0.0) {
+        return;
+    }
+    double elapsed = dt;
+    if (animator.loop && clip.totalDuration > 0.0 && elapsed >= clip.totalDuration) {
+        elapsed = std::fmod(elapsed, clip.totalDuration);
+    }
+    animator.frameTime += elapsed;
+
+    while (animator.frameTime >= clip.frames[animator.frame].duration) {
+        animator.frameTime -= clip.frames[animator.frame].duration;
+        if (animator.frame + 1 < clip.frames.size()) {
+            ++animator.frame;
+        } else if (animator.loop) {
+            animator.frame = 0;
+        } else {
+            animator.frameTime = 0.0;
+            animator.playing = false;
+            animator.finished = true;
+            break;
+        }
+    }
+}
+
+void StartClip(FAnimator& animator, FAnimClipId clipId, const FAnimClip& clip) {
+    animator.clip = clipId;
+    animator.frameTime = 0.0;
+    animator.frame = 0;
+    animator.playing = true;
+    animator.loop = clip.loop;
+    animator.finished = false;
+}
 
 bool PlayAnimation(entt::registry& registry, entt::entity entity, FAnimClipId clipId, bool restart) {
     if (!registry.valid(entity)) {

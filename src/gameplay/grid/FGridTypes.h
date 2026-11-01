@@ -7,8 +7,8 @@
 
 namespace game {
 
-inline constexpr int kGridWidth = 8;
-inline constexpr int kGridHeight = 8;
+inline constexpr int kGridWidth = 12;
+inline constexpr int kGridHeight = 12;
 inline constexpr float kTileSize = 64.f;
 inline constexpr float kUnitHitboxInset = 6.f;
 

@@ -9,6 +9,7 @@
 #include "ecs/components/FSprite.h"
 #include "debug/TurnDemo.h"
 #include "ecs/systems/AnimationSystem.h"
+#include "ecs/systems/BattleAnimationSystem.h"
 #include "ecs/systems/ActionResolverSystem.h"
 #include "ecs/systems/CollisionSystem.h"
 #include "ecs/systems/CombatHudSystem.h"
@@ -51,6 +52,7 @@ void RegisterSystems(game::SystemManager& systems)
     systems.addSystem<game::ecs::TurnSystem>();
     systems.addSystem<game::ecs::TurnFlowSystem>();
     systems.addSystem<game::ecs::ActionResolverSystem>();
+    systems.addSystem<game::ecs::BattleAnimationSystem>();
     systems.addSystem<game::ecs::CombatOutcomeSystem>();
     systems.addSystem<game::ecs::Stage0BattleSystem>();
     systems.addSystem<game::ecs::GridCameraSystem>();
@@ -196,7 +198,7 @@ int main(int argc, char* argv[])
     }
     if (ember) {
         if (!game::InitializeDungeon(engine.getRegistry()) || !game::InitializeDungeonArt(engine.getRegistry()) ||
-            !game::ui::InitializeUiFrame(engine.getRegistry())) {
+            !game::InitializeBattleAnim(engine.getRegistry()) || !game::ui::InitializeUiFrame(engine.getRegistry())) {
             shutdown();
             return EXIT_FAILURE;
         }

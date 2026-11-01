@@ -13,6 +13,7 @@
 #include "ecs/components/FHealth.h"
 #include "ecs/components/FSkillLoadout.h"
 #include "ecs/components/FStats.h"
+#include "gameplay/combat/FBattleEvents.h"
 #include "gameplay/combat/FCombatApply.h"
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FCombatRules.h"
@@ -75,8 +76,10 @@ private:
         const auto path = FindGridPath(registry, request.actor, request.destination, terrain ? terrain->moveRange : 1);
         if (path.empty()) return Reject(log, "Blocked: wall, occupied cell or movement range.");
         --points->move;
+        std::vector<FGridPosition> walked{*cell};
         for (const auto step : path) {
             *cell = step;
+            walked.push_back(step);
             const auto world = GridCellTopLeftToWorld(*grid, cell->x, cell->y);
             *position = FPosition{world.x, world.y};
             if (terrain && terrain->at(cell->x, cell->y) == ETile::Trap) {
@@ -87,6 +90,11 @@ private:
             }
         }
         if (log) log->push(UnitDisplayName(registry, request.actor) + " moved.");
+        Emit(registry, FBattleEvent{.kind = FBattleEvent::EKind::Move, .actor = request.actor, .path = std::move(walked)});
+    }
+
+    static void Emit(entt::registry& registry, FBattleEvent event) {
+        if (auto* events = registry.ctx().find<FBattleEvents>()) events->pending.push_back(std::move(event));
     }
 
     static void Reject(FCombatLog* log, const std::string& reason) {
@@ -176,10 +184,15 @@ private:
             attackModifier = StatusAttackModifier(*active, CollectStatuses(*active, content));
         }
 
+        FBattleEvent event{.kind = FBattleEvent::EKind::Skill, .actor = actor, .skillId = slot->skillId,
+                           .aim = *targetCell, .cells = cells};
         for (const entt::entity target : affected) {
             const auto& affectedCell = registry.get<FGridPosition>(target);
             if (!HasGridLineOfSight(registry, *actorCell, affectedCell)) continue;
             const std::string targetName = UnitDisplayName(registry, target);
+            const auto* healthBefore = registry.try_get<FHealth>(target);
+            FBattleEvent::FTarget reached{.unit = target, .healthBefore = healthBefore ? healthBefore->current : 0,
+                                          .hostile = !targetsOwnSide};
             bool died = false;
 
             if (targetsOwnSide) {
@@ -225,6 +238,10 @@ private:
                 log->push(actorName + " / " + skillName + " -> " + targetName + " status applied");
             }
 
+            reached.died = died;
+            const auto* healthAfter = registry.try_get<FHealth>(target);
+            reached.healthAfter = healthAfter ? healthAfter->current : reached.healthBefore;
+            event.targets.push_back(reached);
             if (died) {
                 continue;
             }
@@ -236,6 +253,7 @@ private:
                 }
             }
         }
+        Emit(registry, std::move(event));
     }
 };
 

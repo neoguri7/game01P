@@ -28,15 +28,19 @@
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FAutoAction.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "core/AnimationLibrary.h"
+#include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/dungeon/FRoomGenerator.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/grid/FGridQuery.h"
 #include "gameplay/grid/FCameraMath.h"
 #include "gameplay/grid/FGridTerrain.h"
+#include "presentation/FBattleAnim.h"
 #include "presentation/FIsoView.h"
 #include "presentation/FUiFrame.h"
 #include "presentation/FUiLayout.h"
 #include "states/FEmberBattleState.h"
+#include "states/FEmberMenuRequest.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FDungeonArt.h"
 #include "core/InputState.h"
@@ -56,6 +60,7 @@ struct FFixture {
     game::ecs::CombatOutcomeSystem outcomes;
     FEmberBattleState battle;
     std::filesystem::path checkpoint;
+    std::filesystem::path runSave;
 
     explicit FFixture(std::uint32_t seed = 1234) {
         std::filesystem::create_directories("out");
@@ -64,6 +69,7 @@ struct FFixture {
         game::FAssetManager::Initialize(registry);
         CHECK(game::gameplay::FGameplayServices::Initialize(registry));
         CHECK(game::InitializeDungeon(registry, checkpoint.string()));
+        runSave = registry.ctx().get<game::FDungeonSave>().path;
         turns.onRegister(registry);
         game::StartDungeonRun(registry, seed, true);
         battle.OnEnter(registry);
@@ -77,6 +83,8 @@ struct FFixture {
         std::error_code error;
         std::filesystem::remove(checkpoint, error);
         if (error) std::cerr << "Checkpoint cleanup failed: " << error.message() << '\n';
+        std::filesystem::remove(runSave, error);
+        std::filesystem::remove(runSave.string() + ".tmp", error);
     }
 
     void step() {
@@ -149,7 +157,7 @@ void CollisionAndTurns() {
     const int startingHp = hp.current;
     auto& queue = registry.ctx().get<game::FActionQueue>();
 
-    terrain.cells[1 * 8 + 2] = game::ETile::Wall;
+    terrain.cells[1 * game::kGridWidth + 2] = game::ETile::Wall;
     CHECK(!game::HasGridLineOfSight(registry, {1, 1}, {3, 1}));
     queue.pending.push_back(game::FMoveRequest{token.actor, {2, 1}, token});
     fixture.actions.update(registry, 0);
@@ -163,7 +171,7 @@ void CollisionAndTurns() {
     fixture.actions.update(registry, 0);
     CHECK(points.move == 1 && cell.y == 1);
 
-    terrain.cells[1 * 8 + 2] = game::ETile::Trap;
+    terrain.cells[1 * game::kGridWidth + 2] = game::ETile::Trap;
     CHECK(game::HasGridLineOfSight(registry, {1, 1}, {3, 1}));
     queue.pending.push_back(game::FMoveRequest{token.actor, {3, 1}, token});
     fixture.actions.update(registry, 0);
@@ -188,7 +196,7 @@ void CollisionAndTurns() {
     CHECK(game::FindGridOccupant(registry, enemyCell.x, enemyCell.y) == entt::null);
     CHECK(!game::IsGridCellOccupied(registry, enemyCell.x, enemyCell.y));
 
-    terrain.cells[1 * 8 + 3] = game::ETile::Wall;
+    terrain.cells[1 * game::kGridWidth + 3] = game::ETile::Wall;
     CHECK(!game::HasGridLineOfSight(registry, {2, 1}, {3, 2}));
     const auto path = game::FindGridPath(registry, token.actor, {4, 1}, 10);
     CHECK(path.size() >= 4);
@@ -216,11 +224,11 @@ void ActionValidation() {
     queue.pending.push_back(game::FActionRequest{token.actor, enemy, "skill.arrow", stale});
     fixture.actions.update(registry, 0);
     CHECK(hp.current == before && points.skill == points.skillMax);
-    terrain.cells[2 * 8 + 3] = game::ETile::Wall;
+    terrain.cells[2 * game::kGridWidth + 3] = game::ETile::Wall;
     queue.pending.push_back(game::FActionRequest{token.actor, enemy, "skill.arrow", token});
     fixture.actions.update(registry, 0);
     CHECK(hp.current == before && points.skill == points.skillMax);
-    terrain.cells[2 * 8 + 3] = game::ETile::Floor;
+    terrain.cells[2 * game::kGridWidth + 3] = game::ETile::Floor;
     queue.pending.push_back(game::FActionRequest{token.actor, enemy, "skill.arrow", token});
     fixture.actions.update(registry, 0);
     CHECK(hp.current < before && points.skill == 0 && points.move == points.moveMax);
@@ -253,10 +261,10 @@ void AutoActionTokenBoundary() {
     // Without skill AP the AI no longer shuffles next to an enemy it is already facing (a wasted move); it
     // moves when moving gets it somewhere. Put the actor and the enemies in opposite corners, out of every
     // skill's reach, to force that case.
-    registry.get<game::FGridPosition>(token.actor) = {0, 7};
+    registry.get<game::FGridPosition>(token.actor) = {0, game::kGridHeight - 1};
     int corner = 0;
     for (const auto entity : registry.view<game::FEnemy, game::FGridPosition>()) {
-        registry.get<game::FGridPosition>(entity) = {7 - corner % 2, corner / 2};
+        registry.get<game::FGridPosition>(entity) = {game::kGridWidth - 1 - corner % 2, corner / 2};
         ++corner;
     }
     const auto move = game::ChooseAutoAction(registry, token, false, content);
@@ -294,12 +302,12 @@ void SharedCellAndPierceActions() {
     auto& queue = registry.ctx().get<game::FActionQueue>();
     const int targetHp = registry.get<game::FHealth>(target).current;
     const int behindHp = registry.get<game::FHealth>(behind).current;
-    terrain.cells[1 * 8 + 3] = game::ETile::Wall;
+    terrain.cells[1 * game::kGridWidth + 3] = game::ETile::Wall;
     queue.pending.push_back(game::FActionRequest{token.actor, target, "skill.lunge", token});
     fixture.actions.update(registry, 0);
     CHECK(registry.get<game::FHealth>(target).current < targetHp);
     CHECK(registry.get<game::FHealth>(behind).current == behindHp);
-    terrain.cells[1 * 8 + 3] = game::ETile::Floor;
+    terrain.cells[1 * game::kGridWidth + 3] = game::ETile::Floor;
     points.skill = points.skillMax;
     queue.pending.push_back(game::FActionRequest{token.actor, target, "skill.lunge", token});
     fixture.actions.update(registry, 0);
@@ -309,12 +317,12 @@ void SharedCellAndPierceActions() {
     registry.get<game::FGridPosition>(behind) = {5, 1};
     points.skill = points.skillMax;
     const auto effectsBefore = registry.get<game::FActiveStatuses>(target).effects.size();
-    terrain.cells[1 * 8 + 2] = game::ETile::Wall;
+    terrain.cells[1 * game::kGridWidth + 2] = game::ETile::Wall;
     queue.pending.push_back(game::FActionRequest{token.actor, entt::null, "skill.fog", token, {3, 1}});
     fixture.actions.update(registry, 0);
     CHECK(points.skill == points.skillMax);
     CHECK(registry.get<game::FActiveStatuses>(target).effects.size() == effectsBefore);
-    terrain.cells[1 * 8 + 2] = game::ETile::Floor;
+    terrain.cells[1 * game::kGridWidth + 2] = game::ETile::Floor;
     queue.pending.push_back(game::FActionRequest{token.actor, entt::null, "skill.fog", token, {3, 1}});
     fixture.actions.update(registry, 0);
     CHECK(points.skill < points.skillMax);
@@ -681,14 +689,344 @@ void DefeatAndFactory() {
     CHECK(registry.ctx().get<game::FDungeonRun>().party.front().level == 1);
     CHECK(registry.ctx().get<game::FDungeonCheckpoint>().cleared == checkpoint);
     auto document = game::BuildDungeonBattlefield(registry);
-    document["units"][0]["grid_x"] = 0;
-    document["units"][0]["grid_y"] = 0;
     entt::registry probe;
     game::FScene scene(probe, "invalid");
     scene.Load();
+    // Generated rooms keep their edge open, so the wall under the unit has to be placed by hand.
+    auto topRow = document["terrain"][0].get<std::string>();
+    topRow[0] = '#';
+    document["terrain"][0] = topRow;
+    document["units"][0]["grid_x"] = 0;
+    document["units"][0]["grid_y"] = 0;
+    CHECK(!game::FEntityFactory::CreateBattlefield(scene, document));
+    document["units"][0]["grid_x"] = game::kGridWidth;
     CHECK(!game::FEntityFactory::CreateBattlefield(scene, document));
     document["terrain"] = nlohmann::json::array({"bad"});
     CHECK(!game::FEntityFactory::CreateBattlefield(scene, document));
+}
+
+nlohmann::json ReadJson(const std::filesystem::path& path) {
+    std::ifstream file(path);
+    CHECK(file.good());
+    return nlohmann::json::parse(file);
+}
+
+bool SameMember(const game::FRunMember& a, const game::FRunMember& b) {
+    const auto sameSlot = [](const game::FSkillSlot& x, const game::FSkillSlot& y) {
+        return x.skillId == y.skillId && x.runeIds == y.runeIds;
+    };
+    return a.id == b.id && a.displayName == b.displayName && a.health == b.health &&
+           a.bonusHealth == b.bonusHealth && a.bonusAttack == b.bonusAttack && a.bonusMagic == b.bonusMagic &&
+           a.bonusDefense == b.bonusDefense && a.bonusMagicDefense == b.bonusMagicDefense &&
+           a.bonusSpeed == b.bonusSpeed && a.experience == b.experience && a.level == b.level &&
+           a.passivePoints == b.passivePoints && a.allocatedNodes == b.allocatedNodes &&
+           std::ranges::equal(a.skills, b.skills, sameSlot);
+}
+
+void SaveAndContinue() {
+    FFixture fixture;
+    auto& registry = fixture.registry;
+    const auto saved = [&]() -> const game::FDungeonSave& { return registry.ctx().get<game::FDungeonSave>(); };
+
+    // A run is on disk from its first moment, and every step afterwards rewrites it.
+    CHECK(saved().exists && saved().depth == 1 && saved().room == 0 && saved().phase == game::EDungeonPhase::Battle);
+    CHECK(ReadJson(saved().path)["run"]["phase"] == "battle");
+    game::CompleteDungeonBattle(registry, true);
+    CHECK(saved().phase == game::EDungeonPhase::Reward && ReadJson(saved().path)["run"]["phase"] == "reward");
+
+    const auto& growth = registry.ctx().get<game::FDungeonGrowth>();
+    const auto node = std::ranges::find_if(growth.passiveTree.nodes, [&](const game::FPassiveNode& candidate) {
+        return candidate.parentId == growth.passiveTree.rootNodeId;
+    });
+    CHECK(node != growth.passiveTree.nodes.end());
+    CHECK(game::AllocateDungeonNode(registry, 0, node->id));
+    CHECK(ReadJson(saved().path)["run"]["party"][0]["allocated_nodes"].size() == 1);
+    game::ContinueDungeonReward(registry);
+    CHECK(saved().phase == game::EDungeonPhase::Event);
+    game::ChooseDungeonEvent(registry, false);
+    CHECK(saved().phase == game::EDungeonPhase::Battle && saved().room == 1);
+
+    // Continue brings back exactly what was saved, with the one-shot request flags cleared.
+    const game::FDungeonRun before = registry.ctx().get<game::FDungeonRun>();
+    CHECK(before.party[0].allocatedNodes.size() == 1 && before.materials > 0 && !before.runes.empty());
+    registry.ctx().erase<game::FDungeonRun>();
+    CHECK(game::ContinueDungeonRun(registry));
+    const auto& after = registry.ctx().get<game::FDungeonRun>();
+    CHECK(after.seed == before.seed && after.depth == before.depth && after.room == before.room);
+    CHECK(after.cleared == before.cleared && after.materials == before.materials && after.phase == before.phase);
+    CHECK(after.runes == before.runes && after.roomName == before.roomName && after.message == before.message);
+    CHECK(after.party.size() == before.party.size());
+    for (std::size_t index = 0; index < before.party.size(); ++index) {
+        CHECK(SameMember(after.party[index], before.party[index]));
+    }
+    CHECK(!after.advanceRequested && !after.abandonRequested && !after.leaveRequested);
+
+    // A fresh boot finds the save and tells the menu what is in it.
+    {
+        entt::registry reboot;
+        game::FAssetManager::Initialize(reboot);
+        CHECK(game::gameplay::FGameplayServices::Initialize(reboot));
+        CHECK(game::InitializeDungeon(reboot, fixture.checkpoint.string()));
+        const auto& found = reboot.ctx().get<game::FDungeonSave>();
+        CHECK(found.exists && found.room == 1 && found.phase == game::EDungeonPhase::Battle && !found.savedAt.empty());
+    }
+
+    // Anything that does not agree with the shipped content is refused whole, and the live run is left alone.
+    const auto seed = registry.ctx().get<game::FDungeonRun>().seed;
+    const auto valid = game::DungeonRunToJson(registry.ctx().get<game::FDungeonRun>());
+    const auto rejects = [&](const char* label, const auto& edit) {
+        auto document = valid;
+        edit(document);
+        std::string reason;
+        CHECK(game::WriteSaveFile(saved().path, document, reason));
+        Check(!game::ContinueDungeonRun(registry), label, __LINE__);
+        Check(!saved().exists && !saved().error.empty(), label, __LINE__);
+        CHECK(registry.ctx().get<game::FDungeonRun>().seed == seed);
+    };
+    rejects("newer schema version", [](auto& d) { d["schema_version"] = 99; });
+    rejects("lost run phase", [](auto& d) { d["run"]["phase"] = "defeat"; });
+    rejects("unknown phase", [](auto& d) { d["run"]["phase"] = "somewhere"; });
+    rejects("depth out of range", [](auto& d) { d["run"]["depth"] = 0; });
+    rejects("cleared count off the depth", [](auto& d) { d["run"]["cleared"] = 7; });
+    rejects("unknown collected rune", [](auto& d) { d["run"]["runes"].push_back("rune.nonexistent"); });
+    rejects("unknown party member", [](auto& d) { d["run"]["party"][0]["id"] = "party.nobody"; });
+    rejects("repeated party member", [](auto& d) { d["run"]["party"][1]["id"] = d["run"]["party"][0]["id"]; });
+    rejects("missing party member", [](auto& d) { d["run"]["party"].erase(3); });
+    rejects("unknown passive node", [](auto& d) {
+        d["run"]["party"][0]["allocated_nodes"] = nlohmann::json::array({"node.nonexistent"});
+    });
+    rejects("unknown skill", [](auto& d) {
+        d["run"]["party"][0]["skills"] = nlohmann::json::array(
+            {{{"skill", "skill.nonexistent"}, {"runes", nlohmann::json::array()}}});
+    });
+    rejects("wrong field type", [](auto& d) { d["run"]["party"][0]["level"] = "ten"; });
+    {
+        std::ofstream garbage(saved().path, std::ios::trunc);
+        garbage << "{ this is not json";
+    }
+    CHECK(!game::ContinueDungeonRun(registry) && !saved().exists);
+    CHECK(game::SaveDungeonRun(registry) && saved().exists && game::ContinueDungeonRun(registry));
+
+    // Leaving keeps the save; abandoning or losing deletes it.
+    {
+        FFixture leave;
+        leave.registry.ctx().get<game::FDungeonRun>().leaveRequested = true;
+        CHECK(leave.battle.Update(leave.registry, 0) == EStateTransition::ToHub);
+        CHECK(!leave.registry.ctx().contains<game::FDungeonRun>());
+        CHECK(leave.registry.ctx().get<game::FDungeonSave>().exists && std::filesystem::exists(leave.runSave));
+        CHECK(game::ContinueDungeonRun(leave.registry));
+        const auto& resumed = leave.registry.ctx().get<game::FDungeonRun>();
+        CHECK(resumed.phase == game::EDungeonPhase::Battle && resumed.room == 0 && !resumed.leaveRequested);
+    }
+    {
+        FFixture abandon;
+        abandon.registry.ctx().get<game::FDungeonRun>().abandonRequested = true;
+        CHECK(abandon.battle.Update(abandon.registry, 0) == EStateTransition::ToHub);
+        CHECK(!abandon.registry.ctx().contains<game::FDungeonRun>());
+        CHECK(!abandon.registry.ctx().get<game::FDungeonSave>().exists && !std::filesystem::exists(abandon.runSave));
+    }
+    {
+        FFixture lost;
+        game::CompleteDungeonBattle(lost.registry, false);
+        CHECK(!lost.registry.ctx().get<game::FDungeonSave>().exists && !std::filesystem::exists(lost.runSave));
+        CHECK(!game::ContinueDungeonRun(lost.registry));
+    }
+
+    // Continuing at a reward step shows the cleared room instead of starting a fight.
+    {
+        FFixture between;
+        auto& r = between.registry;
+        game::CompleteDungeonBattle(r, true);
+        r.ctx().erase<game::FDungeonRun>();
+        CHECK(game::ContinueDungeonRun(r));
+        CHECK(r.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Reward);
+        between.battle.OnExit(r);
+        between.battle.OnEnter(r);
+        CHECK(game::AliveCount(r, false) == 0 && game::AliveCount(r, true) == 4);
+        CHECK(r.ctx().get<game::FBattleOutcome>().resolved && r.ctx().get<game::FBattleOutcome>().victory);
+        CHECK(between.battle.Update(r, 0) == EStateTransition::None);
+        CHECK(r.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Reward);
+        game::ContinueDungeonReward(r);
+        CHECK(r.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Event);
+    }
+
+    // The menu button: Continue enters the battle state, and an unusable save keeps the player on the menu.
+    {
+        FFixture menu;
+        auto& r = menu.registry;
+        r.ctx().erase<game::FDungeonRun>();
+        r.ctx().get<game::FMenuRequest>().value = game::EMenuRequest::Continue;
+        const auto next = ResolveEmberMenuRequest(r);
+        CHECK(next.has_value() && *next == EStateTransition::ToBattle);
+        CHECK(r.ctx().contains<game::FDungeonRun>() && r.ctx().get<game::FMenuRequest>().value == game::EMenuRequest::None);
+        r.ctx().erase<game::FDungeonRun>();
+        std::filesystem::remove(menu.runSave);
+        r.ctx().get<game::FMenuRequest>().value = game::EMenuRequest::Continue;
+        CHECK(!ResolveEmberMenuRequest(r).has_value());
+        CHECK(!r.ctx().contains<game::FDungeonRun>() && !r.ctx().get<game::FDungeonSave>().error.empty());
+    }
+}
+
+void BattleAnimations() {
+    std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> surface(
+        SDL_CreateSurface(1280, 800, SDL_PIXELFORMAT_RGBA8888), &SDL_DestroySurface);
+    CHECK(surface != nullptr);
+    FRendererPtr renderer{SDL_CreateSoftwareRenderer(surface.get())};
+    CHECK(renderer != nullptr);
+    FFixture fixture;
+    auto& registry = fixture.registry;
+    registry.ctx().emplace<game::FResourceManager>().init(renderer.get());
+    registry.ctx().emplace<SDL_Renderer*>(renderer.get());
+    CHECK(game::FAnimationLibrary::Initialize(registry));
+    CHECK(game::InitializeBattleAnim(registry));
+    fixture.battle.OnExit(registry);
+    fixture.battle.OnEnter(registry);  // the battle starts again, now with animation data to attach
+
+    // Every unit of the room carries its animation state, standing still on its cell.
+    const auto& data = registry.ctx().get<game::FBattleAnimData>();
+    const auto* library = game::FAnimationLibrary::Find(registry);
+    std::size_t animated = 0;
+    for (const auto entity : registry.view<game::FUnitAnim, game::FGridPosition>()) {
+        const auto& anim = registry.get<game::FUnitAnim>(entity);
+        const auto& cell = registry.get<game::FGridPosition>(entity);
+        CHECK(anim.state == game::EUnitAnim::Idle && anim.visual.x == cell.x && anim.visual.y == cell.y);
+        ++animated;
+    }
+    CHECK(animated == static_cast<std::size_t>(game::AliveCount(registry, true) + game::AliveCount(registry, false)));
+    CHECK(data.skills.size() == 12 && data.sets.size() == 8);
+    const auto clipId = [&](const char* id) { return library->findClip(id).value_or(game::FAnimClipId{}); };
+
+    // Bad data is refused by name instead of drawing half an animation.
+    std::ifstream file("assets/data/battle_anim.json");
+    const auto shipped = nlohmann::json::parse(file);
+    const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
+    CHECK(game::ParseBattleAnim(shipped, *library, content).has_value());
+    const auto refused = [&](const char* label, const auto& edit) {
+        auto document = shipped;
+        edit(document);
+        Check(!game::ParseBattleAnim(document, *library, content).has_value(), label, __LINE__);
+    };
+    refused("unknown skill", [](auto& d) { d["skills"]["skill.nonexistent"] = d["skills"]["skill.strike"]; });
+    refused("unknown unit", [](auto& d) { d["units"]["enemy.nobody"] = d["units"]["enemy.imp"]; });
+    refused("unknown clip prefix", [](auto& d) { d["units"]["char.warrior"]["clips"] = "unit.nobody"; });
+    refused("unknown effect clip", [](auto& d) { d["skills"]["skill.strike"]["clip"] = "fx.nonexistent"; });
+    refused("impact frame outside the clip", [](auto& d) { d["units"]["char.warrior"]["impact_frame"] = 99; });
+    refused("unknown effect kind", [](auto& d) { d["skills"]["skill.strike"]["kind"] = "teleport"; });
+    refused("landing picture on an impact", [](auto& d) { d["skills"]["skill.strike"]["impact"] = "fx.hit"; });
+    refused("missing default effect", [](auto& d) { d.erase("default_effect"); });
+    refused("wrong schema version", [](auto& d) { d["schema_version"] = 2; });
+
+    const auto party = registry.view<game::FPartyMember, game::FUnitAnim>().front();
+    const auto foes = registry.view<game::FEnemy, game::FUnitAnim>();
+    const auto foe = foes.front();
+    auto& hero = registry.get<game::FUnitAnim>(party);
+    auto& victim = registry.get<game::FUnitAnim>(foe);
+    const auto step = [&](float seconds) {
+        for (float elapsed = 0.f; elapsed < seconds; elapsed += 1.f / 60.f) game::UpdateBattleAnimations(registry, 1.f / 60.f);
+    };
+    const auto effectCount = [&] { return registry.ctx().get<game::FBattleEffects>().active.size(); };
+    const auto skillEvent = [&](const char* skill, bool hostile, bool died) {
+        game::FBattleEvent event;
+        event.actor = party;
+        event.skillId = skill;
+        event.aim = registry.get<game::FGridPosition>(foe);
+        const int health = registry.get<game::FHealth>(foe).current;
+        event.targets.push_back({foe, health, std::max(0, health - 5), hostile, died});
+        registry.ctx().get<game::FBattleEvents>().pending.push_back(event);
+        return health;
+    };
+
+    // One attack motion for every skill: the caster attacks at once, and the blow lands on the clip's impact frame.
+    const int health = skillEvent("skill.strike", true, false);
+    game::UpdateBattleAnimations(registry, 0.f);
+    CHECK(hero.state == game::EUnitAnim::Attack && victim.shownHealth == health);
+    step(.1f);
+    CHECK(victim.state == game::EUnitAnim::Idle && effectCount() == 0);   // not yet: the swing is still going
+    step(.35f);
+    CHECK(victim.state == game::EUnitAnim::Hit && victim.shownHealth == -1);
+    CHECK(effectCount() == 1 && registry.ctx().get<game::FBattleEffects>().active.front().clip == clipId("fx.slash"));
+    step(1.5f);
+    CHECK(hero.state == game::EUnitAnim::Idle && victim.state == game::EUnitAnim::Idle && effectCount() == 0);
+
+    // A knock-out stays on its feet until the blow lands, then falls and stays down.
+    const int last = registry.get<game::FHealth>(foe).current;
+    (void)game::ApplyDamageToUnit(registry, foe, last);
+    skillEvent("skill.strike", true, true);
+    game::UpdateBattleAnimations(registry, 0.f);
+    CHECK(victim.pendingDeaths == 1 && victim.state != game::EUnitAnim::Death);
+    step(.15f);
+    CHECK(victim.state != game::EUnitAnim::Death);
+    step(.4f);
+    CHECK(victim.state == game::EUnitAnim::Death && victim.pendingDeaths == 0);
+    step(2.f);
+    CHECK(victim.player.finished);
+
+    // A knock-out no event announced (a spike trap, a burn) still ends in the death pose.
+    auto second = entt::entity{entt::null};
+    for (const auto entity : foes) {
+        if (entity != foe) { second = entity; break; }
+    }
+    CHECK(second != entt::null);
+    (void)game::ApplyDamageToUnit(registry, second, registry.get<game::FHealth>(second).current);
+    step(.05f);
+    CHECK(registry.get<game::FUnitAnim>(second).state == game::EUnitAnim::Death);
+
+    // Walking: the picture crosses the cell instead of jumping, and goes back to idle on arrival.
+    const auto from = registry.get<game::FGridPosition>(party);
+    const game::FGridPosition to{from.x + 1, from.y};
+    registry.get<game::FGridPosition>(party) = to;
+    game::FBattleEvent walk;
+    walk.kind = game::FBattleEvent::EKind::Move;
+    walk.actor = party;
+    walk.path = {from, to};
+    registry.ctx().get<game::FBattleEvents>().pending.push_back(walk);
+    step(.11f);
+    CHECK(hero.state == game::EUnitAnim::Move && hero.visual.x > from.x && hero.visual.x < to.x);
+    step(.3f);
+    CHECK(hero.state == game::EUnitAnim::Idle && hero.visual.x == to.x && hero.visual.y == to.y);
+
+    // A projectile flies, then its landing picture plays where it arrived.
+    skillEvent("skill.firebolt", true, false);
+    game::UpdateBattleAnimations(registry, 0.f);
+    step(.32f);
+    CHECK(effectCount() == 1 && registry.ctx().get<game::FBattleEffects>().active.front().duration > 0.f);
+    CHECK(registry.ctx().get<game::FBattleEffects>().active.front().clip == clipId("fx.orb_fire"));
+    bool landed = false;
+    for (float elapsed = 0.f; elapsed < 1.5f && !landed; elapsed += 1.f / 60.f) {
+        game::UpdateBattleAnimations(registry, 1.f / 60.f);
+        for (const auto& effect : registry.ctx().get<game::FBattleEffects>().active) {
+            landed = landed || effect.clip == clipId("fx.explosion_fire");
+        }
+    }
+    CHECK(landed);
+    step(2.f);
+    CHECK(effectCount() == 0);
+
+    // A zone covers every cell it names, one after another.
+    game::FBattleEvent fog;
+    fog.actor = party;
+    fog.skillId = "skill.fog";
+    fog.aim = registry.get<game::FGridPosition>(foe);
+    fog.cells = {fog.aim, {fog.aim.x + 1, fog.aim.y}, {fog.aim.x, fog.aim.y + 1}};
+    registry.ctx().get<game::FBattleEvents>().pending.push_back(fog);
+    game::UpdateBattleAnimations(registry, 0.f);
+    step(.55f);
+    CHECK(effectCount() == 3);
+    step(2.f);
+    CHECK(effectCount() == 0);
+
+    // Pictures only draw through the renderer, and a unit already down can be put straight into its last frame.
+    CHECK(game::DrawAnimFrame(registry, clipId("unit.warrior.idle"), 0, {100.f, 100.f}, 1.f));
+    CHECK(!game::DrawAnimFrame(registry, game::FAnimClipId{}, 0, {0.f, 0.f}, 1.f));
+    registry.get<game::FUnitAnim>(second).state = game::EUnitAnim::Idle;
+    game::SettleUnitAnimations(registry);
+    CHECK(registry.get<game::FUnitAnim>(second).state == game::EUnitAnim::Death && registry.get<game::FUnitAnim>(second).player.finished);
+
+    // Without the animation system running, events are dropped instead of piling up.
+    registry.ctx().erase<game::FBattleTimeline>();
+    skillEvent("skill.strike", true, false);
+    game::UpdateBattleAnimations(registry, 1.f / 60.f);
+    CHECK(registry.ctx().get<game::FBattleEvents>().pending.empty());
 }
 
 void GameplayKeyboardCapture() {
@@ -733,8 +1071,9 @@ void GeneratedRooms() {
     const game::gameplay::FRoomGenConfig config{
         {"A", "B", "C"},
         {{"enemy.imp", "Imp", 3}, {"enemy.imp_archer", "Archer", 1}},
-        "enemy.guardian", "Guardian", {3, 4}, {4, 9}, {1, 3}};
-    const std::vector<std::pair<int, int>> party{{1, 6}, {2, 6}, {4, 6}, {5, 6}};
+        "enemy.guardian", "Guardian", {3, 4}, {2, 5}, {1, 3}};
+    constexpr int size = game::kGridWidth;
+    const std::vector<std::pair<int, int>> party{{3, 9}, {4, 9}, {6, 9}, {7, 9}};
     std::set<std::string> layouts;
     for (std::uint32_t seed = 1; seed <= 200; ++seed) {
         const int room = static_cast<int>(seed % 3);
@@ -746,21 +1085,22 @@ void GeneratedRooms() {
         CHECK(request.boss == (generated.enemies.front().unit == "enemy.guardian"));
         std::set<std::pair<int, int>> taken(party.begin(), party.end());
         for (const auto& enemy : generated.enemies) {
-            CHECK(enemy.y >= 1 && enemy.y <= 2 && enemy.x >= 1 && enemy.x <= 6);
+            CHECK(enemy.y >= 1 && enemy.y <= 3 && enemy.x >= 1 && enemy.x <= size - 2);
             CHECK(generated.terrain[enemy.y][enemy.x] == '.');
             CHECK(taken.insert({enemy.x, enemy.y}).second);
         }
         for (const auto& [x, y] : party) CHECK(generated.terrain[y][x] == '.');
         int walls = 0;
-        for (int y = 0; y < 8; ++y) {
-            CHECK(generated.terrain[y].size() == 8);
-            for (int x = 0; x < 8; ++x) {
-                const bool border = x == 0 || y == 0 || x == 7 || y == 7;
-                CHECK(!border || generated.terrain[y][x] == '#');
-                if (!border && generated.terrain[y][x] == '#') ++walls;
+        for (int y = 0; y < size; ++y) {
+            CHECK(generated.terrain[y].size() == size);
+            for (int x = 0; x < size; ++x) {
+                // Open map: no wall ring along the grid edge, and nothing else is scattered there either.
+                const bool edge = x == 0 || y == 0 || x == size - 1 || y == size - 1;
+                CHECK(!edge || generated.terrain[y][x] == '.');
+                if (generated.terrain[y][x] == '#') ++walls;
             }
         }
-        CHECK(walls <= 9);
+        CHECK(walls <= 5);
         // Every unit must reach every other unit around the walls.
         std::set<std::pair<int, int>> seen{*taken.begin()};
         std::vector<std::pair<int, int>> open{*taken.begin()};
@@ -768,15 +1108,16 @@ void GeneratedRooms() {
             const auto [x, y] = open.back();
             open.pop_back();
             for (const auto [dx, dy] : std::array<std::pair<int, int>, 4>{{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}}) {
-                if (generated.terrain[y + dy][x + dx] != '#' && seen.insert({x + dx, y + dy}).second) {
-                    open.push_back({x + dx, y + dy});
-                }
+                const int nx = x + dx;
+                const int ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
+                if (generated.terrain[ny][nx] != '#' && seen.insert({nx, ny}).second) open.push_back({nx, ny});
             }
         }
         for (const auto& cell : taken) CHECK(seen.contains(cell));
         std::string key;
         for (const auto& row : generated.terrain) key += row;
-        for (const auto& enemy : generated.enemies) key += enemy.unit + std::to_string(enemy.x * 8 + enemy.y);
+        for (const auto& enemy : generated.enemies) key += enemy.unit + std::to_string(enemy.x * size + enemy.y);
         layouts.insert(key);
     }
     CHECK(layouts.size() > 150);
@@ -930,11 +1271,13 @@ int main() {
         CompleteRun(3);
         PerCharacterRunGrowth();
         DefeatAndFactory();
+        SaveAndContinue();
+        BattleAnimations();
         GameplayKeyboardCapture();
         InvalidRuneDrops();
         GeneratedRooms();
         std::cout << "Dungeon collision, AP, tokens, LOS, generated layouts, AI, rewards, runes, "
-                     "per-character run growth, checkpoints and defeat passed.\n";
+                     "per-character run growth, checkpoints, defeat and save/continue passed.\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "FAILED: " << error.what() << '\n';

@@ -37,9 +37,11 @@ struct GridCameraSystem : ISystem {
             const auto* window = registry.ctx().find<FEngineWindowState>();
             const auto* metrics = registry.ctx().find<FGridMetrics>();
             if (!window || !metrics) return;
-            camera.zoom = std::clamp(std::min((window->width * .58f - 64.f) / (8 * metrics->tileSize),
-                                              (window->height - 220.f) / (8 * metrics->tileSize)), .25f, 1.f);
-            camera.position = metrics->origin + glm::vec2{4 * metrics->tileSize} +
+            const glm::vec2 extent = glm::vec2{static_cast<float>(metrics->width), static_cast<float>(metrics->height)} *
+                metrics->tileSize;
+            camera.zoom = std::clamp(std::min((window->width * .58f - 64.f) / extent.x,
+                                              (window->height - 220.f) / extent.y), .25f, 1.f);
+            camera.position = metrics->origin + extent * .5f +
                 glm::vec2{window->width * .21f, -25.f} / camera.zoom;
             return;
         }

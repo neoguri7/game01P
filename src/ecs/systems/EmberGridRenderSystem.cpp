@@ -10,6 +10,7 @@
 #include "ecs/components/FHealth.h"
 #include "gameplay/grid/FGridSelection.h"
 #include "gameplay/grid/FGridTerrain.h"
+#include "presentation/FBattleAnim.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FIsoView.h"
 #include "presentation/FUiFrame.h"
@@ -216,6 +217,8 @@ void EmberGridRenderSystem::render(entt::registry& registry) {
         }
     }
 
+    DrawBattleEffects(registry, view, true);
+
     std::vector<FUnitDraw> units;
     for (const auto entity : registry.view<FGridPosition, FHealth, FUnitArt>()) {
         units.push_back({entity, registry.get<FGridPosition>(entity)});
@@ -252,8 +255,13 @@ void EmberGridRenderSystem::render(entt::registry& registry) {
         for (; nextUnit < units.size() && units[nextUnit].cell.x + units[nextUnit].cell.y <= sum; ++nextUnit) {
             const auto entity = units[nextUnit].entity;
             const auto cell = units[nextUnit].cell;
-            const auto center = view.cellCenter(cell.x, cell.y);
+            // A unit with battle animations is drawn where its walk has reached, and is only "down" once its fall plays.
+            const auto* anim = registry.try_get<FUnitAnim>(entity);
+            auto center = anim != nullptr ? view.corner(anim->visual.x + .5f, anim->visual.y + .5f)
+                                          : view.cellCenter(cell.x, cell.y);
+            if (anim != nullptr) center += UnitAnimOffset(*anim) * scale;
             const bool dead = registry.all_of<FDead>(entity);
+            const bool shownDead = anim != nullptr ? anim->state == EUnitAnim::Death : dead;
             const bool party = registry.all_of<FPartyMember>(entity);
             const SDL_Color faction = party ? SDL_Color{90, 150, 255, 255} : SDL_Color{235, 85, 80, 255};
             const glm::vec2 feet{center.x, center.y + 2.f * scale};
@@ -262,23 +270,29 @@ void EmberGridRenderSystem::render(entt::registry& registry) {
                 Ring(renderer, feet, 26.f * scale, 13.f * scale, {255, 224, 100, 255});
                 Ring(renderer, feet, 25.f * scale, 12.4f * scale, {255, 224, 100, 150});
             }
-            Ring(renderer, feet, 21.f * scale, 10.5f * scale, {faction.r, faction.g, faction.b, static_cast<Uint8>(dead ? 70 : 210)});
+            Ring(renderer, feet, 21.f * scale, 10.5f * scale, {faction.r, faction.g, faction.b, static_cast<Uint8>(shownDead ? 70 : 210)});
             const auto sprite = registry.get<FUnitArt>(entity).sprite;
             const SDL_FRect rect{center.x - 32.f * scale, center.y - 52.f * scale, 64.f * scale, 64.f * scale};
-            DrawDungeonSprite(registry, sprite, rect, dead ? 65 : 255);
-            if (!dead) {
+            // The animation frames are anchored on the unit's feet, the same point the still picture is placed by.
+            const bool animated = anim != nullptr &&
+                DrawAnimFrame(registry, anim->player.clip, anim->player.frame, center, scale,
+                              shownDead ? 215 : 255, UnitAnimTint(*anim));
+            if (!animated) DrawDungeonSprite(registry, sprite, rect, dead ? 65 : 255);
+            if (!shownDead) {
                 const auto& health = registry.get<FHealth>(entity);
+                const int shownHealth = anim != nullptr && anim->shownHealth >= 0 ? anim->shownHealth : health.current;
                 SDL_FRect bar{center.x - 17.f * scale, rect.y + 2.f * scale, 34.f * scale, 4.f * scale};
                 SDL_SetRenderDrawColor(renderer, 6, 6, 10, 230);
                 const SDL_FRect back{bar.x - 1.f, bar.y - 1.f, bar.w + 2.f, bar.h + 2.f};
                 SDL_RenderFillRect(renderer, &back);
-                bar.w *= std::clamp(static_cast<float>(health.current) / std::max(1, health.max), 0.f, 1.f);
+                bar.w *= std::clamp(static_cast<float>(shownHealth) / std::max(1, health.max), 0.f, 1.f);
                 SDL_SetRenderDrawColor(renderer, faction.r, faction.g, faction.b, 255);
                 SDL_RenderFillRect(renderer, &bar);
             }
         }
     }
 
+    DrawBattleEffects(registry, view, false);
     DrawMotes(renderer, view, *grid, width, height);
     DrawVignette(renderer, width, height);
 }
