@@ -1,0 +1,599 @@
+{
+  "schema_version": 1,
+  "_comment": [
+    "Path, size, frames, anchor and provenance of every new picture. Code is written against this; art replaces the file in place and stamps it with tools/check_asset_contract.py.",
+    "paths are relative to assets/. anchor is the pixel that sits on the cell centre, on one frame. status: placeholder|generated|approved.",
+    "Unit clips are recorded in art/anim/sources.json; the check compares frame 0 of each job with art/<unit>.png."
+  ],
+  "assets": [
+    {
+      "path": "art/env/ground_a.png",
+      "size": [
+        512,
+        256
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "opaque",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "tile_period": [
+        512,
+        256
+      ],
+      "max_value_spread": 0.12,
+      "note": "seamless on the iso lattice; replaces per-cell floor tiles",
+      "sha256": "2e5a7946538d9d59e9de9a161e2d0a6315268e94407bb0044ac7996516efbf98"
+    },
+    {
+      "path": "art/env/decal_moss.png",
+      "size": [
+        128,
+        64
+      ],
+      "frames": 1,
+      "anchor": [
+        64,
+        32
+      ],
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "flat overlay on the ground, no thickness",
+      "sha256": "d6b0945497d3b2ca3f081e21f22d99e07cf752f37bf751ad7da54abdb4fbada8"
+    },
+    {
+      "path": "art/env/decal_rubble.png",
+      "size": [
+        128,
+        64
+      ],
+      "frames": 1,
+      "anchor": [
+        64,
+        32
+      ],
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "flat overlay on the ground, no thickness",
+      "sha256": "d6b0945497d3b2ca3f081e21f22d99e07cf752f37bf751ad7da54abdb4fbada8"
+    },
+    {
+      "path": "art/env/tile_trap.png",
+      "size": [
+        64,
+        32
+      ],
+      "frames": 1,
+      "anchor": [
+        32,
+        16
+      ],
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "exact 64x32 diamond, no thickness",
+      "sha256": "700e7c00c65282e89d7b293e64dd1eb23d8d8cd5bb3ea09717685f2478b16116"
+    },
+    {
+      "path": "art/env/tile_blocked.png",
+      "size": [
+        64,
+        32
+      ],
+      "frames": 1,
+      "anchor": [
+        32,
+        16
+      ],
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "exact 64x32 diamond under an in-grid obstacle",
+      "sha256": "700e7c00c65282e89d7b293e64dd1eb23d8d8cd5bb3ea09717685f2478b16116"
+    },
+    {
+      "path": "art/env/wall_a.png",
+      "size": [
+        128,
+        128
+      ],
+      "frames": 1,
+      "anchor": [
+        64,
+        120
+      ],
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "anchor is the cell centre the object stands on",
+      "sha256": "01529ed75280a3744fd6f416c3e1095754aa48786ed5f5cec2b2899ebd0b6a93"
+    },
+    {
+      "path": "art/env/wall_b.png",
+      "size": [
+        128,
+        128
+      ],
+      "frames": 1,
+      "anchor": [
+        64,
+        120
+      ],
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "anchor is the cell centre the object stands on",
+      "sha256": "01529ed75280a3744fd6f416c3e1095754aa48786ed5f5cec2b2899ebd0b6a93"
+    },
+    {
+      "path": "art/env/wall_c.png",
+      "size": [
+        128,
+        128
+      ],
+      "frames": 1,
+      "anchor": [
+        64,
+        120
+      ],
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "anchor is the cell centre the object stands on",
+      "sha256": "01529ed75280a3744fd6f416c3e1095754aa48786ed5f5cec2b2899ebd0b6a93"
+    },
+    {
+      "path": "art/env/arch.png",
+      "size": [
+        128,
+        128
+      ],
+      "frames": 1,
+      "anchor": [
+        64,
+        120
+      ],
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "anchor is the cell centre the object stands on",
+      "sha256": "01529ed75280a3744fd6f416c3e1095754aa48786ed5f5cec2b2899ebd0b6a93"
+    },
+    {
+      "path": "art/env/cliff.png",
+      "size": [
+        128,
+        128
+      ],
+      "frames": 1,
+      "anchor": [
+        64,
+        120
+      ],
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "anchor is the cell centre the object stands on",
+      "sha256": "01529ed75280a3744fd6f416c3e1095754aa48786ed5f5cec2b2899ebd0b6a93"
+    },
+    {
+      "path": "art/env/pillar.png",
+      "size": [
+        64,
+        96
+      ],
+      "frames": 1,
+      "anchor": [
+        32,
+        88
+      ],
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "anchor is the cell centre the object stands on",
+      "sha256": "d56603f2c2a427d5c3fa1b02777b1ba22cda11ee4574ea51cff9b85562e814cc"
+    },
+    {
+      "path": "art/env/brazier.png",
+      "size": [
+        64,
+        96
+      ],
+      "frames": 1,
+      "anchor": [
+        32,
+        88
+      ],
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "anchor is the cell centre the object stands on",
+      "sha256": "d56603f2c2a427d5c3fa1b02777b1ba22cda11ee4574ea51cff9b85562e814cc"
+    },
+    {
+      "path": "art/env/crystal.png",
+      "size": [
+        64,
+        96
+      ],
+      "frames": 1,
+      "anchor": [
+        32,
+        88
+      ],
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "anchor is the cell centre the object stands on",
+      "sha256": "d56603f2c2a427d5c3fa1b02777b1ba22cda11ee4574ea51cff9b85562e814cc"
+    },
+    {
+      "path": "art/env/tree_dead.png",
+      "size": [
+        128,
+        160
+      ],
+      "frames": 1,
+      "anchor": [
+        64,
+        152
+      ],
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "anchor is the cell centre the object stands on",
+      "sha256": "7157209ff6b4cfbf02ada22ba793ee5a5a6147bdbeb93b26f592f0908b15bc55"
+    },
+    {
+      "path": "art/env/brazier_anim.png",
+      "size": [
+        64,
+        96
+      ],
+      "frames": 6,
+      "anchor": [
+        32,
+        88
+      ],
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "frame0_of": "art/env/brazier.png",
+      "note": "horizontal strip; flame only moves",
+      "sha256": "7025c5b2d34aa4de648a96b32dda640eb0134ac718696a910c728efc71739dda"
+    },
+    {
+      "path": "art/ui/hud_bar.png",
+      "size": [
+        420,
+        84
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "skill bar",
+      "sha256": "45aa81eec7f2b001aadfabaf2b2ffa4c6bf16aa0eb36d4d3342b65a2098acd81"
+    },
+    {
+      "path": "art/ui/hud_panel.png",
+      "size": [
+        256,
+        128
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "slice": 24,
+      "note": "nine-slice, corners 24px",
+      "sha256": "8c033ef4e62b62dc19cb5ff95368b1478e4068ea900012714c079a74066869e6"
+    },
+    {
+      "path": "art/ui/hud_button.png",
+      "size": [
+        136,
+        56
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "sha256": "6919d7175b2c98f53ef54ce4766f2251e6227b50e2cc76fbcbea0b67ca19d3c5"
+    },
+    {
+      "path": "art/ui/hud_portrait.png",
+      "size": [
+        72,
+        72
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "note": "frame with a see-through centre",
+      "sha256": "eb91a775004d1247c1bd07ae65ff8140172993c0945c5e163326ec28a5ee2945"
+    },
+    {
+      "path": "art/ui/hud_turnbar.png",
+      "size": [
+        320,
+        32
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "sha256": "a485993d32146afc25cf692eed1f111652503fb7eb4a0e96e3bc82a11fbe10bb"
+    },
+    {
+      "path": "art/ui/title_logo.png",
+      "size": [
+        460,
+        120
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "sha256": "8dd5748c0373ba8da55825a8d5e863ff3bd49d340c57d049eee6155e5338b59f"
+    },
+    {
+      "path": "art/ui/title_bg.png",
+      "size": [
+        688,
+        384
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "opaque",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "sha256": "e552306734a3e7dec4a1fed0424deb1bb33e89fc091d377c0dbba5144e3cc445"
+    },
+    {
+      "path": "art/ui/skill_strike.png",
+      "size": [
+        48,
+        48
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "skill": "skill.strike",
+      "sha256": "d14b387c183b3b150aac4b001c7bbdb4a82deb8250e9556b0ec30f5fa1f6655d"
+    },
+    {
+      "path": "art/ui/skill_cleave.png",
+      "size": [
+        48,
+        48
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "skill": "skill.cleave",
+      "sha256": "d14b387c183b3b150aac4b001c7bbdb4a82deb8250e9556b0ec30f5fa1f6655d"
+    },
+    {
+      "path": "art/ui/skill_arrow.png",
+      "size": [
+        48,
+        48
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "skill": "skill.arrow",
+      "sha256": "d14b387c183b3b150aac4b001c7bbdb4a82deb8250e9556b0ec30f5fa1f6655d"
+    },
+    {
+      "path": "art/ui/skill_volley.png",
+      "size": [
+        48,
+        48
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "skill": "skill.volley",
+      "sha256": "d14b387c183b3b150aac4b001c7bbdb4a82deb8250e9556b0ec30f5fa1f6655d"
+    },
+    {
+      "path": "art/ui/skill_bolt.png",
+      "size": [
+        48,
+        48
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "skill": "skill.bolt",
+      "sha256": "d14b387c183b3b150aac4b001c7bbdb4a82deb8250e9556b0ec30f5fa1f6655d"
+    },
+    {
+      "path": "art/ui/skill_fog.png",
+      "size": [
+        48,
+        48
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "skill": "skill.fog",
+      "sha256": "d14b387c183b3b150aac4b001c7bbdb4a82deb8250e9556b0ec30f5fa1f6655d"
+    },
+    {
+      "path": "art/ui/skill_heal.png",
+      "size": [
+        48,
+        48
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "skill": "skill.heal",
+      "sha256": "d14b387c183b3b150aac4b001c7bbdb4a82deb8250e9556b0ec30f5fa1f6655d"
+    },
+    {
+      "path": "art/ui/skill_buff.png",
+      "size": [
+        48,
+        48
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "skill": "skill.buff",
+      "sha256": "d14b387c183b3b150aac4b001c7bbdb4a82deb8250e9556b0ec30f5fa1f6655d"
+    },
+    {
+      "path": "art/ui/skill_debuff.png",
+      "size": [
+        48,
+        48
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "skill": "skill.debuff",
+      "sha256": "d14b387c183b3b150aac4b001c7bbdb4a82deb8250e9556b0ec30f5fa1f6655d"
+    },
+    {
+      "path": "art/ui/skill_lunge.png",
+      "size": [
+        48,
+        48
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "skill": "skill.lunge",
+      "sha256": "d14b387c183b3b150aac4b001c7bbdb4a82deb8250e9556b0ec30f5fa1f6655d"
+    },
+    {
+      "path": "art/ui/skill_snipe.png",
+      "size": [
+        48,
+        48
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "skill": "skill.snipe",
+      "sha256": "d14b387c183b3b150aac4b001c7bbdb4a82deb8250e9556b0ec30f5fa1f6655d"
+    },
+    {
+      "path": "art/ui/skill_firebolt.png",
+      "size": [
+        48,
+        48
+      ],
+      "frames": 1,
+      "anchor": null,
+      "alpha": "cutout",
+      "owner": "art",
+      "status": "placeholder",
+      "source_job": null,
+      "source_image": null,
+      "skill": "skill.firebolt",
+      "sha256": "d14b387c183b3b150aac4b001c7bbdb4a82deb8250e9556b0ec30f5fa1f6655d"
+    }
+  ]
+}
