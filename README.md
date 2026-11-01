@@ -134,9 +134,9 @@ candidates.
 The narrowest window the engine allows is 1100x740 (`Engine.cpp`). `design.min_width` is 1160, so below that width
 the layout is compressed rather than reflowed, which keeps at least 10 design px between neighbouring zones.
 
-The historical CLI guide linked by the supplied style document is not present
-in this checkout. Assets were requested through PixelLab MCP with its explicit
-style controls and subject-specific text, not through that absent CLI.
+The art in `assets/art` predates the pipeline: it was requested through PixelLab MCP directly, with its explicit
+style controls and subject-specific text. The CLI wrapper that `style.md` used to link no longer exists;
+[`asset-pipeline/`](asset-pipeline/README.md) replaces it for all new art.
 
 ## Verify
 

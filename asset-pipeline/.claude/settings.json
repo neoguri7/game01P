@@ -1,6 +1,8 @@
 {
   "permissions": {
     "allow": [
+      "Bash(python scripts/phase0_check.py:*)",
+      "Bash(python tests/test_pipeline.py:*)",
       "Bash(python scripts/qa_gate.py:*)",
       "Bash(python scripts/validate_asset.py:*)",
       "Bash(python scripts/style_fingerprint.py:*)",

@@ -392,7 +392,7 @@ These checks do not constitute human visual review or balance evaluation.
 
 ### PixelLab handoff
 
-Read `style.md` and `tools/pixellab/README.md`; use the existing offline generator. Provider credentials
+Read `style.md` and `asset-pipeline/README.md`; generate through the asset pipeline (`/make-asset`). Provider credentials
 were available, but **paid generation was deferred because mechanics are not complete**. No generated
 or approved art is claimed. Do not bypass this gate with fabricated assets.
 

@@ -75,8 +75,8 @@ scripts/remote-windows.env
 *.swp
 *.swo
 
-# Pipeline-generated sprite output (derived; regenerate locally with `assetgen`).
-# Keep generated output ignored while allowing the curated animation check sheet.
+# Generated sprite output stays out of git (the old `assetgen` CLI is gone; the asset
+# pipeline keeps its output under asset-pipeline/assets/). Allow the curated animation check sheet.
 assets/sprites/*
 !assets/sprites/animation_check.png
 

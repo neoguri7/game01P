@@ -175,9 +175,10 @@ then generate a new variant without overwriting previous results.
 
 ## Generator settings
 
-The wrapper reads this small settings block as well as the full document.
-These are documented PixelLab style controls; change this document rather than
-duplicating style choices in code.
+These are the documented PixelLab style controls passed with every generation
+call. The asset pipeline records them in `asset-pipeline/style/STYLE_BIBLE.md`;
+change this document first and keep the two in sync rather than duplicating
+style choices in code.
 
 <!-- generation-settings -->
 ```json
@@ -189,9 +190,16 @@ duplicating style choices in code.
 
 ## Agent workflow
 
-Read this document, then follow [the asset-generation guide](tools/pixellab/README.md).
-Construct a subject-specific request, choose the category and native size,
-inspect a dry run, and invoke the CLI. Generated assets are candidates requiring
-visual approval, not automatically approved references. If reference support
-is added later, use explicitly approved files under `assets/references/` and
-record them in the manifest; keep this document authoritative.
+Generation goes through the [asset pipeline](asset-pipeline/README.md), which
+replaces the former PixelLab CLI wrapper (`tools/pixellab`, no longer in the
+repository). Run Claude Code inside `asset-pipeline/` and use `/make-asset`:
+every asset gets a spec, passes a code QA gate and an independent reviewer, and
+only a person's `/approve` promotes it to `asset-pipeline/assets/approved/`.
+
+Generated assets are candidates requiring visual approval, not automatically
+approved references. The only approved references are files a person places in
+`asset-pipeline/style/anchors/` or lists in a spec's `references`; they are
+recorded in `asset-pipeline/assets/manifest.json`. Until a person finishes the
+pipeline's Phase 0 (reviews `asset-pipeline/style/STYLE_BIBLE.md`, fills the
+palette, chooses anchors), this document stays authoritative. Afterwards keep
+the two in sync.
