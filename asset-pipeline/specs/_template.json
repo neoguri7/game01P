@@ -1,0 +1,19 @@
+{
+  "id": "hero_knight_walk",
+  "kind": "character_sheet",
+  "layout": "sheet",
+  "parent": "hero_knight_master",
+  "canvas": [64, 64],
+  "directions": 4,
+  "frames": 32,
+  "fps": 10,
+  "prompt_asset": "walking animation, 8 frames per direction",
+  "references": ["assets/approved/hero_knight_master.png"],
+  "candidates": 3,
+  "max_attempts": 3,
+  "acceptance": [
+    "발이 바닥에 닿는 프레임이 좌우 교대로 나온다",
+    "마지막 프레임에서 첫 프레임으로 이어질 때 팔 위치가 튀지 않는다",
+    "4개 방향 모두 방패 위치와 망토 색이 마스터와 같다"
+  ]
+}

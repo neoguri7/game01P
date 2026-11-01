@@ -1,0 +1,47 @@
+{
+  "_comment": "validate_asset.py 와 qa_gate.py 가 읽는 검수 기준. 값은 예시이므로 프로젝트에 맞게 사람이 수정한다. fingerprint 는 style_fingerprint.py build 로 만든 파일 경로 (스프라이트와 시트는 같은 캐릭터 지문을 공유한다).",
+  "palette_file": "style/palette.json",
+  "profiles": {
+    "character_sprite": {
+      "alpha": "binary",
+      "sizes": [[32, 32], [48, 48], [64, 64]],
+      "max_colors": 24,
+      "palette_match": 1.0,
+      "palette_tolerance": 0,
+      "forbid_upscaled": true,
+      "fingerprint": "style/fingerprints/character.json"
+    },
+    "character_sheet": {
+      "alpha": "binary",
+      "frame_size": [64, 64],
+      "min_frames": 4,
+      "max_colors": 24,
+      "palette_match": 1.0,
+      "palette_tolerance": 0,
+      "forbid_upscaled": true,
+      "anchor_drift_px": 1,
+      "centroid_drift_px": 4,
+      "area_ratio": [0.6, 1.6],
+      "palette_overlap": 0.7,
+      "fingerprint": "style/fingerprints/character.json"
+    },
+    "tile": {
+      "alpha": "binary",
+      "sizes": [[16, 16], [32, 32]],
+      "max_colors": 16,
+      "palette_match": 1.0,
+      "palette_tolerance": 0,
+      "forbid_upscaled": true,
+      "fingerprint": "style/fingerprints/tile.json"
+    },
+    "item_icon": {
+      "alpha": "binary",
+      "sizes": [[16, 16], [24, 24], [32, 32]],
+      "max_colors": 16,
+      "palette_match": 1.0,
+      "palette_tolerance": 0,
+      "forbid_upscaled": true,
+      "fingerprint": "style/fingerprints/item.json"
+    }
+  }
+}

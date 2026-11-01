@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python scripts/qa_gate.py:*)",
+      "Bash(python scripts/validate_asset.py:*)",
+      "Bash(python scripts/style_fingerprint.py:*)",
+      "Bash(python scripts/contact_sheet.py:*)",
+      "Bash(python scripts/snap_palette.py:*)"
+    ],
+    "deny": [
+      "Edit(style/**)",
+      "Write(style/**)",
+      "Edit(assets/approved/**)",
+      "Write(assets/approved/**)"
+    ]
+  }
+}

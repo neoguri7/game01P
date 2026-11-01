@@ -94,3 +94,9 @@ tools/*
 style.md
 !/style.md
 .serena/
+
+# Asset pipeline: a self-contained project folder (see asset-pipeline/README.md).
+# The rules above ignore every docs/ directory and every .mcp.json; the pipeline needs both tracked.
+# Its .mcp.json only references ${PIXELLAB_API_TOKEN}; it never contains a secret value.
+!asset-pipeline/docs
+!asset-pipeline/.mcp.json
