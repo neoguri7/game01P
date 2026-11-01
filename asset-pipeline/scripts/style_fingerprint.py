@@ -16,6 +16,7 @@
 - 종료 코드: 실패가 하나라도 있으면 1.
 """
 import argparse
+import glob
 import json
 import sys
 from pathlib import Path
@@ -110,7 +111,22 @@ def samples_from(path, frame_size):
     return out
 
 
+def expand_globs(patterns):
+    """PowerShell/cmd 는 와일드카드를 펼치지 않으므로 직접 펼친다 (bash 가 이미 펼친 경우는 그대로)."""
+    out = []
+    for pat in patterns:
+        if any(ch in pat for ch in "*?["):
+            out.extend(sorted(glob.glob(pat)))
+        else:
+            out.append(pat)
+    return out
+
+
 def cmd_build(args):
+    args.anchors = expand_globs(args.anchors)
+    if not args.anchors:
+        print(json.dumps({"error": "앵커 파일이 없습니다 (와일드카드와 일치하는 파일이 없음)"}, ensure_ascii=False))
+        return 2
     samples = []
     for p in args.anchors:
         samples.extend(samples_from(p, args.frame_size))

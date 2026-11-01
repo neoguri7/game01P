@@ -137,6 +137,8 @@ def main():
     parser.add_argument("--rules", default="style/rules.json")
     parser.add_argument("--frame-size", nargs=2, type=int, metavar=("W", "H"))
     parser.add_argument("--expected-frames", type=int, help="시트의 총 프레임 수 (정확히 일치해야 통과)")
+    parser.add_argument("--expected-size", nargs=2, type=int, metavar=("W", "H"),
+                        help="단일 이미지의 스펙 canvas (정확히 일치해야 통과)")
     args = parser.parse_args()
 
     rules = json.loads(Path(args.rules).read_text(encoding="utf-8"))
@@ -155,6 +157,9 @@ def main():
     sizes = profile.get("sizes")
     if sizes and not frame_size:
         report.add("size", [w, h] in sizes, f"{w}x{h} (허용 {sizes})")
+    if args.expected_size and not frame_size:
+        # 프로파일이 여러 크기를 허용해도, 이 에셋의 스펙이 요구한 크기와는 정확히 같아야 한다
+        report.add("spec_canvas", [w, h] == list(args.expected_size), f"{w}x{h} (스펙 canvas {list(args.expected_size)})")
 
     alpha = arr[..., 3]
     if profile.get("alpha") == "binary":

@@ -63,6 +63,8 @@ def main():
         cmd += ["--frame-size", str(spec["canvas"][0]), str(spec["canvas"][1])]
         if spec.get("frames"):
             cmd += ["--expected-frames", str(spec["frames"])]
+    elif spec.get("canvas"):
+        cmd += ["--expected-size", str(spec["canvas"][0]), str(spec["canvas"][1])]
     validate, rc = run_json(cmd)
     if "checks" in validate:
         for c in validate["checks"]:
