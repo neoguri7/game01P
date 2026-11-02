@@ -100,3 +100,4 @@ style.md
 # Its .mcp.json only references ${PIXELLAB_API_TOKEN}; it never contains a secret value.
 !asset-pipeline/docs
 !asset-pipeline/.mcp.json
+asset-pipeline/
