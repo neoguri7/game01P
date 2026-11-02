@@ -11,5 +11,5 @@ python scripts/fetch_references.py                  # 전부 (홍보 문구 이�
 python scripts/fetch_references.py --only unit monster   # 태그로 골라서
 ```
 
-이미지는 저작권물이다. 눈으로 보고 글 규칙을 뽑는 용도로만 쓴다.
-생성 도구의 입력 이미지, 앵커, `spec.references` 로 넘기지 않는다 (`CLAUDE.md` 규칙 13).
+이미지는 저작권물이다. 눈으로 보고 글 규칙을 뽑거나, 생성 도구의 스타일 입력으로만 쓴다.
+스타일 입력은 `create_image_pro` 의 `style_image_url` + `style_copy: ["color_palette", "shading"]` 뿐이다. 앵커, `spec.references`, 인페인트/img2img 입력으로는 넘기지 않는다 (`CLAUDE.md` 규칙 13).

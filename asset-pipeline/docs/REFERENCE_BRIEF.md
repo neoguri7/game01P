@@ -7,7 +7,7 @@
 ## 0. 사용 규칙 (CLAUDE.md 규칙 13)
 
 - 스크린샷은 저작권물이다. 저장소에 커밋하지 않는다. 출처는 `reference/sources.json`, 로컬 사본은 `python scripts/fetch_references.py` 로 `reference/local/` (git 무시)에 받는다.
-- 생성 도구의 입력 이미지(레퍼런스, 인페인트 배경), 앵커, `spec.references` 로 쓰지 않는다. 쓰는 것은 이 문서의 글 규칙뿐이다.
+- 생성 도구에는 `create_image_pro` 의 스타일 입력(`style_image_url`, `style_copy` 는 `color_palette`, `shading` 만)으로만 넘긴다 (사용자 지시, 2026-11-02). 인페인트 배경, img2img, 앵커, `spec.references` 로는 쓰지 않는다. 그 밖에 반영하는 것은 이 문서의 글 규칙이다.
 - 특정 캐릭터, 건물, 아이콘의 형태를 그대로 옮기지 않는다. 가져오는 것은 실루엣 규칙, 재질 처리, 빛과 색의 구조 같은 일반 원리다.
 - 두 게임의 얼굴 표현은 따르지 않는다. 사람 파티원은 `style.md` 대로 얼굴이 없다.
 
