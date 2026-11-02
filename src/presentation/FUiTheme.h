@@ -77,8 +77,7 @@ void DrawSlotFrame(ImDrawList* draw, ImVec2 min, ImVec2 max, ImU32 trim, bool gl
 bool BeginPanel(const char* name, ImVec2 pos, ImVec2 size, ImGuiWindowFlags extraFlags = 0);
 void EndPanel();
 
-/// Borderless, transparent window pinned to a screen rectangle with no padding. The full-screen HUD frame
-/// drawn behind it provides the decoration. Pair with EndZone().
+/// Borderless, transparent window pinned to a screen rectangle with no padding. Pair with EndZone().
 bool BeginZone(const char* name, ImVec2 pos, ImVec2 size);
 void EndZone();
 

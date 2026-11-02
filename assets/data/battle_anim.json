@@ -18,7 +18,7 @@
     "enemy.imp":        { "clips": "unit.imp",        "impact_frame": 3 },
     "enemy.imp_archer": { "clips": "unit.imp_archer", "impact_frame": 5 },
     "enemy.imp_shaman": { "clips": "unit.imp_shaman", "impact_frame": 4 },
-    "enemy.guardian":   { "clips": "unit.guardian",   "impact_frame": 5 }
+    "enemy.guardian":   { "clips": "unit.guardian",   "impact_frame": 4 }
   },
   "skills": {
     "skill.strike":   { "kind": "impact", "clip": "fx.slash", "lift": 26, "lunge": 8 },

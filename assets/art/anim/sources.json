@@ -12,59 +12,59 @@
   "units": {
     "warrior": {
       "idle":   { "job": "85368c12-6fce-4d0f-b2fe-50e87d1f6d59", "frames": [0, 1, 2, 3, 4], "fps": 5, "loop": true },
-      "walk":   { "job": "9548af07-f75a-4860-9fb3-a18384e900e6", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": true },
-      "attack": { "job": "c84d4ced-9f89-4302-aa84-dff8ec977725", "frames": [0, 1, 2, 3, 5, 6, 7, 8], "fps": 14, "loop": false },
-      "hit":    { "job": "8e1a4f8c-8e1c-4bc7-80fd-457b79381ef4", "frames": [0, 1, 2, 3, 4], "fps": 14, "loop": false },
-      "death":  { "job": "958a8956-f9b4-48a4-95da-0a24d8fc537b", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
+      "walk":   { "job": "f3002f91-549a-4c2d-826a-9cf7e1771cc6", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": true },
+      "attack": { "job": "389bd49d-1615-4ce0-9543-333aa33ea2a8", "frames": [0, 1, 2, 3, 5, 6, 7, 8], "fps": 14, "loop": false },
+      "hit":    { "job": "28209d11-4aea-41ec-acac-7ac14b88836b", "frames": [0, 1, 2, 3, 4], "fps": 14, "loop": false },
+      "death":  { "job": "fbebdbe8-8360-4096-9a7f-d25863e8af2b", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
     },
     "archer": {
       "idle":   { "job": "a29c054c-f114-468a-b11e-9af4236c85d1", "frames": [0, 1, 2, 3, 4], "fps": 5, "loop": true },
-      "walk":   { "job": "4e3435ad-30f6-4d64-846a-21713a926034", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": true },
-      "attack": { "job": "2e775731-0e9f-445a-99ff-ad671aa1afa2", "frames": [0, 1, 2, 3, 4, 5, 7, 8], "fps": 14, "loop": false },
-      "hit":    { "job": "1efb1a03-6082-4d2a-9301-d9a19be0d605", "frames": [0, 1, 2, 3, 4], "fps": 14, "loop": false },
-      "death":  { "job": "54c6ef46-f5b5-40a2-bc10-d5338c7336ba", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
+      "walk":   { "job": "6a0b2dd1-77f9-48bd-9b0c-2966d758f1c1", "frames": [0, 1, 2, 3, 4, 5, 6, 7], "fps": 14, "loop": true },
+      "attack": { "job": "c68c0eec-2b2f-4446-835d-6dd8d53e09c3", "frames": [0, 1, 3, 4, 5, 7, 8], "fps": 14, "loop": false },
+      "hit":    { "job": "c66736f4-b8f1-49c6-bdf3-0100b64f50bb", "frames": [0, 1, 2, 3, 4], "fps": 14, "loop": false },
+      "death":  { "job": "35d2c87b-02ac-49ea-9d0e-b130c88ee190", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
     },
     "mage": {
       "idle":   { "job": "3336ba52-fb3f-4539-ac8b-122951313b1f", "frames": [0, 1, 2, 3, 4], "fps": 5, "loop": true },
-      "walk":   { "job": "6eb51235-6212-4949-a93a-51004fff1996", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": true },
-      "attack": { "job": "7eeb4ac9-487e-48e5-989a-abfb046b8f64", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": false },
-      "hit":    { "job": "9b5577ae-7f96-4407-8f8a-8628b924fcea", "frames": [0, 1, 2, 3, 4], "fps": 14, "loop": false },
-      "death":  { "job": "2808b47d-5775-4216-88c5-72ed60434aa8", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
+      "walk":   { "job": "a4c8a2b2-ae60-45d3-9024-c95bcee4761c", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": true },
+      "attack": { "job": "ec58dbfe-8327-4452-83bb-7e16f4f92c33", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": false },
+      "hit":    { "job": "f49cf1ee-be3a-426c-a16e-60ecb8279d57", "frames": [0, 1, 2, 3, 4], "fps": 14, "loop": false },
+      "death":  { "job": "1344be05-f35d-48e3-a755-4797207088df", "frames": [0, 2, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
     },
     "healer": {
       "idle":   { "job": "6b180145-ecee-4976-bca4-8be11fc66e66", "frames": [0, 1, 2, 3, 4], "fps": 5, "loop": true },
-      "walk":   { "job": "0d0982fb-06f6-4e5b-962a-4848d2950ab1", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": true },
-      "attack": { "job": "dfce45e7-525d-4ee8-a136-5bfaaffa4a91", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": false },
-      "hit":    { "job": "e367577f-f50f-4ec5-b379-12b6018bf132", "frames": [0, 1, 2, 3, 4], "fps": 14, "loop": false },
-      "death":  { "job": "39056c42-8612-43fb-b17b-478f2b059983", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
+      "walk":   { "job": "e8b8de39-7fd8-4baf-8117-abe33a225f06", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": true },
+      "attack": { "job": "a51a4569-21b8-40f6-8f86-9519a52e5593", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": false },
+      "hit":    { "job": "4e7f95ee-18e0-44d0-84ce-481b4afe2924", "frames": [0, 2, 3, 4], "fps": 14, "loop": false },
+      "death":  { "job": "e01d927b-655b-4128-832a-069aa9bb9e54", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
     },
     "imp": {
       "idle":   { "job": "3b863465-0773-4ba8-8b07-11d6ca3bd771", "frames": [0, 1, 2, 3, 4], "fps": 5, "loop": true },
-      "walk":   { "job": "165c1fd8-a263-49c1-ac9e-f1c240f1bd7f", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": true },
-      "attack": { "job": "3ed896e0-a65e-4c11-8bf6-ce7251956f1a", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": false },
-      "hit":    { "job": "14540c46-4524-4769-828e-a4a6304d00c3", "frames": [0, 2, 3, 4], "fps": 14, "loop": false },
-      "death":  { "job": "40a439bd-a620-460d-8880-817e98b6a0a2", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
+      "walk":   { "job": "0a9568fc-e546-4f71-88b0-09bffa769611", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": true },
+      "attack": { "job": "63d5af22-b46b-4edd-a10f-70711f4499d7", "frames": [0, 2, 3, 5, 6, 7, 8], "fps": 14, "loop": false },
+      "hit":    { "job": "5e68e668-fe71-4820-af76-d9bb0f60f6b3", "frames": [0, 1, 2, 3, 4], "fps": 14, "loop": false },
+      "death":  { "job": "7dc50af3-df7a-4c74-8b92-c34a73e37955", "frames": [0, 2, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
     },
     "imp_archer": {
       "idle":   { "job": "b1b878b5-736b-4d9f-b433-349180691b7a", "frames": [0, 1, 2, 3, 4], "fps": 5, "loop": true },
-      "walk":   { "job": "a0c41749-63df-42c0-ab82-e946208ef257", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": true },
-      "attack": { "job": "e4f7c076-44ef-4e00-a7d6-99ea8b280f2a", "frames": [0, 1, 2, 3, 4, 5, 7, 8], "fps": 14, "loop": false },
-      "hit":    { "job": "bb379ef2-232d-4585-9f49-cf306d3fa8b5", "frames": [0, 1, 2, 3, 4], "fps": 14, "loop": false },
-      "death":  { "job": "f7fc33a8-917e-449a-bdf6-f1dbd6632d3c", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
+      "walk":   { "job": "c17ba225-1b25-4671-ad7a-ad1d05bad07c", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": true },
+      "attack": { "job": "9e303ea5-a080-4f16-b410-15d2260e1527", "frames": [0, 1, 2, 3, 5, 6, 7, 8], "fps": 14, "loop": false },
+      "hit":    { "job": "6074532f-a044-49e3-8641-362eda1a2b5b", "frames": [0, 1, 2, 3, 4], "fps": 14, "loop": false },
+      "death":  { "job": "cb58306e-c6f2-4a76-ae36-6915c238aa89", "frames": [0, 2, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
     },
     "imp_shaman": {
       "idle":   { "job": "911d31d1-a1f0-449a-98dc-2dad93b9d707", "frames": [0, 1, 2, 3, 4], "fps": 5, "loop": true },
-      "walk":   { "job": "96ec408f-91b5-4425-b6a5-dd0a952a21f6", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": true },
-      "attack": { "job": "242d839a-6e4d-4024-bae4-0dfad087ee25", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": false },
-      "hit":    { "job": "a98afe77-cd67-492f-bf61-f5188863d59a", "frames": [0, 1, 2, 3, 4], "fps": 14, "loop": false },
-      "death":  { "job": "3d5a1a99-1ec9-427b-bdcf-07ec652fd9ba", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
+      "walk":   { "job": "bbdb58f3-54ae-4f3e-98a4-b6e39bec1b5b", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 14, "loop": true },
+      "attack": { "job": "f77447dc-5894-4308-bfdf-dde4563352e4", "frames": [0, 1, 2, 3, 6, 7, 8], "fps": 14, "loop": false },
+      "hit":    { "job": "fe82b4db-7156-4d4b-a7b5-5375119ca3d9", "frames": [0, 1, 2, 3, 4], "fps": 14, "loop": false },
+      "death":  { "job": "b0763c14-3bcb-453b-864a-d76eb7a2b653", "frames": [0, 2, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
     },
     "guardian": {
       "idle":   { "job": "04d653e1-0697-4800-a0ac-ac4a41012976", "frames": [0, 1, 2, 3, 4], "fps": 5, "loop": true },
-      "walk":   { "job": "d9129e8f-0a18-41b4-bf85-741bac3f6dec", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 12, "loop": true },
-      "attack": { "job": "22912a15-b7cb-41de-8b52-edbab1d0bb50", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 12, "loop": false },
-      "hit":    { "job": "b335247d-c290-4c40-9375-86d28be17a67", "frames": [0, 1, 2, 3, 4], "fps": 14, "loop": false },
-      "death":  { "job": "f4f301ab-be85-4436-bbb9-0541463840d7", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
+      "walk":   { "job": "08c089fe-f027-4cf5-bc3d-6e3cc766396d", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 12, "loop": true },
+      "attack": { "job": "50ed6867-87e1-4379-a832-a097293e7dbd", "frames": [0, 1, 2, 3, 4, 5, 6, 8], "fps": 12, "loop": false },
+      "hit":    { "job": "60236635-31b6-458a-a8d9-33672c91c981", "frames": [0, 1, 2, 3, 4], "fps": 14, "loop": false },
+      "death":  { "job": "18d7970c-ae84-4e3e-ae3f-d4adf2f2afa5", "frames": [0, 1, 2, 3, 4, 5, 6, 7, 8], "fps": 9, "loop": false }
     }
   },
   "effects": {

@@ -33,6 +33,7 @@
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
+#include "presentation/FForestScene.h"
 #include "presentation/FUiFrame.h"
 #include "presentation/FUiTheme.h"
 
@@ -115,6 +116,8 @@ int main(int argc, char* argv[])
     }
     bool verifyPrototype = false;
     bool checkAnimation = false;
+    int windowWidth = 1280;
+    int windowHeight = 0;  // follows the mode unless --window says otherwise
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument(argv[index]);
         if (argument == "--ember") mode = game::EGameMode::Ember;
@@ -134,6 +137,18 @@ int main(int argc, char* argv[])
                 SDL_Log("--frames must be an integer between 1 and 100000.");
                 return EXIT_FAILURE;
             }
+        } else if (argument == "--window" && index + 1 < argc) {
+            // Window shapes other than the default, for checking the layout: --window 1920x1080
+            const std::string_view size(argv[++index]);
+            const auto split = size.find('x');
+            const char* end = size.data() + size.size();
+            const auto width = std::from_chars(size.data(), end, windowWidth);
+            const auto height = split == std::string_view::npos ? width : std::from_chars(size.data() + split + 1, end, windowHeight);
+            if (split == std::string_view::npos || width.ec != std::errc{} || height.ec != std::errc{} || height.ptr != end ||
+                windowWidth <= 0 || windowHeight <= 0) {
+                SDL_Log("--window must look like 1920x1080.");
+                return EXIT_FAILURE;
+            }
         } else {
             SDL_Log("Unknown or incomplete argument: %s", argv[index]);
             return EXIT_FAILURE;
@@ -142,7 +157,8 @@ int main(int argc, char* argv[])
     game::Engine engine;
 
     const bool ember = mode == game::EGameMode::Ember;
-    if (!engine.initialize(ember ? "Ember Dungeon - Game01P" : "Game01P - Forest Prototype", 1280, ember ? 800 : 720)) {
+    if (windowHeight == 0) windowHeight = ember ? 800 : 720;
+    if (!engine.initialize(ember ? "Ember Dungeon - Game01P" : "Game01P - Forest Prototype", windowWidth, windowHeight)) {
         return EXIT_FAILURE;
     }
 
@@ -198,7 +214,8 @@ int main(int argc, char* argv[])
     }
     if (ember) {
         if (!game::InitializeDungeon(engine.getRegistry()) || !game::InitializeDungeonArt(engine.getRegistry()) ||
-            !game::InitializeBattleAnim(engine.getRegistry()) || !game::ui::InitializeUiFrame(engine.getRegistry())) {
+            !game::InitializeForestScene(engine.getRegistry()) || !game::InitializeBattleAnim(engine.getRegistry()) ||
+            !game::ui::InitializeUiFrame(engine.getRegistry())) {
             shutdown();
             return EXIT_FAILURE;
         }

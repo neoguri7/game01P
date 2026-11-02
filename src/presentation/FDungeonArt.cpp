@@ -3,9 +3,8 @@
 #include "core/AssetManager.h"
 #include "core/ResourceManager.h"
 #include "core/Logger.h"
-#include "presentation/FUiTheme.h"
+#include <algorithm>
 #include <cstdint>
-#include <string_view>
 #include <imgui.h>
 
 namespace game {
@@ -31,17 +30,22 @@ EDungeonSprite WallVariant(int x, int y) {
     return CellHash(x, y) % 3 == 0 ? EDungeonSprite::WallB : EDungeonSprite::Wall;
 }
 
-EDungeonSprite IsoFloorVariant(int x, int y) {
-    // Mostly dark soil, with mossy patches and glowing fern clumps as accents.
-    constexpr std::array<std::size_t, 12> variants{0, 1, 2, 3, 4, 5, 4, 5, 6, 0, 1, 7};
-    return static_cast<EDungeonSprite>(static_cast<std::size_t>(EDungeonSprite::IsoFloor0) +
-                                       variants[CellHash(x, y) % variants.size()]);
-}
-
-EDungeonSprite IsoObstacleVariant(int x, int y) {
-    constexpr std::array variants{EDungeonSprite::IsoTree, EDungeonSprite::IsoBoulders, EDungeonSprite::IsoThorns,
-                                  EDungeonSprite::IsoTree, EDungeonSprite::IsoBoulders};
-    return variants[CellHash(x, y) % variants.size()];
+std::optional<EDungeonSprite> SkillIconSprite(std::string_view skillId) {
+    struct FSkillIcon {
+        std::string_view skill;
+        EDungeonSprite sprite;
+    };
+    constexpr std::array<FSkillIcon, 12> icons{{
+        {"skill.strike", EDungeonSprite::SkillStrike}, {"skill.cleave", EDungeonSprite::SkillCleave},
+        {"skill.arrow", EDungeonSprite::SkillArrow}, {"skill.volley", EDungeonSprite::SkillVolley},
+        {"skill.bolt", EDungeonSprite::SkillBolt}, {"skill.fog", EDungeonSprite::SkillFog},
+        {"skill.heal", EDungeonSprite::SkillHeal}, {"skill.buff", EDungeonSprite::SkillBuff},
+        {"skill.debuff", EDungeonSprite::SkillDebuff}, {"skill.lunge", EDungeonSprite::SkillLunge},
+        {"skill.snipe", EDungeonSprite::SkillSnipe}, {"skill.firebolt", EDungeonSprite::SkillFirebolt},
+    }};
+    const auto found = std::ranges::find(icons, skillId, &FSkillIcon::skill);
+    if (found == icons.end()) return std::nullopt;
+    return found->sprite;
 }
 
 glm::vec2 DungeonSpriteSize(entt::registry& registry, EDungeonSprite sprite) {
@@ -55,31 +59,44 @@ glm::vec2 DungeonSpriteSize(entt::registry& registry, EDungeonSprite sprite) {
 bool InitializeDungeonArt(entt::registry& registry) {
     struct FArtEntry {
         std::string_view id;
-        bool native64;  // the original 64x64 set is size-checked; tall obstacles and UI pieces vary
+        int width;   // exact size in pixels; 0 leaves the picture unchecked (the old UI pieces vary)
+        int height;
     };
+    // Sizes of art/env and art/ui are the values of assets/art/asset_contract.json; a strip is frames x width.
     constexpr std::array<FArtEntry, static_cast<std::size_t>(EDungeonSprite::Count)> entries{{
-        {"art/floor", true}, {"art/wall", true}, {"art/spikes", true}, {"art/chest", true}, {"art/stairs", true},
-        {"art/shrine", true}, {"art/warrior", true}, {"art/archer", true}, {"art/mage", true}, {"art/healer", true},
-        {"art/imp", true}, {"art/imp_archer", true}, {"art/imp_shaman", true}, {"art/guardian", true},
-        {"art/floor_b", true}, {"art/floor_c", true}, {"art/wall_b", true}, {"art/backdrop", true},
-        {"art/icon_sword", true}, {"art/icon_bow", true}, {"art/icon_spell", true}, {"art/icon_boots", true},
-        {"art/iso_floor_0", true}, {"art/iso_floor_1", true}, {"art/iso_floor_2", true}, {"art/iso_floor_3", true},
-        {"art/iso_floor_4", true}, {"art/iso_floor_5", true}, {"art/iso_floor_6", true}, {"art/iso_floor_7", true},
-        {"art/iso_trap", true}, {"art/iso_root", true}, {"art/iso_tree", false}, {"art/iso_boulders", true},
-        {"art/iso_thorns", true}, {"art/ui_panel", false}, {"art/ui_plaque", false}, {"art/ui_slot", false},
+        {"art/floor", 64, 64}, {"art/wall", 64, 64}, {"art/spikes", 64, 64}, {"art/chest", 64, 64},
+        {"art/stairs", 64, 64}, {"art/shrine", 64, 64}, {"art/warrior", 64, 64}, {"art/archer", 64, 64},
+        {"art/mage", 64, 64}, {"art/healer", 64, 64}, {"art/imp", 64, 64}, {"art/imp_archer", 64, 64},
+        {"art/imp_shaman", 64, 64}, {"art/guardian", 64, 64}, {"art/floor_b", 64, 64}, {"art/floor_c", 64, 64},
+        {"art/wall_b", 64, 64}, {"art/icon_sword", 64, 64}, {"art/icon_bow", 64, 64}, {"art/icon_spell", 64, 64},
+        {"art/icon_boots", 64, 64}, {"art/ui_panel", 0, 0}, {"art/ui_plaque", 0, 0}, {"art/ui_slot", 0, 0},
+        {"art/env/ground_a", 512, 256}, {"art/env/decal_moss", 128, 64}, {"art/env/decal_rubble", 128, 64},
+        {"art/env/tile_trap", 64, 32}, {"art/env/tile_blocked", 64, 32}, {"art/env/wall_a", 128, 128},
+        {"art/env/wall_b", 128, 128}, {"art/env/wall_c", 128, 128}, {"art/env/arch", 128, 128},
+        {"art/env/cliff", 128, 128}, {"art/env/pillar", 64, 96}, {"art/env/brazier", 64, 96},
+        {"art/env/crystal", 64, 96}, {"art/env/tree_dead", 128, 160},
+        {"art/env/brazier_anim", 64 * kBrazierFrames, 96},
+        {"art/ui/hud_bar", 420, 84}, {"art/ui/hud_panel", 256, 128}, {"art/ui/hud_button", 136, 56},
+        {"art/ui/hud_portrait", 72, 72}, {"art/ui/hud_turnbar", 320, 32}, {"art/ui/title_logo", 460, 120},
+        {"art/ui/title_bg", 688, 384}, {"art/ui/skill_strike", 48, 48}, {"art/ui/skill_cleave", 48, 48},
+        {"art/ui/skill_arrow", 48, 48}, {"art/ui/skill_volley", 48, 48}, {"art/ui/skill_bolt", 48, 48},
+        {"art/ui/skill_fog", 48, 48}, {"art/ui/skill_heal", 48, 48}, {"art/ui/skill_buff", 48, 48},
+        {"art/ui/skill_debuff", 48, 48}, {"art/ui/skill_lunge", 48, 48}, {"art/ui/skill_snipe", 48, 48},
+        {"art/ui/skill_firebolt", 48, 48},
     }};
     const auto& assets = registry.ctx().get<FAssetManager>();
     auto& resources = registry.ctx().get<FResourceManager>();
     FDungeonArt art;
     for (std::size_t index = 0; index < entries.size(); ++index) {
-        const auto texture = resources.loadTexture(assets, entries[index].id);
+        const auto& entry = entries[index];
+        const auto texture = resources.loadTexture(assets, entry.id);
         if (!texture) {
-            LOG_ERROR("Dungeon art missing: {}", entries[index].id);
+            LOG_ERROR("Dungeon art missing: {}", entry.id);
             return false;
         }
         const auto size = resources.findSize(*texture);
-        if (!size || (entries[index].native64 && (size->width != 64 || size->height != 64))) {
-            LOG_ERROR("Dungeon art must be native 64x64: {}", entries[index].id);
+        if (!size || (entry.width > 0 && (size->width != entry.width || size->height != entry.height))) {
+            LOG_ERROR("Dungeon art must be native {}x{}: {}", entry.width, entry.height, entry.id);
             return false;
         }
         art.textures[index] = *texture;
@@ -89,17 +106,19 @@ bool InitializeDungeonArt(entt::registry& registry) {
     return true;
 }
 
-void InstallDungeonUiSkin(entt::registry& registry) {
+ui::FSkinPiece DungeonSkinPiece(entt::registry& registry, EDungeonSprite sprite) {
     const auto* art = registry.ctx().find<FDungeonArt>();
     const auto* resources = registry.ctx().find<FResourceManager>();
-    if (!art || !resources) return;
-    const auto piece = [&](EDungeonSprite sprite) {
-        const auto* texture = resources->find(art->textures[static_cast<std::size_t>(sprite)]);
-        if (!texture || !texture->texture) return ui::FSkinPiece{};
-        return ui::FSkinPiece{ImTextureRef{static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(texture->texture))},
-                              {static_cast<float>(texture->width), static_cast<float>(texture->height)}};
-    };
-    ui::InstallSkin({piece(EDungeonSprite::UiPanel), piece(EDungeonSprite::UiPlaque), piece(EDungeonSprite::UiSlot)});
+    if (!art || !resources) return {};
+    const auto* texture = resources->find(art->textures[static_cast<std::size_t>(sprite)]);
+    if (!texture || !texture->texture) return {};
+    return {ImTextureRef{static_cast<ImTextureID>(reinterpret_cast<std::uintptr_t>(texture->texture))},
+            {static_cast<float>(texture->width), static_cast<float>(texture->height)}};
+}
+
+void InstallDungeonUiSkin(entt::registry& registry) {
+    ui::InstallSkin({DungeonSkinPiece(registry, EDungeonSprite::UiPanel), DungeonSkinPiece(registry, EDungeonSprite::UiPlaque),
+                     DungeonSkinPiece(registry, EDungeonSprite::UiSlot)});
 }
 
 void AssignDungeonSprites(entt::registry& registry, std::span<const FUnitPlacement> units) {
@@ -116,16 +135,21 @@ void AssignDungeonSprites(entt::registry& registry, std::span<const FUnitPlaceme
     }
 }
 
-void DrawDungeonSprite(entt::registry& registry, EDungeonSprite sprite, SDL_FRect destination, Uint8 alpha) {
+void DrawDungeonSprite(entt::registry& registry, EDungeonSprite sprite, SDL_FRect destination, const FSpriteStyle& style) {
     const auto* art = registry.ctx().find<FDungeonArt>();
     const auto* resources = registry.ctx().find<FResourceManager>();
     const auto* renderer = registry.ctx().find<SDL_Renderer*>();
     if (!art || !resources || !renderer) return;
     const auto* texture = resources->find(art->textures[static_cast<std::size_t>(sprite)]);
     if (!texture) return;
-    SDL_SetTextureAlphaMod(texture->texture, alpha);
-    SDL_RenderTexture(*renderer, texture->texture, nullptr, &destination);
+    const float frameWidth = static_cast<float>(texture->width) / static_cast<float>(style.frames);
+    const SDL_FRect source{frameWidth * static_cast<float>(style.frame), 0.f, frameWidth, static_cast<float>(texture->height)};
+    SDL_SetTextureAlphaMod(texture->texture, style.alpha);
+    SDL_SetTextureColorMod(texture->texture, style.tint.r, style.tint.g, style.tint.b);
+    SDL_RenderTextureRotated(*renderer, texture->texture, &source, &destination, 0.0, nullptr,
+                             style.flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
     SDL_SetTextureAlphaMod(texture->texture, 255);
+    SDL_SetTextureColorMod(texture->texture, 255, 255, 255);
 }
 
 void DrawDungeonIcon(entt::registry& registry, EDungeonSprite sprite) {

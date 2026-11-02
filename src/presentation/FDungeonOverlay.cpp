@@ -3,6 +3,7 @@
 #include <imgui.h>
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <cmath>
 #include "core/EngineState.h"
 #include "core/InputState.h"
 #include "debug/DebugOverlay.h"
@@ -56,42 +57,54 @@ void NewExpeditionConfirm(entt::registry& registry) {
     }
 }
 
+// A title-menu button: the HUD button picture under an ImGui button with a clear face, so the label still
+// reaches ImGui's text log.
+bool MenuButton(entt::registry& registry, const char* label, ImVec2 size, float textSize) {
+    const ImVec2 min = ImGui::GetCursorScreenPos();
+    const ImVec2 max{min.x + size.x, min.y + size.y};
+    const bool hot = ImGui::IsMouseHoveringRect(min, max);
+    ui::DrawNineSlice(ImGui::GetWindowDrawList(), DungeonSkinPiece(registry, EDungeonSprite::HudButton), min, max, 16.f,
+                      hot ? IM_COL32(255, 236, 190, 255) : IM_COL32_WHITE);
+    constexpr ImVec4 clear{0.f, 0.f, 0.f, 0.f};
+    ImGui::PushStyleColor(ImGuiCol_Button, clear);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, clear);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, clear);
+    ImGui::PushStyleColor(ImGuiCol_Text, hot ? ui::palette::kGoldBrightV : ui::palette::kGoldV);
+    ImFont* heading = ui::HeadingFont();
+    if (heading) ImGui::PushFont(heading, textSize);
+    const bool pressed = ImGui::Button(label, size);
+    if (heading) ImGui::PopFont();
+    ImGui::PopStyleColor(4);
+    return pressed;
+}
+
+// The title screen: the painting fills the window, the logo and a short menu float over it.
 void Menu(entt::registry& registry) {
     const auto& window = registry.ctx().get<FEngineWindowState>();
     const float w = static_cast<float>(window.width);
     const float h = static_cast<float>(window.height);
-    const float tile = 64.f;
-    const float left = w * .1f;
-    const float top = h * .5f - 128;
-    // Drawn through ImGui's background list so the backdrop can be dimmed without dimming the preview.
+    const float u = std::min(h / 800.f, w / 1160.f);
+
     auto* back = ImGui::GetBackgroundDrawList();
-    const auto place = [&](EDungeonSprite sprite, float x, float y) {
-        DrawDungeonImage(registry, sprite, back, {x, y}, {x + tile, y + tile});
-    };
-    for (float y = 0; y < h; y += tile) {
-        for (float x = 0; x < w; x += tile) place(EDungeonSprite::Backdrop, x, y);
+    const auto painting = DungeonSpriteSize(registry, EDungeonSprite::TitleBg);
+    if (painting.x > 0.f && painting.y > 0.f) {
+        // Cover the window and crop the overflow evenly, whatever its shape.
+        const float cover = std::max(w / painting.x, h / painting.y);
+        const ImVec2 size{painting.x * cover, painting.y * cover};
+        const ImVec2 min{(w - size.x) * .5f, (h - size.y) * .5f};
+        DrawDungeonImage(registry, EDungeonSprite::TitleBg, back, min, {min.x + size.x, min.y + size.y});
     }
-    back->AddRectFilled({0, 0}, {w, h}, IM_COL32(3, 5, 10, 190));
-    for (int y = 0; y < 4; ++y) {
-        for (int x = 0; x < 5; ++x) {
-            place((y == 0 || x == 0 || x == 4) ? EDungeonSprite::Wall : EDungeonSprite::Floor, left + x * tile, top + y * tile);
-        }
-    }
-    place(EDungeonSprite::Warrior, left + 64, top + 128);
-    place(EDungeonSprite::Archer, left + 128, top + 128);
-    place(EDungeonSprite::Mage, left + 192, top + 128);
-    place(EDungeonSprite::Healer, left + 128, top + 192);
-    place(EDungeonSprite::Imp, left + 128, top + 64);
-    ui::BeginPanel("Ember dungeon", {w * .46f, h * .2f}, {w * .5f, h * .56f});
-    ImGui::TextDisabled("GRID TACTICS  /  ROGUELIKE PROTOTYPE");
-    ImGui::Spacing();
-    ui::HeadingText("EMBER DUNGEON", 44.f);
-    ImGui::Spacing();
-    ImGui::TextWrapped("Four adventurers. One more descent.\nMove carefully, combine skills with runes, and survive the guardian.");
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::TextWrapped("3 combat rooms + a shrine event per dungeon.\nClear a dungeon to unlock its checkpoint.\nDefeat resets run growth, not cleared checkpoints.");
-    ImGui::Spacing();
+    // Sink the lower half so the menu reads over any painting.
+    back->AddRectFilledMultiColor({0.f, h * .3f}, {w, h}, IM_COL32(3, 4, 8, 0), IM_COL32(3, 4, 8, 0),
+                                  IM_COL32(3, 4, 8, 205), IM_COL32(3, 4, 8, 205));
+
+    const auto logo = DungeonSpriteSize(registry, EDungeonSprite::TitleLogo) * u;
+    const ImVec2 logoMin{std::floor((w - logo.x) * .5f), std::floor(h * .1f)};
+    DrawDungeonImage(registry, EDungeonSprite::TitleLogo, back, logoMin, {logoMin.x + logo.x, logoMin.y + logo.y});
+
+    const float column = 340.f * u;
+    const float menuTop = logoMin.y + logo.y + 44.f * u;
+    ui::BeginZone("Ember dungeon", {0.f, 0.f}, {w, h});
     const auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
     const auto& save = registry.ctx().get<FDungeonSave>();
     auto& request = registry.ctx().get<FMenuRequest>();
@@ -105,24 +118,52 @@ void Menu(entt::registry& registry) {
         request.value = EMenuRequest::Start;
         request.fresh = fresh;
     };
-    if (save.exists) {
-        const std::string resume = "CONTINUE  -  " + DescribeSave(save);
-        if (ui::Button(resume.c_str(), {-1, 52})) request.value = EMenuRequest::Continue;
-        ImGui::Spacing();
+
+    {
+        // The font scope must close before the window does; ImGui asserts on an unbalanced font stack in End().
+        ui::FBodyFont body(17.f * u);
+        const float x = (w - column) * .5f;
+        const ImVec2 tall{column, 52.f * u};
+        const ImVec2 short_{column, 44.f * u};
+        const float gap = 10.f * u;
+        const auto centered = [&](float y, const std::string& text, ImVec4 color) {
+            ImGui::SetCursorScreenPos({(w - ImGui::CalcTextSize(text.c_str()).x) * .5f, y});
+            ImGui::TextColored(color, "%s", text.c_str());
+        };
+        centered(menuTop - 30.f * u, "Four adventurers. One more descent.", ui::palette::kTextV);
+
+        float y = menuTop;
+        if (save.exists) {
+            ImGui::SetCursorScreenPos({x, y});
+            if (MenuButton(registry, "CONTINUE", tall, 20.f * u)) request.value = EMenuRequest::Continue;
+            y += tall.y + 2.f * u;
+            centered(y, DescribeSave(save), ui::palette::kTextV);
+            y += 24.f * u;
+        }
+        const std::string begin = checkpoint.cleared > 0
+            ? "BEGIN AT DUNGEON " + std::to_string(checkpoint.cleared + 1) : "BEGIN EXPEDITION";
+        ImGui::SetCursorScreenPos({x, y});
+        if (MenuButton(registry, begin.c_str(), save.exists ? short_ : tall, 20.f * u)) startNew(false);
+        y += (save.exists ? short_.y : tall.y) + gap;
+        if (checkpoint.cleared > 0) {
+            ImGui::SetCursorScreenPos({x, y});
+            if (MenuButton(registry, "FRESH EXPEDITION", short_, 17.f * u)) startNew(true);
+            y += short_.y + gap;
+        }
+        ImGui::SetCursorScreenPos({x, y});
+        if (MenuButton(registry, "QUIT", short_, 17.f * u)) request.value = EMenuRequest::Quit;
+        y += short_.y + gap;
+        if (!checkpoint.error.empty()) {
+            centered(y, checkpoint.error, {.9f, .31f, .31f, 1});
+            y += 22.f * u;
+        }
+        if (!save.error.empty()) centered(y, save.error, {.9f, .31f, .31f, 1});
+
+        ui::FBodyFont hints(14.f * u);
+        centered(h - 26.f * u, "Mouse: move / target    WASD: one-cell move    1-4: skill    Space: end turn    Esc: abandon",
+                 ui::palette::kMutedV);
     }
-    const std::string begin = checkpoint.cleared > 0
-        ? "BEGIN AT DUNGEON " + std::to_string(checkpoint.cleared + 1) : "BEGIN EXPEDITION";
-    if (ui::Button(begin.c_str(), {-1, save.exists ? 36.f : 52.f})) startNew(false);
-    ImGui::Spacing();
-    if (checkpoint.cleared > 0 && ui::Button("Fresh expedition from dungeon 1", {-1, 36})) startNew(true);
-    if (ui::Button("Quit", {-1, 34})) request.value = EMenuRequest::Quit;
-    if (!checkpoint.error.empty()) ImGui::TextColored({.9f, .31f, .31f, 1}, "%s", checkpoint.error.c_str());
-    if (!save.error.empty()) ImGui::TextColored({.9f, .31f, .31f, 1}, "%s", save.error.c_str());
-    ImGui::Spacing();
-    ImGui::TextDisabled("Mouse: move / target    WASD: one-cell move");
-    ImGui::TextDisabled("1-4: skill    Space: end turn    Esc: abandon");
-    ImGui::TextDisabled("` : developer overlay    No real-time pressure.");
-    ui::EndPanel();
+    ui::EndZone();
     NewExpeditionConfirm(registry);
 }
 
