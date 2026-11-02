@@ -57,25 +57,19 @@ struct FInsets {
     float bottom{0.f};
 };
 
-/// Authored layout of the full-screen HUD frame (assets/data/ui_layout.json). Every number is in design
-/// pixels: the frame art is stretched to the design size, so the art can be redrawn at any resolution
-/// without touching the layout.
+/// Authored layout of the floating combat HUD (assets/data/ui_layout.json). Every number is in design pixels.
 struct FUiLayoutSpec {
     float designWidth{1280.f};
     float designHeight{800.f};
     /// Narrowest width (design px) the zones are laid out for; narrower windows shrink the whole HUD.
     float minWidth{1140.f};
-    /// How far the frame reaches in from each screen edge; what remains is the playfield viewport.
+    /// Strips kept clear of the arena for the HUD clusters; what remains is the playfield viewport. Nothing
+    /// paints them: the world reaches every window edge.
     FInsets bands;
-    /// Where the frame art is cut into nine pieces. Corner blocks keep their size, the strips between
-    /// them stretch, so the horizontal/vertical middle of the art should tolerate stretching.
-    FInsets slice;
-    /// Asset id of the optional frame image; without it the bands are drawn with the stone panel skin.
-    std::string texture;
     FHudZones<FZoneSpec> zones;
 };
 
-/// The frame resolved for one window size, all in screen pixels.
+/// The layout resolved for one window size, all in screen pixels.
 struct FUiLayout {
     /// Screen pixels per design pixel (uniform, so portraits and slots never distort).
     float scale{1.f};
@@ -84,8 +78,11 @@ struct FUiLayout {
     FRect dock;
     FRect leftRail;
     FRect rightRail;
-    /// The transparent window the world shows through; the isometric arena is fitted into it.
+    /// The window minus the bands.
     FRect viewport;
+    /// The part of the viewport clear of the top and bottom HUD clusters; the isometric arena is fitted into
+    /// it, so the clusters never cover a cell even when the bands reserve nothing.
+    FRect arena;
     FHudZones<FRect> zones;
 };
 
@@ -93,7 +90,7 @@ struct FUiLayout {
 [[nodiscard]] std::expected<FUiLayoutSpec, std::string> ParseUiLayoutSpec(const FAssetDigest& digest);
 
 /// Resolves the spec for a window. The scale follows the window height (and the narrowest supported
-/// width), so a wider window gives the extra width to the middle of the bars and the viewport, and a
+/// width), so a wider window gives the extra width to the gaps between clusters and the viewport, and a
 /// taller window gives the extra height to the viewport only.
 [[nodiscard]] FUiLayout ComputeUiLayout(const FUiLayoutSpec& spec, float screenWidth, float screenHeight);
 

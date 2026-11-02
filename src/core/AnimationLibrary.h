@@ -3,6 +3,7 @@
 #include "core/AssetHandles.h"
 
 #include <entt/entt.hpp>
+#include <glm/vec2.hpp>
 
 #include <cstddef>
 #include <functional>
@@ -24,6 +25,9 @@ struct FAnimClip {
     std::vector<FAnimFrame> frames;
     double totalDuration{};
     bool loop{true};
+    /// The point of a frame (pixels from its top-left) that sits on the thing the clip is attached to: a unit's feet,
+    /// the centre of an effect. Defaults to the frame centre.
+    glm::vec2 anchor{};
 };
 
 /// Loads validated clip rows once; texture lifetime remains owned by FResourceManager.

@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+#include "gameplay/grid/FGridTypes.h"
+
 namespace game::gameplay {
 
 struct FEnemyChoice {
@@ -47,7 +49,8 @@ struct FGeneratedEnemy {
 };
 
 struct FGeneratedRoom {
-    static constexpr int kSize = 8;
+    static_assert(kGridWidth == kGridHeight, "generated rooms are square");
+    static constexpr int kSize = kGridWidth;
     std::string name;
     std::array<std::string, kSize> terrain;
     std::vector<FGeneratedEnemy> enemies;
@@ -55,6 +58,7 @@ struct FGeneratedRoom {
 
 /// Deterministic for a given config and request. Enemies spawn in the top rows (away from the party),
 /// obstacles and traps are scattered in the middle, and walls never disconnect any unit.
+/// The room is an open map: nothing is placed on the outermost ring of cells, so the grid edge is the only boundary.
 [[nodiscard]] FGeneratedRoom GenerateRoom(const FRoomGenConfig& config, const FRoomRequest& request);
 
 } // namespace game::gameplay

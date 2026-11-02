@@ -182,7 +182,8 @@ std::expected<FBattlefieldData, FFactoryError> FEntityFactory::CreateBattlefield
         .origin = {*originX, *originY}
     };
     if (metrics.width != kGridWidth || metrics.height != kGridHeight) {
-        return std::unexpected(FFactoryError{ "battlefield dimensions must be 8 by 8" });
+        return std::unexpected(FFactoryError{ "battlefield dimensions must be " + std::to_string(kGridWidth) +
+                                              " by " + std::to_string(kGridHeight) });
     }
     if (metrics.width <= 0 || metrics.height <= 0 || metrics.tileSize <= 0.f) {
         return std::unexpected(FFactoryError{ "battlefield dimensions and tile_size must be positive" });
@@ -196,12 +197,12 @@ std::expected<FBattlefieldData, FFactoryError> FEntityFactory::CreateBattlefield
     FBattlefieldData battlefield{.metrics = metrics};
     if (const auto terrain = document.find("terrain"); terrain != document.end()) {
         if (!terrain->is_array() || terrain->size() != kGridHeight) {
-            return std::unexpected(FFactoryError{"terrain must contain eight rows"});
+            return std::unexpected(FFactoryError{"terrain must contain " + std::to_string(kGridHeight) + " rows"});
         }
         for (int y = 0; y < kGridHeight; ++y) {
             const auto& row = (*terrain)[y];
             if (!row.is_string() || row.get_ref<const std::string&>().size() != kGridWidth) {
-                return std::unexpected(FFactoryError{"terrain rows must contain eight cells"});
+                return std::unexpected(FFactoryError{"terrain rows must contain " + std::to_string(kGridWidth) + " cells"});
             }
             for (int x = 0; x < kGridWidth; ++x) {
                 const char tile = row.get_ref<const std::string&>()[x];

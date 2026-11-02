@@ -1,8 +1,8 @@
 {
   "_comment": "Forest I: Mossbound Crossing. Party and enemies meet in the central clearing; perimeter trees are decorative, not hidden obstacles. Normal hub runs override party loadouts. Movement and skill AP remain independent.",
   "schema_version": 1,
-  "width": 8,
-  "height": 8,
+  "width": 12,
+  "height": 12,
   "tile_size": 64,
   "origin_x": 0,
   "origin_y": 0,
@@ -11,8 +11,8 @@
       "id": "party.warrior",
       "display_name": "Warrior",
       "faction": "party",
-      "grid_x": 3,
-      "grid_y": 4,
+      "grid_x": 5,
+      "grid_y": 6,
       "unit": "char.warrior",
       "skills": [
         { "skill": "skill.cleave", "runes": ["rune.fire", "rune.power", "rune.leech"] },
@@ -23,8 +23,8 @@
       "id": "party.archer",
       "display_name": "Archer",
       "faction": "party",
-      "grid_x": 1,
-      "grid_y": 5,
+      "grid_x": 3,
+      "grid_y": 7,
       "unit": "char.archer",
       "skills": [
         { "skill": "skill.arrow", "runes": ["rune.multishot", "rune.fire", "rune.range"] },
@@ -35,8 +35,8 @@
       "id": "party.mage",
       "display_name": "Mage",
       "faction": "party",
-      "grid_x": 2,
-      "grid_y": 6,
+      "grid_x": 4,
+      "grid_y": 8,
       "unit": "char.mage",
       "skills": [
         { "skill": "skill.bolt", "runes": ["rune.lightning", "rune.shock", "rune.duration"] },
@@ -49,8 +49,8 @@
       "id": "enemy.imp",
       "display_name": "Imp",
       "faction": "enemy",
-      "grid_x": 4,
-      "grid_y": 4,
+      "grid_x": 6,
+      "grid_y": 6,
       "unit": "enemy.imp",
       "skills": [
         { "skill": "skill.strike" }
@@ -60,8 +60,8 @@
       "id": "enemy.imp_archer",
       "display_name": "Imp Archer",
       "faction": "enemy",
-      "grid_x": 6,
-      "grid_y": 2,
+      "grid_x": 8,
+      "grid_y": 4,
       "unit": "enemy.imp_archer",
       "skills": [
         { "skill": "skill.arrow" }
@@ -71,8 +71,8 @@
       "id": "enemy.imp_shaman",
       "display_name": "Imp Hexer",
       "faction": "enemy",
-      "grid_x": 5,
-      "grid_y": 1,
+      "grid_x": 7,
+      "grid_y": 3,
       "unit": "enemy.imp_shaman",
       "skills": [
         { "skill": "skill.bolt" }

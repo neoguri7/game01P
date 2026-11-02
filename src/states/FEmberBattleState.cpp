@@ -6,15 +6,19 @@
 #include "core/Logger.h"
 #include "core/InputState.h"
 #include "ecs/components/FCamera.h"
+#include "ecs/components/FFaction.h"
+#include "ecs/components/FHealth.h"
 #include "ecs/components/FTag.h"
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/battle/FBattleSetup.h"
+#include "gameplay/combat/FCombatApply.h"
 #include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/grid/FGridSelection.h"
 #include "gameplay/grid/FGridTypes.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "presentation/FBattleAnim.h"
 #include "presentation/FDungeonArt.h"
 
 std::span<const std::string_view> FEmberBattleState::RequiredSystems() const noexcept
@@ -25,6 +29,7 @@ std::span<const std::string_view> FEmberBattleState::RequiredSystems() const noe
         "TurnSystem",
         "TurnFlowSystem",
         "ActionResolverSystem",
+        "BattleAnimationSystem",
         "CombatOutcomeSystem",
         "EmberCombatHudSystem"
     };
@@ -84,6 +89,8 @@ void FEmberBattleState::OnEnter(entt::registry& Registry)
     }
     game::ApplyRunParty(Registry);
     game::AssignDungeonSprites(Registry, battlefield->units);
+    game::BeginBattleAnim(Registry);
+    game::AttachUnitAnimations(Registry, battlefield->units);
 
     Registry.ctx().erase<game::FActionQueue>();
     Registry.ctx().emplace<game::FActionQueue>();
@@ -102,9 +109,23 @@ void FEmberBattleState::OnEnter(entt::registry& Registry)
             LOG_INFO("Battle auto-play enabled (GAME01P_AUTOPLAY=1).");
         }
     }
+    // A run continued at a reward, shrine or camp step shows the room it just cleared: the enemies lie defeated
+    // and no fight is run. Leaving the camp or choosing an event moves on to a normal battle.
+    const bool continuedAfterRoom = Registry.ctx().get<game::FDungeonRun>().phase != game::EDungeonPhase::Battle;
+    if (continuedAfterRoom) {
+        for (const auto enemy : Registry.view<game::FEnemy, game::FHealth>()) {
+            (void)game::ApplyDamageToUnit(Registry, enemy, Registry.get<game::FHealth>(enemy).current);
+        }
+        auto& outcome = Registry.ctx().get<game::FBattleOutcome>();
+        outcome.resolved = true;
+        outcome.victory = true;
+        game::SettleUnitAnimations(Registry);
+    }
     if (auto* runtime = Registry.ctx().find<game::FTurnRuntime>()) {
         runtime->stop();
-        runtime->requests.push_back(game::FStartTurnSession{Registry.ctx().get<game::FCombatRuntime>().rng.state});
+        if (!continuedAfterRoom) {
+            runtime->requests.push_back(game::FStartTurnSession{Registry.ctx().get<game::FCombatRuntime>().rng.state});
+        }
     }
 
     LOG_INFO("Battle ready: {} unit(s).", battlefield->units.size());
@@ -116,6 +137,7 @@ void FEmberBattleState::OnExit(entt::registry& Registry)
     if (auto* runtime = Registry.ctx().find<game::FTurnRuntime>()) {
         runtime->stop();
     }
+    game::EndBattleAnim(Registry);
     Registry.ctx().erase<game::FActionQueue>();
     Registry.ctx().erase<game::FBattleOutcome>();
     Registry.ctx().erase<game::FCombatLog>();
@@ -135,7 +157,14 @@ EStateTransition FEmberBattleState::Update(entt::registry& Registry, float Delta
     }
 
     auto* run = Registry.ctx().find<game::FDungeonRun>();
+    if (run && run->leaveRequested) {
+        // Back to the menu with the run kept on disk; Continue picks it up from the last autosave.
+        game::SaveDungeonRun(Registry);
+        Registry.ctx().erase<game::FDungeonRun>();
+        return EStateTransition::ToHub;
+    }
     if (run && run->abandonRequested) {
+        game::DeleteDungeonSave(Registry);
         Registry.ctx().erase<game::FDungeonRun>();
         return EStateTransition::ToHub;
     }

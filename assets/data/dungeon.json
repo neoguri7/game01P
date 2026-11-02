@@ -3,7 +3,7 @@
   "passive_tree": "data/passive-tree",
   "rune_drops": ["rune.fire", "rune.range", "rune.swift", "rune.leech", "rune.power", "rune.cold"],
   "balance": {
-    "move_range": 1,
+    "move_range": 2,
     "trap_damage": 8,
     "room_heal": 8,
     "event_heal": 35,
@@ -25,10 +25,10 @@
     {"id": "upgrade.speed", "display_name": "Speed", "stat": "speed", "amount": 1, "cost": 4, "cap": 2}
   ],
   "party": [
-    {"id":"party.warrior","display_name":"Alden / Warrior","unit":"char.warrior","faction":"party","grid_x":1,"grid_y":6},
-    {"id":"party.archer","display_name":"Rowan / Archer","unit":"char.archer","faction":"party","grid_x":2,"grid_y":6},
-    {"id":"party.mage","display_name":"Mira / Mage","unit":"char.mage","faction":"party","grid_x":4,"grid_y":6},
-    {"id":"party.healer","display_name":"Lumen / Healer","unit":"char.healer","faction":"party","grid_x":5,"grid_y":6}
+    {"id":"party.warrior","display_name":"Alden / Warrior","unit":"char.warrior","faction":"party","grid_x":3,"grid_y":9},
+    {"id":"party.archer","display_name":"Rowan / Archer","unit":"char.archer","faction":"party","grid_x":4,"grid_y":9},
+    {"id":"party.mage","display_name":"Mira / Mage","unit":"char.mage","faction":"party","grid_x":6,"grid_y":9},
+    {"id":"party.healer","display_name":"Lumen / Healer","unit":"char.healer","faction":"party","grid_x":7,"grid_y":9}
   ],
   "generation": {
     "room_names": ["The broken gate", "Hall of echoes", "The sunken vault", "Ashen crypt", "Collapsed barracks", "Whispering cistern", "The cinder stair"],
@@ -40,7 +40,7 @@
     "boss_unit": "enemy.guardian",
     "boss_name": "Stone guardian",
     "enemy_count": [3, 4],
-    "obstacle_count": [4, 9],
+    "obstacle_count": [2, 5],
     "trap_count": [1, 3]
   }
 }

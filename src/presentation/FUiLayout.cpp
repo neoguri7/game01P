@@ -65,17 +65,9 @@ std::expected<FUiLayoutSpec, std::string> Parse(const nlohmann::json& document) 
 
     const auto bands = ParseInsets(document.at("bands"), "bands");
     if (!bands) return std::unexpected(bands.error());
-    const auto& frame = document.at("frame");
-    const auto slice = ParseInsets(frame.at("slice"), "frame.slice");
-    if (!slice) return std::unexpected(slice.error());
     spec.bands = *bands;
-    spec.slice = *slice;
-    spec.texture = frame.at("texture").get<std::string>();
     if (spec.bands.left + spec.bands.right >= spec.minWidth || spec.bands.top + spec.bands.bottom >= spec.designHeight) {
         return std::unexpected("bands leave no viewport");
-    }
-    if (spec.slice.left + spec.slice.right > spec.minWidth || spec.slice.top + spec.slice.bottom > spec.designHeight) {
-        return std::unexpected("frame.slice insets overlap");
     }
 
     const auto& zones = document.at("zones");
@@ -155,6 +147,15 @@ FUiLayout ComputeUiLayout(const FUiLayoutSpec& spec, float screenWidth, float sc
     for (std::size_t index = 0; index < specZones.size(); ++index) {
         layout.zones.*rectZones[index].second = Place(spec.zones.*specZones[index].second, extraX, extraY, scale);
     }
+
+    const auto& zones = layout.zones;
+    float arenaTop = top;
+    float arenaBottom = bottom;
+    for (const FRect* zone : {&zones.title, &zones.turnOrder, &zones.status}) arenaTop = std::max(arenaTop, zone->bottom());
+    for (const FRect* zone : {&zones.party, &zones.unit, &zones.skills, &zones.endTurn, &zones.journal, &zones.hints}) {
+        arenaBottom = std::min(arenaBottom, zone->y);
+    }
+    layout.arena = {left, arenaTop, right - left, std::max(1.f, arenaBottom - arenaTop)};
     return layout;
 }
 

@@ -973,8 +973,8 @@ struct FArena {
         return actions;
     }
 
-    void trap(int x, int y) { registry.ctx().get<game::FGridTerrain>().cells[static_cast<std::size_t>(y * 8 + x)] = game::ETile::Trap; }
-    void wall(int x, int y) { registry.ctx().get<game::FGridTerrain>().cells[static_cast<std::size_t>(y * 8 + x)] = game::ETile::Wall; }
+    void trap(int x, int y) { registry.ctx().get<game::FGridTerrain>().cells[static_cast<std::size_t>(y * game::kGridWidth + x)] = game::ETile::Trap; }
+    void wall(int x, int y) { registry.ctx().get<game::FGridTerrain>().cells[static_cast<std::size_t>(y * game::kGridWidth + x)] = game::ETile::Wall; }
 };
 
 [[nodiscard]] const game::FActionRequest* AsSkill(const std::optional<game::FBattleAction>& action) {

@@ -4,17 +4,11 @@
 #include <cmath>
 
 namespace game {
-namespace {
-
-// Block thickness under the diamond face of the isometric ground tiles.
-constexpr float kTileThickness = 12.f;
-
-} // namespace
 
 FIsoView MakeIsoView(const FGridMetrics& metrics, const FIsoViewport& viewport) noexcept {
     const float span = static_cast<float>(metrics.width + metrics.height);
     const float mapWidth = span * kIsoHalfWidth;
-    const float mapHeight = span * kIsoHalfHeight + kTileThickness;
+    const float mapHeight = span * kIsoHalfHeight;
     const float availableWidth = std::max(1.f, viewport.width - 32.f);
     const float availableHeight = std::max(1.f, viewport.height);
     const float fit = std::min(availableWidth / mapWidth, availableHeight / mapHeight);

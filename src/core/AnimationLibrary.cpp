@@ -28,6 +28,8 @@ enum EClipField : std::size_t {
     Fps,
     Loop,
     Durations,
+    AnchorX,
+    AnchorY,
     FieldCount
 };
 
@@ -42,6 +44,8 @@ constexpr std::array<FContentField, FieldCount> ClipFields{{
     {"fps", EContentFieldType::Number, false},
     {"loop", EContentFieldType::Boolean, true},
     {"durations", EContentFieldType::NumberArray, false},
+    {"anchor_x", EContentFieldType::Number, false},
+    {"anchor_y", EContentFieldType::Number, false},
 }};
 
 bool ReadInteger(const FContentRow& row, std::size_t field, int& output) {
@@ -147,9 +151,18 @@ bool FAnimationLibrary::Initialize(entt::registry& registry, std::string_view as
             return false;
         }
 
+        const bool hasAnchorX = row.at(AnchorX) != nullptr;
+        if (hasAnchorX != (row.at(AnchorY) != nullptr)) {
+            LOG_ERROR("Animation clip '{}': anchor_x and anchor_y come as a pair.", clipId);
+            return false;
+        }
+
         FAnimClip clip;
         clip.texture = *textureId;
         clip.loop = row.boolean(Loop, true);
+        clip.anchor = hasAnchorX
+            ? glm::vec2{static_cast<float>(row.number(AnchorX, 0.0)), static_cast<float>(row.number(AnchorY, 0.0))}
+            : glm::vec2{static_cast<float>(frameWidth) * .5f, static_cast<float>(frameHeight) * .5f};
         clip.frames.reserve(static_cast<std::size_t>(frameCount));
         for (int frame = 0; frame < frameCount; ++frame) {
             const double duration = hasFps ? fpsDuration : durations[static_cast<std::size_t>(frame)];

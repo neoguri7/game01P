@@ -24,7 +24,7 @@ struct FIsoView {
     }
 };
 
-/// Screen rectangle the arena may occupy: the part of the window the HUD frame leaves open.
+/// Screen rectangle the arena may occupy: the part of the window clear of the HUD clusters.
 struct FIsoViewport {
     float x{0.f};
     float y{0.f};

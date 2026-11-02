@@ -15,7 +15,7 @@
 namespace game {
 
 enum class EDungeonPhase { Battle, Reward, Event, Camp, Defeat };
-enum class EMenuRequest { None, Start, Quit };
+enum class EMenuRequest { None, Start, Continue, Quit };
 
 struct FMenuRequest {
     EMenuRequest value{EMenuRequest::None};
@@ -79,7 +79,8 @@ struct FDungeonRun {
     int materials{0};
     EDungeonPhase phase{EDungeonPhase::Battle};
     bool advanceRequested{false};
-    bool abandonRequested{false};
+    bool abandonRequested{false};  // ends the run and deletes its save
+    bool leaveRequested{false};    // back to the menu, keeping the save to continue from
     std::string roomName;
     std::string message;
     std::vector<FRunMember> party;
@@ -92,7 +93,26 @@ struct FDungeonCheckpoint {
     std::string error;
 };
 
-bool InitializeDungeon(entt::registry& registry, std::string checkpointPath = {});
+/// The in-progress expedition's save slot. It is rewritten at every room start and every reward/event/camp step.
+/// Continuing restarts the room the run was in from its beginning: rooms are generated from the saved seed.
+struct FDungeonSave {
+    std::string path;
+    bool exists{false};  // a valid save is waiting; the fields below describe it
+    int depth{0};
+    int room{0};
+    EDungeonPhase phase{EDungeonPhase::Battle};
+    std::string savedAt;
+    std::string error;
+};
+
+/// `savePath` defaults to the run save next to the checkpoint file (or the preference directory).
+bool InitializeDungeon(entt::registry& registry, std::string checkpointPath = {}, std::string savePath = {});
+/// Writes the current run to its save slot. A no-op without a run or a configured slot.
+bool SaveDungeonRun(entt::registry& registry);
+/// Removes the save: the expedition was lost or ended on purpose.
+void DeleteDungeonSave(entt::registry& registry);
+/// Replaces the registry's run with the saved one. On failure the run is untouched and `FDungeonSave::error` says why.
+[[nodiscard]] bool ContinueDungeonRun(entt::registry& registry);
 void StartDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh = false);
 [[nodiscard]] nlohmann::json BuildDungeonBattlefield(entt::registry& registry);
 void ApplyRunParty(entt::registry& registry);
