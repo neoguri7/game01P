@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -13,6 +14,7 @@
 #include "ecs/components/FHealth.h"
 #include "ecs/components/FSkillLoadout.h"
 #include "ecs/components/FStats.h"
+#include "gameplay/combat/FBattleCommand.h"
 #include "gameplay/combat/FBattleEvents.h"
 #include "gameplay/combat/FCombatApply.h"
 #include "gameplay/combat/FCombatQuery.h"
@@ -23,6 +25,7 @@
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/grid/FGridQuery.h"
 #include "gameplay/grid/FGridTerrain.h"
 #include "ecs/components/FPosition.h"
@@ -32,51 +35,117 @@ namespace game::ecs {
 
 /// Applies queued battle actions: validates the actor, AP, target side and range, then resolves the
 /// skill through the rune pipeline onto every affected target, or moves along a collision-checked path.
+/// Every drained command produces one recorded FCommandResult (ECommandReject + the exact player-facing
+/// text); the drain of a resolved battle consumes the queue without a single new FCombatLog line (WP-06).
 struct ActionResolverSystem {
     void update(entt::registry& registry, float /*deltaTime*/) {
         auto* queue = registry.ctx().find<FActionQueue>();
+        if (queue == nullptr) {
+            return;
+        }
         auto* content = registry.ctx().find<gameplay::FContentRegistry>();
         auto* outcome = registry.ctx().find<FBattleOutcome>();
-        if (!queue || queue->pending.empty() || !content || (outcome && outcome->resolved)) {
+        auto* log = registry.ctx().find<FCombatLog>();
+        auto* outbox = registry.ctx().find<FCommandOutbox>();
+        auto* results = registry.ctx().find<FCommandResults>();
+
+        const bool decided = outcome != nullptr && outcome->resolved;
+        if (!decided && content == nullptr) {
+            return; // cannot resolve yet; the queue waits for the content to exist
+        }
+        if (queue->pending.empty()) {
+            // P6-1: meta without a batch is stale provenance (the queue is re-emplaced per battle, the
+            // outbox is not) — it would desync the next API batch's pairing. Clear it.
+            if (outbox != nullptr) {
+                outbox->meta.clear();
+            }
             return;
         }
 
-        const std::vector<FBattleAction> requests = std::move(queue->pending);
+        // One batch per update, decided or not: every drained command is recorded in its queue order.
+        std::vector<FBattleAction> requests = std::move(queue->pending);
         queue->pending.clear();
 
-        auto* log = registry.ctx().find<FCombatLog>();
-        for (const auto& request : requests) {
-            std::visit([&](const auto& typed) {
-                const auto* runtime = registry.ctx().find<FTurnRuntime>();
-                const auto snapshot = runtime ? runtime->controller.snapshot() : FTurnSnapshot{};
-                if (!snapshot.currentTurn || typed.token != *snapshot.currentTurn || typed.actor != typed.token.actor) {
-                    Reject(log, "Not your turn: stale action rejected.");
-                    return;
-                }
-                if constexpr (std::is_same_v<std::decay_t<decltype(typed)>, FMoveRequest>) {
-                    Move(registry, typed, log);
-                } else {
-                    Resolve(registry, typed, *content, log);
-                }
-            }, request);
+        // P6-1 pairing: 1:1 only when the parallel FIFO holds exactly one meta per command; any other size
+        // — direct pushes mixed in, a lost drain — marks the whole batch Unknown and never guesses by
+        // index. The outbox is consumed either way.
+        std::vector<FCommandMeta> metas;
+        if (outbox != nullptr) {
+            if (outbox->meta.size() == requests.size()) {
+                metas = std::move(outbox->meta);
+            }
+            outbox->meta.clear();
+        }
+
+        for (std::size_t index = 0; index < requests.size(); ++index) {
+            const FBattleAction& request = requests[index];
+            const FCommandMeta meta = index < metas.size() ? metas[index] : FCommandMeta{};
+            FRejection rejection;
+            if (decided) {
+                // Drain (P6-3): a decided battle consumes its queue without resolving anything and without
+                // writing a single FCombatLog line — the pre-WP-06 texts are the only drama in the feed.
+                rejection = FRejection{ECommandReject::OutcomeResolved, kOutcomeResolvedReason};
+            } else {
+                rejection = std::visit([&](const auto& typed) -> FRejection {
+                    const auto* runtime = registry.ctx().find<FTurnRuntime>();
+                    const auto snapshot = runtime ? runtime->controller.snapshot() : FTurnSnapshot{};
+                    if (!snapshot.currentTurn || typed.token != *snapshot.currentTurn) {
+                        return Reject(log, ECommandReject::StaleTurn, "Not your turn: stale action rejected.");
+                    }
+                    if (typed.actor != typed.token.actor) {
+                        // Same text as a stale turn on purpose: the player gets one "not your turn" reason.
+                        return Reject(log, ECommandReject::NotActor, "Not your turn: stale action rejected.");
+                    }
+                    if constexpr (std::is_same_v<std::decay_t<decltype(typed)>, FMoveRequest>) {
+                        return Move(registry, typed, log);
+                    } else {
+                        return Resolve(registry, typed, *content, log);
+                    }
+                }, request);
+            }
+            if (results != nullptr) {
+                RecordCommandResult(*results, CommandSessionId(request),
+                    FCommandResult{FBattleCommand{request, meta.source, meta.seq}, rejection.code, rejection.reason});
+            }
         }
     }
 
     [[nodiscard]] std::string name() const { return "ActionResolverSystem"; }
 
 private:
-    static void Move(entt::registry& registry, const FMoveRequest& request, FCombatLog* log) {
+    /// One drained command's outcome: the standardized code plus the exact player-facing text the
+    /// pre-WP-06 log line carried. Acceptance is {None, ""}. Every reject site MUST name its code here —
+    /// a site without one cannot compile.
+    struct FRejection {
+        ECommandReject code{ECommandReject::None};
+        std::string reason;
+    };
+
+    static FRejection Reject(FCombatLog* log, ECommandReject code, std::string reason) {
+        if (log != nullptr) {
+            log->push(reason);
+        }
+        return FRejection{code, std::move(reason)};
+    }
+
+    static FRejection Move(entt::registry& registry, const FMoveRequest& request, FCombatLog* log) {
         auto* points = registry.try_get<FActionPoints>(request.actor);
         auto* cell = registry.try_get<FGridPosition>(request.actor);
         auto* position = registry.try_get<FPosition>(request.actor);
         const auto* grid = registry.ctx().find<FGridMetrics>();
         const auto* terrain = registry.ctx().find<FGridTerrain>();
         if (!IsAlive(registry, request.actor) || !points || !cell || !position || !grid) {
-            return Reject(log, "Cannot move: unit or grid is unavailable.");
+            return Reject(log, ECommandReject::Unavailable, "Cannot move: unit or grid is unavailable.");
         }
-        if (points->move <= 0) return Reject(log, "No movement AP remaining.");
+        if (points->move <= 0) {
+            return Reject(log, ECommandReject::NoAp, "No movement AP remaining.");
+        }
         const auto path = FindGridPath(registry, request.actor, request.destination, terrain ? terrain->moveRange : 1);
-        if (path.empty()) return Reject(log, "Blocked: wall, occupied cell or movement range.");
+        if (path.empty()) {
+            // P6-4: FindGridPath reports wall, occupancy and range as one empty result — there is no
+            // separate "Occupied" code, the distinction cannot be made from here.
+            return Reject(log, ECommandReject::Blocked, "Blocked: wall, occupied cell or movement range.");
+        }
         --points->move;
         std::vector<FGridPosition> walked{*cell};
         for (const auto step : path) {
@@ -93,23 +162,18 @@ private:
         }
         if (log) log->push(UnitDisplayName(registry, request.actor) + " moved.");
         Emit(registry, FBattleEvent{.kind = FBattleEvent::EKind::Move, .actor = request.actor, .path = std::move(walked)});
+        return FRejection{};
     }
 
     static void Emit(entt::registry& registry, FBattleEvent event) {
         if (auto* events = registry.ctx().find<FBattleEvents>()) events->pending.push_back(std::move(event));
     }
 
-    static void Reject(FCombatLog* log, const std::string& reason) {
-        if (log != nullptr) {
-            log->push(reason);
-        }
-    }
-
-    static void Resolve(entt::registry& registry, const FActionRequest& request,
-                        const gameplay::FContentRegistry& content, FCombatLog* log) {
+    static FRejection Resolve(entt::registry& registry, const FActionRequest& request,
+                              const gameplay::FContentRegistry& content, FCombatLog* log) {
         const entt::entity actor = request.actor;
         if (!IsAlive(registry, actor)) {
-            return Reject(log, "Cannot act: knocked out.");
+            return Reject(log, ECommandReject::Dead, "Cannot act: knocked out.");
         }
 
         const auto* loadout = registry.try_get<FSkillLoadout>(actor);
@@ -117,7 +181,7 @@ private:
         const auto* stats = registry.try_get<FStats>(actor);
         const auto* actorCell = registry.try_get<FGridPosition>(actor);
         if (loadout == nullptr || points == nullptr || stats == nullptr || actorCell == nullptr) {
-            return Reject(log, "Cannot act: missing combat components.");
+            return Reject(log, ECommandReject::Unavailable, "Cannot act: missing combat components.");
         }
 
         const FSkillSlot* slot = nullptr;
@@ -128,17 +192,18 @@ private:
             }
         }
         if (slot == nullptr) {
-            return Reject(log, UnitDisplayName(registry, actor) + ": unknown skill.");
+            return Reject(log, ECommandReject::UnknownSkill, UnitDisplayName(registry, actor) + ": unknown skill.");
         }
 
         const auto resolved = ResolveSkillSlot(*slot, content);
         if (!resolved) {
-            return Reject(log, UnitDisplayName(registry, actor) + ": skill resolution failed.");
+            return Reject(log, ECommandReject::SkillResolutionFailed,
+                          UnitDisplayName(registry, actor) + ": skill resolution failed.");
         }
 
         const bool cellTarget = resolved->target == "cell";
         if (!cellTarget && !IsAlive(registry, request.target)) {
-            return Reject(log, UnitDisplayName(registry, actor) + ": no living target.");
+            return Reject(log, ECommandReject::BadTarget, UnitDisplayName(registry, actor) + ": no living target.");
         }
         const bool targetIsParty = registry.all_of<FPartyMember>(request.target);
         // Target sides are read from the CASTER's perspective: "enemy"/"cell" hit the other side,
@@ -147,22 +212,23 @@ private:
         const bool targetsOwnSide = resolved->target == "ally" || resolved->target == "self";
         const bool affectsParty = targetsOwnSide ? casterIsParty : !casterIsParty;
         if (!cellTarget && affectsParty != targetIsParty) {
-            return Reject(log, "Wrong target faction for this skill.");
+            return Reject(log, ECommandReject::WrongFaction, "Wrong target faction for this skill.");
         }
         if (resolved->target == "self" && request.target != actor) {
-            return Reject(log, "This skill can only target its caster.");
+            return Reject(log, ECommandReject::BadTarget, "This skill can only target its caster.");
         }
 
         const auto* targetCell = cellTarget ? &request.cell : registry.try_get<FGridPosition>(request.target);
         const auto* metrics = registry.ctx().find<FGridMetrics>();
         if (!metrics || !targetCell || !IsInsideGrid(*metrics, targetCell->x, targetCell->y)) {
-            return Reject(log, "Target is outside the battlefield.");
+            return Reject(log, ECommandReject::OutsideGrid, "Target is outside the battlefield.");
         }
         if (targetCell == nullptr || !IsInRange(*actorCell, *targetCell, resolved->range)) {
-            return Reject(log, UnitDisplayName(registry, actor) + ": target out of range.");
+            return Reject(log, ECommandReject::OutOfRange,
+                          UnitDisplayName(registry, actor) + ": target out of range.");
         }
         if (!HasGridLineOfSight(registry, *actorCell, *targetCell)) {
-            return Reject(log, "Line of sight blocked by stone.");
+            return Reject(log, ECommandReject::NoLos, "Line of sight blocked by stone.");
         }
 
         // 프리뷰 = 실제 계산(WP-03): 갱신된 컴포넌트로 같은 함수 경로(ComputeSkillDamage/Heal + 같은
@@ -170,11 +236,12 @@ private:
         // AP를 소모하지 않는다. 적용·로그는 아래에서 이 결과를 그대로 쓴다 — 두 번째 계산이 없다.
         const auto preview = PreviewSkill(registry, actor, *resolved, *targetCell, *actorCell);
         if (!preview) {
-            return Reject(log, UnitDisplayName(registry, actor) + ": skill preview failed.");
+            return Reject(log, ECommandReject::PreviewFailed,
+                          UnitDisplayName(registry, actor) + ": skill preview failed.");
         }
 
         if (points->skill < resolved->apCost) {
-            return Reject(log, UnitDisplayName(registry, actor) + ": not enough skill AP ("
+            return Reject(log, ECommandReject::NoAp, UnitDisplayName(registry, actor) + ": not enough skill AP ("
                 + std::to_string(points->skill) + "/" + std::to_string(resolved->apCost) + ")");
         }
         points->skill -= resolved->apCost;
@@ -262,10 +329,17 @@ private:
                 if (definition == nullptr) continue;
                 if (auto* active = registry.try_get<FActiveStatuses>(target.unit)) {
                     ApplyStatus(*active, *definition, status.durationDelta, status.magnitudeDelta);
+                    // WP-06 (P6-6, ★3): the application can change what the sheet derives (WP-13's
+                    // speed_pct reads it on the next collect). Ember-only guard: forest passives are added
+                    // inline in FBattleState and a refresh would flatten them back to base (FCombatSheet.h).
+                    if (registry.ctx().contains<FDungeonRun>()) {
+                        RefreshCombatSheet(registry, target.unit, content);
+                    }
                 }
             }
         }
         Emit(registry, std::move(event));
+        return FRejection{};
     }
 };
 

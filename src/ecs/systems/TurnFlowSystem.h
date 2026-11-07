@@ -14,13 +14,16 @@
 #include "ecs/components/FSkillLoadout.h"
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/combat/FAutoAction.h"
+#include "gameplay/combat/FBattleCommand.h"
 #include "gameplay/combat/FBattleFlow.h"
 #include "gameplay/combat/FCombatApply.h"
 #include "gameplay/combat/FCombatQuery.h"
+#include "gameplay/combat/FCombatSheet.h"
 #include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/combat/FEffectHooks.h"
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FDungeonRun.h"
 
 namespace game::ecs {
 
@@ -112,6 +115,13 @@ struct TurnFlowSystem {
         if (auto* active = registry.try_get<FActiveStatuses>(actor); turnStarted && active && !active->effects.empty()) {
             const std::vector<const gameplay::FStatusContent*> definitions = CollectStatuses(*active, *content);
             const FStatusTickResult tick = TickStatuses(*active, definitions, combat->rng);
+            // WP-06 (P6-6, ★3): the tick can change what the sheet derives (WP-13's speed_pct reads it on
+            // its next collect), and the refresh must beat both the status-death early return below and
+            // the skip turn. Idempotent; Ember-only guard — a forest refresh would flatten the inline
+            // passives to base (FCombatSheet.h × FBattleState.cpp).
+            if (registry.ctx().contains<FDungeonRun>()) {
+                RefreshCombatSheet(registry, actor, *content);
+            }
             if (tick.damage > 0) {
                 if (log) log->push(UnitDisplayName(registry, actor) + " takes " + std::to_string(tick.damage) + " status damage");
                 if (ApplyDamageToUnit(registry, actor, tick.damage) && log) {
@@ -161,8 +171,15 @@ struct TurnFlowSystem {
         }
 
         if (auto request = ChooseAutoAction(registry, token, !isParty, *content)) {
+            // WP-06: one submit path — the command states its source and issues its session seq. A refused
+            // submit (PresentationBusy / OutcomeResolved) must cost nothing: no action was taken, the cap
+            // and the turn stay untouched, and the same plan retries next frame. thinkDelay 0 takes away
+            // the 0.45s think pause just restored above, so a non-autoplay enemy retries immediately.
+            if (!SubmitBattleCommand(registry, FBattleCommand{*request, ECommandSource::Ai, 0})) {
+                combat->thinkDelay = 0.f;
+                return;
+            }
             ++combat->autoActionsThisTurn;
-            queue->pending.push_back(*request);
         } else {
             runtime->requests.push_back(FEndTurn{token});
         }
