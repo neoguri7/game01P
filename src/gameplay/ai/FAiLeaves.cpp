@@ -191,6 +191,11 @@ EBtStatus FRetreat::update(FBtContext& ctx) const {
     if (own.counter == 1) {
         return VerifyIssued(ctx, FAiPendingAction::EKind::Move);
     }
+    // WP-14: generalise the Retreat node: a unit already out of every hostile's reach gains nothing from
+    // backing away, so it stays put instead of kiting across the floor.
+    if (const FUnitView* self = ctx.world.self(); self != nullptr && DangerAt(ctx, self->cell) == 0) {
+        return EBtStatus::Failure;
+    }
     const FAiTuning& tuning = ctx.tuning;
     const EBtStatus result = IssueBestMove(ctx, "retreat", [&](const FGridPosition& cell) {
         return tuning.rangeKeepPoints * std::min(NearestHostileDistance(ctx, cell), kRetreatDistanceCap) -

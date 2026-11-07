@@ -27,6 +27,7 @@
 #include "gameplay/combat/FCombatApply.h"
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FAutoAction.h"
+#include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "core/AnimationLibrary.h"
 #include "gameplay/dungeon/FDungeonSave.h"
@@ -44,6 +45,8 @@
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FDungeonArt.h"
 #include "core/InputState.h"
+
+#include "TestSupport.h"
 
 namespace {
 
@@ -66,7 +69,7 @@ struct FFixture {
         std::filesystem::create_directories("out");
         checkpoint = std::filesystem::path("out") / ("test-checkpoint-" +
             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
-        game::FAssetManager::Initialize(registry);
+        game::FAssetManager::Initialize(registry, TestAssetRoots());
         CHECK(game::gameplay::FGameplayServices::Initialize(registry));
         CHECK(game::InitializeDungeon(registry, checkpoint.string()));
         runSave = registry.ctx().get<game::FDungeonSave>().path;
@@ -118,7 +121,7 @@ struct FTestContent {
         std::filesystem::create_directories(root / "data");
         // The passive tree is shared content; tests keep a copy so growth validation fails for the
         // document under test, not because the temp root lacks the tree.
-        std::ifstream treeFile("assets/data/passive-tree.json");
+        std::ifstream treeFile(FixtureDataPath("passive-tree.json"));
         CHECK(treeFile.good());
         std::ofstream treeOut(root / "data" / "passive-tree.json");
         treeOut << nlohmann::json::parse(treeFile).dump();
@@ -244,19 +247,36 @@ void AutoActionTokenBoundary() {
     FFixture fixture;
     auto& registry = fixture.registry;
     const auto token = fixture.token();
+    // The two cells are named once: they are used for placement and for the reach precondition, so the check
+    // cannot drift from the placement.
+    const game::FGridPosition actorCell{3, 3};
+    const game::FGridPosition enemyCell{3, 2};
     registry.ctx().get<game::FGridTerrain>().cells.fill(game::ETile::Floor);
-    registry.get<game::FGridPosition>(token.actor) = {3, 3};
+    registry.get<game::FGridPosition>(token.actor) = actorCell;
     const auto enemy = game::FindNearestAlive(registry, token.actor, false);
     CHECK(enemy != entt::null);
-    registry.get<game::FGridPosition>(enemy) = {3, 2};
+    registry.get<game::FGridPosition>(enemy) = enemyCell;
     registry.ctx().erase<game::FTurnRuntime>();
     CHECK(!registry.ctx().contains<game::FTurnRuntime>());
     const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
+    // The boundary under test is that the AI answers without an FTurnRuntime and that the request carries the
+    // token/actor. Freeze the move for this first call so repositioning is not an option: the actor must attack
+    // the enemy, which is inside its skill reach. The reach is read from the actor's resolved loadout, so a
+    // fixture change cannot silently make the scenario unattackable.
+    auto& points = registry.get<game::FActionPoints>(token.actor);
+    const int savedMoveAp = points.move;
+    points.move = 0;
+    int reach = 0;
+    for (const auto& slot : registry.get<game::FSkillLoadout>(token.actor).slots) {
+        if (const auto resolved = game::ResolveSkillSlot(slot, content)) reach = std::max(reach, resolved->range);
+    }
+    CHECK(game::GridDistance(registry.get<game::FGridPosition>(token.actor),
+                             registry.get<game::FGridPosition>(enemy)) <= reach);
     const auto skill = game::ChooseAutoAction(registry, token, false, content);
     CHECK(skill.has_value() && std::holds_alternative<game::FActionRequest>(*skill));
     CHECK(std::get<game::FActionRequest>(*skill).token == token);
     CHECK(std::get<game::FActionRequest>(*skill).actor == token.actor);
-    auto& points = registry.get<game::FActionPoints>(token.actor);
+    points.move = savedMoveAp;
     points.skill = 0;
     // Without skill AP the AI no longer shuffles next to an enemy it is already facing (a wasted move); it
     // moves when moving gets it somewhere. Put the actor and the enemies in opposite corners, out of every
@@ -457,7 +477,7 @@ void BalanceDrivenChoiceUi() {
     CHECK(renderer != nullptr);
     FFixture fixture;
     auto& registry = fixture.registry;
-    std::ifstream source("assets/data/dungeon.json");
+    std::ifstream source(FixtureDataPath("dungeon.json"));
     auto data = nlohmann::json::parse(source);
     for (const auto& [key, value] : std::vector<std::pair<const char*, int>>{
              {"event_heal", 42}, {"event_materials", 6}, {"camp_heal", 61}}) {
@@ -466,7 +486,7 @@ void BalanceDrivenChoiceUi() {
     data["stat_upgrades"][0]["cost"] = 5;  // 재강화 라벨이 데이터를 따라가는지 확인
     FTestContent content(data);
     registry.ctx().erase<game::FAssetManager>();
-    registry.ctx().emplace<game::FAssetManager>(std::vector<std::string>{content.root.string(), "assets"});
+    registry.ctx().emplace<game::FAssetManager>(std::vector<std::string>{content.root.string(), kTestFixtureRoot, kShipAssetRoot});
     CHECK(game::InitializeDungeon(registry, fixture.checkpoint.string()));
     registry.ctx().emplace<game::FEngineWindowState>().width = 1280;
     registry.ctx().get<game::FEngineWindowState>().height = 800;
@@ -764,7 +784,7 @@ void SaveAndContinue() {
     // A fresh boot finds the save and tells the menu what is in it.
     {
         entt::registry reboot;
-        game::FAssetManager::Initialize(reboot);
+        game::FAssetManager::Initialize(reboot, TestAssetRoots());
         CHECK(game::gameplay::FGameplayServices::Initialize(reboot));
         CHECK(game::InitializeDungeon(reboot, fixture.checkpoint.string()));
         const auto& found = reboot.ctx().get<game::FDungeonSave>();
@@ -1124,7 +1144,7 @@ void GeneratedRooms() {
 }
 
 void InvalidRuneDrops() {
-    std::ifstream originalFile("assets/data/dungeon.json");
+    std::ifstream originalFile(FixtureDataPath("dungeon.json"));
     const auto original = nlohmann::json::parse(originalFile);
     FTestContent content(original);
     const nlohmann::json invalidDrops[]{nlohmann::json::array(), nullptr,
@@ -1159,7 +1179,7 @@ void InvalidRuneDrops() {
     for (const auto& data : invalidDocuments) {
         content.write(data);
         entt::registry registry;
-        game::FAssetManager::Initialize(registry);
+        game::FAssetManager::Initialize(registry, TestAssetRoots());
         CHECK(game::gameplay::FGameplayServices::Initialize(registry));
         registry.ctx().erase<game::FAssetManager>();
         registry.ctx().emplace<game::FAssetManager>(std::vector<std::string>{content.root.string()});

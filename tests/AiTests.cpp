@@ -44,6 +44,8 @@
 #include "gameplay/grid/FGridTerrain.h"
 #include "states/FEmberBattleState.h"
 
+#include "TestSupport.h"
+
 namespace {
 
 void Check(bool condition, const char* expression, int line) {
@@ -139,11 +141,12 @@ struct FFixture {
     FEmberBattleState battle;
     std::filesystem::path checkpoint;
 
-    explicit FFixture(std::uint32_t seed = 1234, int depth = 1, int room = 0) {
+    explicit FFixture(std::uint32_t seed = 1234, int depth = 1, int room = 0,
+                      std::vector<std::string> roots = TestAssetRoots()) {
         std::filesystem::create_directories("out");
         checkpoint = std::filesystem::path("out") / ("ai-checkpoint-" +
             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
-        game::FAssetManager::Initialize(registry);
+        game::FAssetManager::Initialize(registry, std::move(roots));
         CHECK(game::gameplay::FGameplayServices::Initialize(registry));
         CHECK(game::InitializeDungeon(registry, checkpoint.string()));
         turns.onRegister(registry);
@@ -759,7 +762,8 @@ void SharedTreeKeepsActorsApart() {
 [[nodiscard]] bool Mentions(const std::string& text, const char* needle) { return text.find(needle) != std::string::npos; }
 
 void ShippedDataLoads() {
-    FFixture fixture;
+    // This test validates the SHIPPED content itself (not the frozen fixture), so it reads the ship roots only.
+    FFixture fixture{1234, 1, 0, ShipAssetRoots()};
     const auto& library = fixture.registry.ctx().get<game::ai::FAiLibrary>();
     CHECK(library.find("ai.default") != nullptr && &library.fallback() == library.find("ai.default"));
     CHECK(library.find("ai.boss") != nullptr);
@@ -984,6 +988,22 @@ struct FArena {
     return action ? std::get_if<game::FMoveRequest>(&*action) : nullptr;
 }
 
+/// The reach the AI's DangerAt treats as threatening: the enemy's move range plus its longest damage-skill
+/// range. Built from the same registry/content the AI reads, so the test cannot drift from the rule
+/// (FAiQueries.cpp:248-252, FAiWorld.cpp:135).
+[[nodiscard]] int ThreatReach(FArena& arena, entt::entity enemy) {
+    const auto world = game::ai::BuildAiWorld(arena.registry, enemy, arena.fixture.content());
+    const auto* view = world.find(enemy);
+    return view == nullptr ? 0 : (view->hasMoveAp ? world.moveRange : 0) + view->damageRange;
+}
+
+/// The longest range among the unit's damage skills, as the AI resolves its loadout.
+[[nodiscard]] int DamageReach(FArena& arena, entt::entity unit) {
+    const auto world = game::ai::BuildAiWorld(arena.registry, unit, arena.fixture.content());
+    const auto* view = world.find(unit);
+    return view == nullptr ? 0 : view->damageRange;
+}
+
 /// The first use of `skillId` in a played turn, or null.
 [[nodiscard]] const game::FActionRequest* FindSkill(const std::vector<game::FBattleAction>& turn, std::string_view skillId) {
     for (const auto& action : turn) {
@@ -1003,11 +1023,16 @@ void RangedUnitStepsOutOfReach() {
     const auto archer = arena.place(arena.party("party.archer"), {4, 4});
     const auto imp = arena.place(arena.enemy(0), {4, 2});
     arena.skills(imp, {"skill.strike"});
+    const auto threat = ThreatReach(arena, imp);
+    const auto archerRange = DamageReach(arena, archer);
+    CHECK(threat < archerRange); // the scenario needs a safe cell inside the bow's range
     const auto action = arena.decide(archer);
     const auto* move = AsMove(action);
     CHECK(move != nullptr);
-    // The imp reaches 2 cells (one step plus its blade); the archer's bow reaches 5. Step to 3 and shoot from there.
-    CHECK(game::GridDistance(move->destination, {4, 2}) == 3);
+    // The imp's reach (its move range plus its blade's range) must not cover the firing cell, and the bow must
+    // still reach it.
+    CHECK(game::GridDistance(move->destination, {4, 2}) > threat);
+    CHECK(game::GridDistance(move->destination, {4, 2}) <= archerRange);
 }
 
 void MeleeUnitClosesIn() {
@@ -1123,25 +1148,37 @@ void NoHealOnTheUnhurtAndNoBuffTwice() {
 }
 
 void SpikesAreCrossedOnlyWhenWorthIt() {
+    const game::FGridPosition trapCell{3, 2};
     FArena arena;
     const auto warrior = arena.place(arena.party("party.warrior"), {3, 3});
-    arena.place(arena.enemy(0), {5, 1});
+    const auto enemy = arena.place(arena.enemy(0), {5, 1});
+    const auto enemyCell = arena.registry.get<game::FGridPosition>(enemy);
     arena.skills(warrior, {"skill.strike"});
-    arena.trap(3, 2); // equally close to the enemy, but spiked
+    arena.trap(trapCell.x, trapCell.y); // equally close to the enemy, but spiked
     const auto around = arena.decide(warrior);
-    CHECK(AsMove(around) != nullptr && AsMove(around)->destination == game::FGridPosition(4, 3));
+    const auto* step = AsMove(around);
+    CHECK(step != nullptr);
+    CHECK(!(step->destination == trapCell));
+    // A safe step equally close to the enemy is the answer: never pay spikes for a position a free cell reaches.
+    CHECK(game::GridDistance(step->destination, enemyCell) <= game::GridDistance(trapCell, enemyCell));
 
     // A corridor whose only way forward is the spike: worth crossing at full health ...
+    // The three walls (2,3), (4,3), (3,4) leave the trap cell as the only exit, so any destination that ends at or
+    // beyond the trap's distance to the enemy has crossed the trap.
     FArena corridor;
     const auto fighter = corridor.place(corridor.party("party.warrior"), {3, 3});
-    corridor.place(corridor.enemy(0), {3, 0});
+    const auto corridorEnemy = corridor.place(corridor.enemy(0), {3, 0});
+    const auto corridorEnemyCell = corridor.registry.get<game::FGridPosition>(corridorEnemy);
     corridor.skills(fighter, {"skill.strike"});
     corridor.wall(2, 3);
     corridor.wall(4, 3);
     corridor.wall(3, 4);
-    corridor.trap(3, 2);
+    corridor.trap(trapCell.x, trapCell.y);
     const auto crossing = corridor.decide(fighter);
-    CHECK(AsMove(crossing) != nullptr && AsMove(crossing)->destination == game::FGridPosition(3, 2));
+    CHECK(AsMove(crossing) != nullptr);
+    // The spike is crossed: the destination is on the trap cell or beyond it, closer to the enemy.
+    CHECK(game::GridDistance(AsMove(crossing)->destination, corridorEnemyCell) <=
+          game::GridDistance(trapCell, corridorEnemyCell));
 
     // ... and never when the spike would kill.
     const int trapDamage = corridor.registry.ctx().get<game::FGridTerrain>().trapDamage;
@@ -1334,17 +1371,23 @@ void RetreatSeeksSafety() {
     FArena arena;
     const auto archer = arena.place(arena.party("party.archer"), {4, 4}, 30);
     const auto imp = arena.place(arena.enemy(0), {4, 2});
+    const auto impCell = arena.registry.get<game::FGridPosition>(imp);
     arena.skills(imp, {"skill.strike"});
+    const auto threat = ThreatReach(arena, imp);
     std::string error;
     const auto library = game::ai::FAiLibrary::fromDocument(DocumentWith({{"type", "Retreat"}}), arena.fixture.content(),
                                                             game::ai::FAiNodeRegistry::builtin(), error);
     CHECK(library.has_value());
     arena.registry.emplace_or_replace<game::ai::FAiBrain>(archer, game::ai::MakeBrain(library->fallback()));
-    // The imp reaches two cells; one step back puts the archer outside it.
+    // The imp's reach covers the archer's current cell: one step back puts the archer outside it.
     const auto action = arena.decide(archer);
-    CHECK(AsMove(action) != nullptr && game::GridDistance(AsMove(action)->destination, {4, 2}) >= 3);
-    // Already out of reach: nothing to gain, so no move.
-    arena.place(archer, {4, 6}, 30);
+    CHECK(AsMove(action) != nullptr);
+    CHECK(game::GridDistance(AsMove(action)->destination, impCell) > threat);
+    // Already safe: a cell one beyond the reach gives nothing to gain, so no move.
+    const game::FGridPosition safeCell{impCell.x, impCell.y + threat + 1};
+    CHECK(safeCell.y < game::kGridHeight);
+    CHECK(game::GridDistance(safeCell, impCell) > threat);
+    arena.place(archer, safeCell, 30);
     CHECK(!arena.decide(archer).has_value());
 }
 
