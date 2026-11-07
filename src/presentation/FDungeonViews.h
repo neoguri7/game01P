@@ -24,6 +24,10 @@ void DrawGrowthPanel(entt::registry& registry, const FDungeonGrowth& growth, FDu
 /// the flag itself.
 void DrawAbandonConfirm(entt::registry& registry, bool allowLeave, bool viaIntent = false);
 
+/// WP-17: the one-line offer forecast ("next battle room rune offer: guaranteed (pity) / chance 70%"). The
+/// definition lives in FDungeonRewardView.cpp so the reward and camp screens show the same sentence.
+void DrawRuneOfferForecast(entt::registry& registry);
+
 void RenderDungeonRewardView(entt::registry& registry);
 void RenderDungeonEventView(entt::registry& registry);
 void RenderDungeonCampView(entt::registry& registry);

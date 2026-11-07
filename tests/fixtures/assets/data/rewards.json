@@ -1,0 +1,14 @@
+{
+  "_comment": "WP-17 test fixture: deterministic offers for the reward tests. chance 1.0 opens an offer on every monster room and pity_threshold 0 disables pity, so a test that wants a miss or a pity force overrides the loaded tables instead of this file.",
+  "schema_version": 1,
+  "rune_offer": {
+    "count": 3,
+    "chance": 1.0,
+    "pity_threshold": 0,
+    "min_legal_candidates": 2,
+    "skip_refund_materials": 1,
+    "duplicate_refund_materials": 1,
+    "duplicate_policy": "refund"
+  },
+  "boss_offer": "guaranteed"
+}

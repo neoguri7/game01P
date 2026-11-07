@@ -9,7 +9,8 @@
       "power_delta": 1,
       "requires_any_tags": ["Attack", "Spell"],
       "excludes_tags": ["Heal", "Support"],
-      "adds_tags": ["Fire"]
+      "adds_tags": ["Fire"],
+      "drop_weight": 10
     },
     {
       "id": "rune.cold",
@@ -18,7 +19,8 @@
       "power_delta": 1,
       "requires_any_tags": ["Attack", "Spell"],
       "excludes_tags": ["Heal", "Support"],
-      "adds_tags": ["Cold"]
+      "adds_tags": ["Cold"],
+      "drop_weight": 10
     },
     {
       "id": "rune.lightning",
@@ -27,106 +29,123 @@
       "power_delta": 1,
       "requires_any_tags": ["Attack", "Spell"],
       "excludes_tags": ["Heal", "Support"],
-      "adds_tags": ["Lightning"]
+      "adds_tags": ["Lightning"],
+      "drop_weight": 10
     },
     {
       "id": "rune.multishot",
       "display_name": "Lesser Multiple Projectiles",
       "shape_override": "spread",
-      "requires_all_tags": ["Projectile"]
+      "requires_all_tags": ["Projectile"],
+      "drop_weight": 8
     },
     {
       "id": "rune.pierce",
       "display_name": "Pierce",
       "shape_override": "pierce",
-      "requires_all_tags": ["Projectile"]
+      "requires_all_tags": ["Projectile"],
+      "drop_weight": 8
     },
     {
       "id": "rune.zone",
       "display_name": "Lingering Zone",
       "shape_override": "zone",
       "requires_all_tags": ["Spell"],
-      "adds_tags": ["Zone"]
+      "adds_tags": ["Zone"],
+      "drop_weight": 6
     },
     {
       "id": "rune.area",
       "display_name": "Increased Area of Effect",
       "area_radius_delta": 1,
-      "requires_all_tags": ["Zone"]
+      "requires_all_tags": ["Zone"],
+      "drop_weight": 6
     },
     {
       "id": "rune.concentrated",
       "display_name": "Concentrated Effect",
       "area_radius_delta": -1,
       "power_delta": 3,
-      "requires_all_tags": ["Zone"]
+      "requires_all_tags": ["Zone"],
+      "drop_weight": 6
     },
     {
       "id": "rune.power",
       "display_name": "Brutality",
-      "power_delta": 2
+      "power_delta": 2,
+      "drop_weight": 10
     },
     {
       "id": "rune.swift",
       "display_name": "Quicken",
-      "ap_delta": -1
+      "ap_delta": -1,
+      "drop_weight": 10
     },
     {
       "id": "rune.range",
       "display_name": "Far Reach",
-      "range_delta": 1
+      "range_delta": 1,
+      "drop_weight": 10
     },
     {
       "id": "rune.duration",
       "display_name": "Persistence",
       "status_duration_delta": 1,
-      "requires_any_tags": ["Duration", "Fire", "Cold", "Lightning"]
+      "requires_any_tags": ["Duration", "Fire", "Cold", "Lightning"],
+      "drop_weight": 6
     },
     {
       "id": "rune.ember",
       "display_name": "Burning Embers",
       "requires_all_tags": ["Fire"],
       "status_id": "status.burn",
-      "status_magnitude_delta": 2
+      "status_magnitude_delta": 2,
+      "drop_weight": 4
     },
     {
       "id": "rune.frostbite",
       "display_name": "Deep Frostbite",
       "requires_all_tags": ["Cold"],
       "status_id": "status.freeze",
-      "status_duration_delta": 1
+      "status_duration_delta": 1,
+      "drop_weight": 4
     },
     {
       "id": "rune.shock",
       "display_name": "Amplified Shock",
       "requires_all_tags": ["Lightning"],
       "status_id": "status.paralyze",
-      "status_magnitude_delta": 20
+      "status_magnitude_delta": 20,
+      "drop_weight": 4
     },
     {
       "id": "rune.leech",
       "display_name": "Life Leech",
       "life_on_hit": 2,
-      "requires_any_tags": ["Attack"]
+      "requires_any_tags": ["Attack"],
+      "drop_weight": 10
     },
     {
       "id": "rune.inferno",
       "display_name": "Inferno",
       "power_delta": 2,
-      "requires_all_tags": ["Fire"]
+      "requires_all_tags": ["Fire"],
+      "drop_weight": 4
     },
     {
       "id": "rune.glacial",
       "display_name": "Glacial Hammer",
       "power_delta": 2,
-      "requires_all_tags": ["Cold"]
+      "requires_all_tags": ["Cold"],
+      "drop_weight": 4
     },
     {
       "id": "rune.precision",
       "display_name": "Precision",
       "power_delta": 1,
       "range_delta": 1,
-      "requires_all_tags": ["Projectile"]
+      "requires_all_tags": ["Projectile"],
+      "drop_weight": 4
     }
   ]
 }

@@ -1,5 +1,7 @@
 #include "gameplay/data/FRuneContent.h"
 
+#include <algorithm>
+
 namespace game::gameplay {
 
 FRuneContent decodeRune(const FContentRow& row) {
@@ -24,6 +26,8 @@ FRuneContent decodeRune(const FContentRow& row) {
     // WP-04: typed hooks (optional). The decoder cannot fail; an unknown event name is kept for boot
     // validation, and the source/id provenance is stamped here.
     rune.hooks = DecodeHooks(row.objectArray(kRuneFieldHooks), "rune:" + rune.id);
+    // WP-17: a weight below 1 would make a rune undrawable; the floor keeps authored data honest.
+    rune.dropWeight = std::max(1, row.integer(kRuneFieldDropWeight, 1));
     return rune;
 }
 

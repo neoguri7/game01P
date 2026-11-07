@@ -45,6 +45,10 @@ struct FRuneContent {
     // WP-04: the rune's own typed hooks (optional field in JSON, authored by WP-22). They fire after the
     // skill's own hooks, in equip order; `source` is stamped "rune:<id>" at decode.
     std::vector<FHook> hooks;
+
+    // WP-17: relative chance weight when this rune enters a reward offer pool (optional field, default 1).
+    // It only biases the draw; the offer size and legality gate stay on rewards.json.
+    int dropWeight{1};
 };
 
 /// Field order IS the projection order FContentLoader uses (R22).
@@ -67,7 +71,8 @@ inline constexpr FContentField kRuneFields[] = {
     {"status_duration_delta", EContentFieldType::Number, false},  // boundary: asset key
     {"status_magnitude_delta", EContentFieldType::Number, false}, // boundary: asset key
     {"life_on_hit", EContentFieldType::Number, false},            // boundary: asset key
-    {"hooks", EContentFieldType::ObjectArray, false, &kHookSchema}, // boundary: asset key (WP-04, last field)
+    {"hooks", EContentFieldType::ObjectArray, false, &kHookSchema}, // boundary: asset key (WP-04)
+    {"drop_weight", EContentFieldType::Number, false},            // boundary: asset key (WP-17, last field)
 };
 
 inline constexpr std::size_t kRuneFieldId = 0;
@@ -87,8 +92,9 @@ inline constexpr std::size_t kRuneFieldStatusDurationDelta = 13;
 inline constexpr std::size_t kRuneFieldStatusMagnitudeDelta = 14;
 inline constexpr std::size_t kRuneFieldLifeOnHit = 15;
 inline constexpr std::size_t kRuneFieldHooks = 16;
+inline constexpr std::size_t kRuneFieldDropWeight = 17;
 
-static_assert(std::size(kRuneFields) == 17, "kRuneFields and the kRuneField* indices drifted apart");
+static_assert(std::size(kRuneFields) == 18, "kRuneFields and the kRuneField* indices drifted apart");
 
 /// Projects one validated row into a rune. Cannot fail (R22): wrong types were rejected at load.
 [[nodiscard]] FRuneContent decodeRune(const FContentRow& row);

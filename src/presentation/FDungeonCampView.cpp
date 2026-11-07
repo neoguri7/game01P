@@ -78,6 +78,7 @@ void RenderDungeonCampView(entt::registry& registry) {
         const auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
         if (!checkpoint.error.empty()) ImGui::TextColored({.9f, .31f, .31f, 1}, "%s", checkpoint.error.c_str());
         ImGui::Text("Checkpoint: dungeon %d cleared  |  materials %d", run.cleared, run.materials);
+        DrawRuneOfferForecast(registry);
         ImGui::TextWrapped("Healed up to %d HP. Allocate nodes, reinforce stats and fit runes for free before descending.",
                           DungeonBalance(registry, "camp_heal"));
         const auto* growth = registry.ctx().find<FDungeonGrowth>();
