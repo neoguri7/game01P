@@ -31,6 +31,7 @@
 #include <nlohmann/json.hpp>
 
 #include "gameplay/dungeon/FDungeonSave.h"
+#include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunFlow.h"
 #include "gameplay/dungeon/FSaveSections.h"
@@ -126,11 +127,15 @@ void TransitionTableWalks() {
     CHECK(run.phase == game::EDungeonPhase::Battle);
     CHECK(run.depth == 1 && run.room == 0);
 
-    // Battle victory → Reward (ShowModal kRunModalReward).
+    // Battle victory → Reward (ShowModal kRunModalReward). The rune is an offer now: the room opens it, and
+    // only a pick/skip closes it (WP-17).
     auto result = game::ResolveRoomVictory(registry, true);
     CHECK(result.has_value());
     CHECK(result->exit == game::ERunExit::ShowModal && result->modalId == std::string(game::kRunModalReward));
     CHECK(run.phase == game::EDungeonPhase::Reward);
+    CHECK(run.runes.empty());
+    CHECK(registry.ctx().get<game::FRewards>().offer.active);
+    CHECK(game::ResolveRuneOffer(registry, 0));
     CHECK(run.runes.size() == 1u);
 
     // Reward(0) → Event (ShowModal kRunModalEvent).
@@ -147,12 +152,14 @@ void TransitionTableWalks() {
     // Room 1 victory → Reward; Reward(1) → Battle(room 2) (NextRoom).
     CHECK(game::ResolveRoomVictory(registry, true).has_value());
     CHECK(run.phase == game::EDungeonPhase::Reward && run.room == 1);
+    CHECK(game::ResolveRuneOffer(registry, -1));
     result = game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward);
     CHECK(result.has_value() && result->exit == game::ERunExit::NextRoom);
     CHECK(run.phase == game::EDungeonPhase::Battle && run.room == 2);
 
     // Room 2 victory → Reward; Reward(2) → Camp (ShowModal kRunModalCamp), cleared=depth.
     CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    CHECK(game::ResolveRuneOffer(registry, -1));
     result = game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward);
     CHECK(result.has_value() && result->exit == game::ERunExit::ShowModal &&
           result->modalId == std::string(game::kRunModalCamp));
@@ -254,11 +261,14 @@ void WrongPhaseIsRejected() {
 /// battle → reward → camp.
 void WalkToCamp(entt::registry& registry) {
     CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    CHECK(game::ResolveRuneOffer(registry, -1));
     CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward).has_value());
     CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ChooseEventLoot).has_value());
     CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    CHECK(game::ResolveRuneOffer(registry, -1));
     CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward).has_value());
     CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    CHECK(game::ResolveRuneOffer(registry, -1));
     CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward).has_value());
     CHECK(registry.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Camp);
 }
@@ -798,20 +808,26 @@ void LegacyWrappersMatchRunFlow() {
     game::StartRun(flow.registry, kSeed, true);
 
     game::CompleteDungeonBattle(legacy.registry, true);
+    CHECK(game::ResolveRuneOffer(legacy.registry, 0));
     game::ContinueDungeonReward(legacy.registry);
     game::ChooseDungeonEvent(legacy.registry, false);
     game::CompleteDungeonBattle(legacy.registry, true);
+    CHECK(game::ResolveRuneOffer(legacy.registry, 0));
     game::ContinueDungeonReward(legacy.registry);
     game::CompleteDungeonBattle(legacy.registry, true);
+    CHECK(game::ResolveRuneOffer(legacy.registry, 0));
     game::ContinueDungeonReward(legacy.registry);
     game::LeaveDungeonCamp(legacy.registry);
 
     CHECK(game::ResolveRoomVictory(flow.registry, true).has_value());
+    CHECK(game::ResolveRuneOffer(flow.registry, 0));
     CHECK(game::ApplyRunIntent(flow.registry, game::ERunIntent::ContinueReward).has_value());
     CHECK(game::ApplyRunIntent(flow.registry, game::ERunIntent::ChooseEventLoot).has_value());
     CHECK(game::ResolveRoomVictory(flow.registry, true).has_value());
+    CHECK(game::ResolveRuneOffer(flow.registry, 0));
     CHECK(game::ApplyRunIntent(flow.registry, game::ERunIntent::ContinueReward).has_value());
     CHECK(game::ResolveRoomVictory(flow.registry, true).has_value());
+    CHECK(game::ResolveRuneOffer(flow.registry, 0));
     CHECK(game::ApplyRunIntent(flow.registry, game::ERunIntent::ContinueReward).has_value());
     CHECK(game::ApplyRunIntent(flow.registry, game::ERunIntent::LeaveCamp).has_value());
 

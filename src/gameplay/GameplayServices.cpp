@@ -5,6 +5,8 @@
 #include "gameplay/ai/FAiLibrary.h"
 #include "gameplay/combat/FEffectHooks.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FRewardSection.h"
+#include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FSaveSections.h"
 
 #include <tracy/Tracy.hpp>
@@ -51,6 +53,12 @@ bool FGameplayServices::Initialize(entt::registry& registry) {
     // [WP-09]
     // [WP-16]
     // [WP-17]
+    // The offer economy is data, not a code default: a missing/invalid rewards.json stops the boot.
+    if (!LoadRewards(registry, *assets)) {
+        LOG_ERROR("reward offer settings are unusable; boot stopped (see the rewards errors above).");
+        return false;
+    }
+    RegisterRewardSection(registry);
     // [WP-19a]
     // [WP-25]
 

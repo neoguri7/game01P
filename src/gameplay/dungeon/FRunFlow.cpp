@@ -12,10 +12,14 @@
 #include <nlohmann/json.hpp>
 
 #include "core/Logger.h"
+#include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunEventLog.h"
 
 namespace game {
 namespace {
+
+/// The boss room of a dungeon (the third room): the same index the room generator marks as the boss fight.
+constexpr int kBossRoom = 2;
 
 // ---------------------------------------------------------------------------------------------
 // Run event log (WP-02a): the log lives in FRunEventLog.h; the append/register/shutdown functions
@@ -74,12 +78,19 @@ std::expected<FRunResult, std::string> ContinueReward(entt::registry& registry) 
     auto* run = registry.ctx().find<FDungeonRun>();
     if (run == nullptr) return NoRun();
     if (run->phase != EDungeonPhase::Reward) return WrongPhase(run->phase);
+    // The offer is a decision, not decoration: the reward step does not move on until it is picked or skipped.
+    EnsureRewardsForRun(registry);
+    if (const auto* rewards = registry.ctx().find<FRewards>();
+        rewards != nullptr && rewards->offer.active) {
+        LOG_WARN("The rune offer is still open; pick or skip it before continuing.");
+        return std::unexpected(std::string("Resolve the rune offer before continuing."));
+    }
     if (run->room == 0) {
         run->phase = EDungeonPhase::Event;
         run->message = "A quiet shrine offers shelter, or a sealed cache of reinforcement materials.";
         return SaveAfterTransition(registry, FRunResult{ERunExit::ShowModal, RunModalIdForPhase(EDungeonPhase::Event)});
     }
-    if (run->room == 2) {
+    if (run->room == kBossRoom) {
         run->phase = EDungeonPhase::Camp;
         run->cleared = run->depth;
         auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
@@ -226,6 +237,9 @@ void PostRunIntent(entt::registry& registry, ERunIntent intent) {
 
 void StartRun(entt::registry& registry, std::uint32_t seed, bool fresh) {
     InstallDungeonRun(registry, seed, fresh);
+    // A new expedition always starts with a clean offer slate — even when it reuses the previous seed, which
+    // is why the reset is unconditional here and not left to the seed-mismatch check.
+    ResetRewardsForRun(registry);
     if (!SaveDungeonRun(registry)) {
         LOG_ERROR("A new expedition could not be saved.");
     }
@@ -245,8 +259,6 @@ std::expected<FRunResult, std::string> ResolveRoomVictory(entt::registry& regist
     }
     RestoreParty(registry, DungeonBalance(registry, "room_heal"));
     run->materials += DungeonBalance(registry, "room_materials");
-    const auto& drops = DungeonDefinition(registry).at("rune_drops");
-    run->runes.push_back(drops.at((run->seed + run->depth * 3u + run->room) % drops.size()).get<std::string>());
     // 정본 §6: 런 EXP는 캐릭터별로 쌓이고 레벨업마다 노드 포인트 1을 준다(런마다 0부터).
     const int experienceReward = DungeonBalance(registry, "room_experience");
     int levelsGained = 0;
@@ -264,6 +276,9 @@ std::expected<FRunResult, std::string> ResolveRoomVictory(entt::registry& regist
     run->phase = EDungeonPhase::Reward;
     run->message = "Room secured. Each member gains " + std::to_string(experienceReward) + " EXP.";
     if (levelsGained > 0) run->message += " Level up: allocate a passive node.";
+    // WP-17: the rune is no longer granted here — the room only decides whether to open an offer (the reward
+    // modal's pick/skip owns the grant). Before the save, so a continued run comes back with the same offer.
+    RollRoomOffer(registry, run->room == kBossRoom);
     LOG_INFO("Dungeon {} room {} cleared. {} EXP per member.", run->depth, run->room + 1, experienceReward);
     AppendRunEvent(registry, ERunEventKind::RoomCleared);  // before the save: a listener's change is saved too
     return SaveAfterTransition(registry, FRunResult{ERunExit::ShowModal, RunModalIdForPhase(EDungeonPhase::Reward)});

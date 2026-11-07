@@ -31,6 +31,7 @@
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "core/AnimationLibrary.h"
 #include "gameplay/dungeon/FDungeonSave.h"
+#include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRoomGenerator.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/grid/FGridQuery.h"
@@ -554,6 +555,10 @@ void CompleteRun(std::uint32_t seed) {
         CHECK((fixture.battle.Update(registry, 0) == FStateTransition{EStateChangeKind::Push, std::string(game::kRunModalReward)}));
         auto& run = registry.ctx().get<game::FDungeonRun>();
         CHECK(run.phase == game::EDungeonPhase::Reward);
+        // The room no longer grants a rune: it opens an offer, and the pick is the grant (WP-17).
+        CHECK(registry.ctx().get<game::FRewards>().offer.active);
+        CHECK(run.runes.size() == static_cast<std::size_t>(room));
+        CHECK(game::ResolveRuneOffer(registry, 0));
         CHECK(run.runes.size() == static_cast<std::size_t>(room + 1));
         // 정본 §6: 캐릭터별 EXP가 임계를 넘으면 레벨업 + 노드 포인트 1.
         for (const auto& member : run.party) {
@@ -759,6 +764,7 @@ void SaveAndContinue() {
     CHECK(ReadJson(saved().path)["run"]["phase"] == "battle");
     game::CompleteDungeonBattle(registry, true);
     CHECK(saved().phase == game::EDungeonPhase::Reward && ReadJson(saved().path)["run"]["phase"] == "reward");
+    CHECK(registry.ctx().get<game::FRewards>().offer.active);
 
     const auto& growth = registry.ctx().get<game::FDungeonGrowth>();
     const auto node = std::ranges::find_if(growth.passiveTree.nodes, [&](const game::FPassiveNode& candidate) {
@@ -767,6 +773,7 @@ void SaveAndContinue() {
     CHECK(node != growth.passiveTree.nodes.end());
     CHECK(game::AllocateDungeonNode(registry, 0, node->id));
     CHECK(ReadJson(saved().path)["run"]["party"][0]["allocated_nodes"].size() == 1);
+    CHECK(game::ResolveRuneOffer(registry, 0));  // the reward step waits for the offer decision
     game::ContinueDungeonReward(registry);
     CHECK(saved().phase == game::EDungeonPhase::Event);
     game::ChooseDungeonEvent(registry, false);
@@ -866,6 +873,9 @@ void SaveAndContinue() {
         r.ctx().erase<game::FDungeonRun>();
         CHECK(game::ContinueDungeonRun(r));
         CHECK(r.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Reward);
+        // The offer survived the save round-trip and still gates the reward step.
+        CHECK(r.ctx().get<game::FRewards>().offer.active);
+        CHECK(game::ResolveRuneOffer(r, -1));
         between.battle.OnExit(r);
         between.battle.OnEnter(r);
         CHECK(game::AliveCount(r, false) == 0 && game::AliveCount(r, true) == 4);
