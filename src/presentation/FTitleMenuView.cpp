@@ -11,7 +11,10 @@
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FModalViewRegistry.h"
+#include "presentation/FSettings.h"
+#include "presentation/FSettingsView.h"
 #include "presentation/FUiTheme.h"
+#include "states/FEmberModalHostState.h"
 
 namespace game {
 namespace {
@@ -118,7 +121,12 @@ void RegisterTitleMenuItems(entt::registry& registry) {
     items.push_back({std::string(kNewId), "BEGIN EXPEDITION", {EMenuRequest::Start, false}, {}, true});
     items.push_back({std::string(kFreshId), "FRESH EXPEDITION", {EMenuRequest::Start, true}, {}, checkpoint->cleared > 0});
     items.push_back({std::string(kQuitId), "QUIT", {EMenuRequest::Quit, false}, {}, true});
-    // [WP-24a] settings: append the menu item and RegisterModalView here.
+    // [WP-24a] settings: the row (kept before QUIT), its view and the one boot-time load.
+    items.insert(items.end() - 1,
+                 {std::string("title.settings"), "SETTINGS", {},
+                  {EStateChangeKind::Push, std::string(kEmberSettingsId)}, true});
+    RegisterModalView(registry, kEmberSettingsId, RenderSettingsView);
+    LoadSettings(registry);
     // [WP-24b] compendium: append the menu item and RegisterModalView here.
 }
 
