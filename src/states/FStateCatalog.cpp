@@ -3,9 +3,13 @@
 #include <utility>
 
 #include "core/Logger.h"
+#include "gameplay/dungeon/FRunFlow.h"
 #include "states/FBattleState.h"
 #include "states/FEmberBattleState.h"
 #include "states/FEmberHubState.h"
+#include "states/FEmberModalHostState.h"
+#include "states/FEmberPreparationState.h"
+#include "states/FEmberRunEndState.h"
 #include "states/FEmberTitleState.h"
 #include "states/FHubState.h"
 #include "states/FTitleState.h"
@@ -62,6 +66,24 @@ FStateCatalog FStateCatalog::MakeEmber() {
     (void)catalog.add(kEmberTitleId, [] { return std::unique_ptr<FBaseState>(std::make_unique<FEmberTitleState>()); });
     (void)catalog.add(kEmberHubId, [] { return std::unique_ptr<FBaseState>(std::make_unique<FEmberHubState>()); });
     (void)catalog.add(kEmberBattleId, [] { return std::unique_ptr<FBaseState>(std::make_unique<FEmberBattleState>()); });
+    (void)catalog.add(kEmberPrepareId, [] { return std::unique_ptr<FBaseState>(std::make_unique<FEmberPreparationState>()); });
+    (void)catalog.add(kEmberRunEndId, [] { return std::unique_ptr<FBaseState>(std::make_unique<FEmberRunEndState>()); });
+    (void)catalog.add(kRunModalReward, [] {
+        return std::unique_ptr<FBaseState>(std::make_unique<FEmberModalHostState>(std::string(kRunModalReward), EHostMode::RunPhase));
+    });
+    (void)catalog.add(kRunModalEvent, [] {
+        return std::unique_ptr<FBaseState>(std::make_unique<FEmberModalHostState>(std::string(kRunModalEvent), EHostMode::RunPhase));
+    });
+    (void)catalog.add(kRunModalCamp, [] {
+        return std::unique_ptr<FBaseState>(std::make_unique<FEmberModalHostState>(std::string(kRunModalCamp), EHostMode::RunPhase));
+    });
+    (void)catalog.add(kEmberSettingsId, [] {
+        return std::unique_ptr<FBaseState>(std::make_unique<FEmberModalHostState>(std::string(kEmberSettingsId), EHostMode::Menu));
+    });
+    (void)catalog.add(kEmberCompendiumId, [] {
+        return std::unique_ptr<FBaseState>(std::make_unique<FEmberModalHostState>(std::string(kEmberCompendiumId), EHostMode::Menu));
+    });
+    // [room types] A new room type appends its host here; its view registers in FModalViewRegistry.cpp.
     catalog.setStartIds(std::string(kEmberTitleId), std::string(kEmberBattleId));
     return catalog;
 }

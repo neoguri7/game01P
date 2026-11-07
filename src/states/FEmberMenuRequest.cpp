@@ -1,9 +1,8 @@
 #include "states/FEmberMenuRequest.h"
 
-#include <SDL3/SDL.h>
-
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "states/FEmberBattleState.h"
+#include "states/FEmberPreparationState.h"
 
 std::optional<FStateTransition> ResolveEmberMenuRequest(entt::registry& registry) {
     auto* request = registry.ctx().find<game::FMenuRequest>();
@@ -11,14 +10,16 @@ std::optional<FStateTransition> ResolveEmberMenuRequest(entt::registry& registry
     switch (request->value) {
     case game::EMenuRequest::Quit:
         return FStateTransition{EStateChangeKind::Quit, {}};
-    case game::EMenuRequest::Start:
-        game::StartDungeonRun(registry, static_cast<std::uint32_t>(SDL_GetTicks()), request->fresh);
+    case game::EMenuRequest::Start: {
+        // The title never starts a run: it hands the fresh flag to the preparation step through the carrier.
+        registry.ctx().insert_or_assign<game::FRunStartRequest>(game::FRunStartRequest{request->fresh});
         *request = {};
-        return FStateTransition{EStateChangeKind::ReplaceTop, std::string(kEmberBattleId)};
+        return FStateTransition{EStateChangeKind::Root, std::string(kEmberPrepareId)};
+    }
     case game::EMenuRequest::Continue: {
         const bool resumed = game::ContinueDungeonRun(registry);
         *request = {};
-        if (resumed) return FStateTransition{EStateChangeKind::ReplaceTop, std::string(kEmberBattleId)};
+        if (resumed) return FStateTransition{EStateChangeKind::Root, std::string(kEmberBattleId)};
         return std::nullopt;
     }
     case game::EMenuRequest::None:

@@ -22,6 +22,12 @@ struct FMenuRequest {
     bool fresh{false};
 };
 
+/// The start intent carried from the title/runEnd screen to the preparation step. `fresh` means "ignore
+/// the checkpoint and start at depth 1"; the preparation state consumes it exactly once (WP-02b).
+struct FRunStartRequest {
+    bool fresh{false};
+};
+
 struct FRunMember {
     std::string id;
     std::string displayName;
@@ -107,16 +113,25 @@ struct FDungeonSave {
 
 /// `savePath` defaults to the run save next to the checkpoint file (or the preference directory).
 bool InitializeDungeon(entt::registry& registry, std::string checkpointPath = {}, std::string savePath = {});
+/// The dungeon definition document (`data/dungeon`). The run-flow helpers read the same content boundary
+/// the dungeon module uses instead of duplicating the loader.
+[[nodiscard]] const nlohmann::json& DungeonDefinition(entt::registry& registry);
+/// Installs a new run in the registry: seed, depth from the checkpoint, the definition party, and a fresh
+/// per-run event log. It does not save — FRunFlow::StartRun saves after the install.
+void InstallDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh);
 /// Writes the current run to its save slot. A no-op without a run or a configured slot.
 bool SaveDungeonRun(entt::registry& registry);
 /// Removes the save: the expedition was lost or ended on purpose.
 void DeleteDungeonSave(entt::registry& registry);
 /// Replaces the registry's run with the saved one. On failure the run is untouched and `FDungeonSave::error` says why.
 [[nodiscard]] bool ContinueDungeonRun(entt::registry& registry);
+/// Legacy new-run entry point (kept until WP-08 moves the callers): delegates to FRunFlow::StartRun, which
+/// installs the run and saves it.
 void StartDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh = false);
 [[nodiscard]] nlohmann::json BuildDungeonBattlefield(entt::registry& registry);
 void ApplyRunParty(entt::registry& registry);
 void CaptureRunParty(entt::registry& registry);
+/// Legacy wrappers (kept until WP-08 moves the callers): each delegates to FRunFlow and logs the error.
 void CompleteDungeonBattle(entt::registry& registry, bool victory);
 /// 방 클리어 성장 안내(Reward)를 닫고 이벤트/다음 방/캠프로 진행한다.
 void ContinueDungeonReward(entt::registry& registry);

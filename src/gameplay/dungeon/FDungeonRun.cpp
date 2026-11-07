@@ -19,46 +19,23 @@
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonSave.h"
+#include "gameplay/dungeon/FRunEventLog.h"
+#include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FSaveSections.h"
 #include "gameplay/dungeon/FRoomGenerator.h"
 #include "gameplay/factory/FEntityDefinitions.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/battle/FBattleSetup.h"
 
 namespace game {
-namespace {
 
-const nlohmann::json& Definition(entt::registry& registry) {
+const nlohmann::json& DungeonDefinition(entt::registry& registry) {
     return registry.ctx().get<FAssetManager>().digest("data/dungeon")->json();
 }
 
-bool SaveCheckpoint(entt::registry& registry) {
-    auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
-    if (checkpoint.path.empty()) return false;
-    std::ofstream file(checkpoint.path, std::ios::trunc);
-    file << nlohmann::json{{"schema_version", 1}, {"cleared", checkpoint.cleared}}.dump(2);
-    file.flush();
-    if (!file) {
-        checkpoint.error = "Could not save dungeon checkpoint.";
-        LOG_ERROR("{}", checkpoint.error);
-        return false;
-    }
-    checkpoint.error.clear();
-    return true;
-}
+namespace {
 
-void RestoreParty(entt::registry& registry, int amount) {
-    auto& run = registry.ctx().get<FDungeonRun>();
-    for (auto& member : run.party) {
-        member.health += amount;
-    }
-}
-
-// Callers save once their own state change is complete, so Advance does not.
-void Advance(entt::registry& registry) {
-    auto& run = registry.ctx().get<FDungeonRun>();
-    run.phase = EDungeonPhase::Battle;
-    run.advanceRequested = true;
-}
+constexpr const char* kUnreadableSave = "Saved expedition is unreadable. Start a new expedition to replace it.";
 
 std::optional<FDungeonSaveRules> SaveRules(entt::registry& registry) {
     const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
@@ -67,43 +44,65 @@ std::optional<FDungeonSaveRules> SaveRules(entt::registry& registry) {
     FDungeonSaveRules rules;
     rules.content = content;
     rules.passiveTree = &growth->passiveTree;
-    for (const auto& member : Definition(registry).at("party")) rules.partyIds.push_back(member.at("id").get<std::string>());
+    for (const auto& member : DungeonDefinition(registry).at("party")) rules.partyIds.push_back(member.at("id").get<std::string>());
     return rules;
 }
 
-/// Reads and validates the save slot; `savedAt` receives the file's timestamp for the menu.
-std::expected<FDungeonRun, std::string> LoadSavedRun(entt::registry& registry, std::string& savedAt) {
+/// A validated save document and the run it describes. `ParseSavedRun` only validates: it never applies a
+/// section, so the menu refresh can inspect the slot without touching the run's module state.
+struct FLoadedRun {
+    FDungeonRun run;
+    nlohmann::json document;
+    std::string savedAt;
+};
+
+/// Reads and validates the save slot. `savedAt` receives the file's timestamp for the menu.
+std::expected<FLoadedRun, std::string> ParseSavedRun(entt::registry& registry) {
     const auto rules = SaveRules(registry);
     if (!rules) return std::unexpected("expedition content is unavailable");
-    const auto document = ReadSaveFile(registry.ctx().get<FDungeonSave>().path);
+    auto document = ReadSaveFile(registry.ctx().get<FDungeonSave>().path);
     if (!document) return std::unexpected(document.error());
+    FLoadedRun loaded;
     if (const auto stamp = document->find("saved_at"); stamp != document->end() && stamp->is_string()) {
-        savedAt = stamp->get<std::string>().substr(0, 32);
+        loaded.savedAt = stamp->get<std::string>().substr(0, 32);
     }
-    return DungeonRunFromJson(*document, *rules);
+    auto run = DungeonRunFromJson(*document, *rules);
+    if (!run) return std::unexpected(run.error());
+    loaded.run = std::move(*run);
+    loaded.document = std::move(*document);
+    return loaded;
 }
 
-constexpr const char* kUnreadableSave = "Saved expedition is unreadable. Start a new expedition to replace it.";
+/// Continue's load path: validate the document first, then unpack its sections. A section failure leaves
+/// the document's run uninstalled (the caller keeps the current run).
+std::expected<FDungeonRun, std::string> LoadAndUnpackSavedRun(entt::registry& registry, std::string& savedAt) {
+    auto loaded = ParseSavedRun(registry);
+    if (!loaded) return std::unexpected(loaded.error());
+    savedAt = loaded->savedAt;
+    if (const auto unpacked = UnpackSections(registry, loaded->document); !unpacked) {
+        return std::unexpected(unpacked.error());
+    }
+    return std::move(loaded->run);
+}
 
-/// Looks at the save slot at boot so the menu knows whether it can offer Continue.
+/// Looks at the save slot at boot so the menu knows whether it can offer Continue. Parse only — no unpack.
 void RefreshDungeonSave(entt::registry& registry) {
     auto& save = registry.ctx().get<FDungeonSave>();
     save.exists = false;
     save.error.clear();
     std::error_code code;
     if (save.path.empty() || !std::filesystem::exists(save.path, code)) return;
-    std::string savedAt;
-    const auto run = LoadSavedRun(registry, savedAt);
-    if (!run) {
+    const auto loaded = ParseSavedRun(registry);
+    if (!loaded) {
         save.error = kUnreadableSave;
-        LOG_WARN("Ignoring saved expedition '{}': {}", save.path, run.error());
+        LOG_WARN("Ignoring saved expedition '{}': {}", save.path, loaded.error());
         return;
     }
     save.exists = true;
-    save.depth = run->depth;
-    save.room = run->room;
-    save.phase = run->phase;
-    save.savedAt = savedAt;
+    save.depth = loaded->run.depth;
+    save.room = loaded->run.room;
+    save.phase = loaded->run.phase;
+    save.savedAt = loaded->savedAt;
 }
 
 std::optional<std::string> ValidateCampSlot(
@@ -208,7 +207,7 @@ std::optional<std::filesystem::path> SaveDirOverride() {
 } // namespace
 
 int DungeonBalance(entt::registry& registry, const char* key) {
-    return Definition(registry).at("balance").at(key).get<int>();
+    return DungeonDefinition(registry).at("balance").at(key).get<int>();
 }
 
 bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std::string savePath) {
@@ -384,26 +383,39 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
     return true;
 }
 
-void StartDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh) {
+void InstallDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh) {
     registry.ctx().erase<FDungeonRun>();
     auto& run = registry.ctx().emplace<FDungeonRun>();
     run.seed = seed == 0 ? 1 : seed;
     run.depth = fresh ? 1 : registry.ctx().get<FDungeonCheckpoint>().cleared + 1;
     run.cleared = run.depth - 1;
-    for (const auto& member : Definition(registry).at("party")) {
+    for (const auto& member : DungeonDefinition(registry).at("party")) {
         FRunMember runMember;
         runMember.id = member.at("id").get<std::string>();
         runMember.displayName = member.at("display_name").get<std::string>();
         run.party.push_back(std::move(runMember));
     }
-    SaveDungeonRun(registry);
+    // A new run starts with a clean preserved-section slate and its own event log.
+    ClearPreserved(registry);
+    registry.ctx().erase<FRunEventLog>();
+    registry.ctx().emplace<FRunEventLog>();
+}
+
+void StartDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh) {
+    StartRun(registry, seed, fresh);
 }
 
 bool SaveDungeonRun(entt::registry& registry) {
     auto* save = registry.ctx().find<FDungeonSave>();
     const auto* run = registry.ctx().find<FDungeonRun>();
     if (save == nullptr || save->path.empty() || run == nullptr || run->phase == EDungeonPhase::Defeat) return false;
-    const auto document = DungeonRunToJson(*run);
+    auto document = DungeonRunToJson(*run);
+    // Section pack failures are a whole-save failure: the previous file stays and the run stays.
+    if (const auto packed = PackSections(registry, document); !packed) {
+        save->error = "Could not save the expedition (section data failed).";
+        LOG_ERROR("Expedition save aborted (sections): {}", packed.error());
+        return false;
+    }
     std::string reason;
     if (!WriteSaveFile(save->path, document, reason)) {
         save->error = "Could not save the expedition.";
@@ -437,9 +449,9 @@ bool ContinueDungeonRun(entt::registry& registry) {
     auto* save = registry.ctx().find<FDungeonSave>();
     if (save == nullptr || save->path.empty()) return false;
     std::string savedAt;
-    auto run = LoadSavedRun(registry, savedAt);
+    auto run = LoadAndUnpackSavedRun(registry, savedAt);
     if (!run) {
-        // The slot is no use to anyone now; the menu stops offering it and says why.
+        // The slot is no use to anyone now; the menu stops offering it and says why. The current run is untouched.
         save->exists = false;
         save->error = kUnreadableSave;
         LOG_WARN("Continue failed for '{}': {}", save->path, run.error());
@@ -447,13 +459,15 @@ bool ContinueDungeonRun(entt::registry& registry) {
     }
     registry.ctx().erase<FDungeonRun>();
     registry.ctx().emplace<FDungeonRun>(std::move(*run));
+    registry.ctx().erase<FRunEventLog>();
+    registry.ctx().emplace<FRunEventLog>();
     save->error.clear();
     return true;
 }
 
 nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
     auto& run = registry.ctx().get<FDungeonRun>();
-    const auto& data = Definition(registry);
+    const auto& data = DungeonDefinition(registry);
     const auto& content = registry.ctx().get<gameplay::FContentRegistry>();
     // Initialization already proved the block valid; a failure here means content changed underneath us.
     const auto config = ParseRoomGeneration(data, content);
@@ -484,79 +498,32 @@ void CaptureRunParty(entt::registry& registry) {
     }
 }
 
+// Legacy wrappers (WP-02a): the call sites stay in tests/DungeonTests.cpp, FEmberBattleState and
+// FDungeonOverlay until WP-08 moves them. The bodies live in FRunFlow; these keep the signatures and
+// log the failure the old void functions could not report.
 void CompleteDungeonBattle(entt::registry& registry, bool victory) {
-    auto& run = registry.ctx().get<FDungeonRun>();
-    if (run.phase != EDungeonPhase::Battle) return;
-    CaptureRunParty(registry);
-    if (!victory) {
-        run.phase = EDungeonPhase::Defeat;
-        run.message = "The expedition is lost. Run growth and runes reset on retry.";
-        DeleteDungeonSave(registry);  // a lost run cannot be continued
-        return;
+    if (const auto result = ResolveRoomVictory(registry, victory); !result) {
+        LOG_ERROR("Room victory could not be resolved: {}", result.error());
     }
-    RestoreParty(registry, DungeonBalance(registry, "room_heal"));
-    run.materials += DungeonBalance(registry, "room_materials");
-    const auto& drops = Definition(registry).at("rune_drops");
-    run.runes.push_back(drops.at((run.seed + run.depth * 3u + run.room) % drops.size()).get<std::string>());
-    // 정본 §6: 런 EXP는 캐릭터별로 쌓이고 레벨업마다 노드 포인트 1을 준다(런마다 0부터).
-    const int experienceReward = DungeonBalance(registry, "room_experience");
-    int levelsGained = 0;
-    if (const auto* growth = registry.ctx().find<FDungeonGrowth>()) {
-        for (auto& member : run.party) {
-            member.experience += experienceReward;
-            while (member.experience >= growth->ExperienceForNextLevel(member.level)) {
-                member.experience -= growth->ExperienceForNextLevel(member.level);
-                ++member.level;
-                ++member.passivePoints;
-                ++levelsGained;
-            }
-        }
-    }
-    run.phase = EDungeonPhase::Reward;
-    run.message = "Room secured. Each member gains " + std::to_string(experienceReward) + " EXP.";
-    if (levelsGained > 0) run.message += " Level up: allocate a passive node.";
-    LOG_INFO("Dungeon {} room {} cleared. {} EXP per member.", run.depth, run.room + 1, experienceReward);
-    SaveDungeonRun(registry);
 }
 
 void ContinueDungeonReward(entt::registry& registry) {
-    auto& run = registry.ctx().get<FDungeonRun>();
-    if (run.phase != EDungeonPhase::Reward) return;
-    if (run.room == 0) {
-        run.phase = EDungeonPhase::Event;
-        run.message = "A quiet shrine offers shelter, or a sealed cache of reinforcement materials.";
-    } else if (run.room == 2) {
-        run.phase = EDungeonPhase::Camp;
-        run.cleared = run.depth;
-        auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
-        checkpoint.cleared = std::max(checkpoint.cleared, std::min(run.cleared, 999));
-        (void)SaveCheckpoint(registry);
-        RestoreParty(registry, DungeonBalance(registry, "camp_heal"));
-        run.message = "Dungeon cleared. Checkpoint reached. Rest, fit runes, reinforce stats, then descend.";
-    } else {
-        ++run.room;
-        Advance(registry);
+    if (const auto result = ApplyRunIntent(registry, ERunIntent::ContinueReward); !result) {
+        LOG_ERROR("Reward step could not be continued: {}", result.error());
     }
-    SaveDungeonRun(registry);
 }
 
 void ChooseDungeonEvent(entt::registry& registry, bool rest) {
-    auto& run = registry.ctx().get<FDungeonRun>();
-    if (run.phase != EDungeonPhase::Event) return;
-    if (rest) RestoreParty(registry, DungeonBalance(registry, "event_heal"));
-    else run.materials += DungeonBalance(registry, "event_materials");
-    ++run.room;
-    Advance(registry);
-    SaveDungeonRun(registry);
+    if (const auto result = ApplyRunIntent(registry, rest ? ERunIntent::ChooseEventRest : ERunIntent::ChooseEventLoot);
+        !result) {
+        LOG_ERROR("Event choice could not be applied: {}", result.error());
+    }
 }
 
 void LeaveDungeonCamp(entt::registry& registry) {
-    auto& run = registry.ctx().get<FDungeonRun>();
-    if (run.phase != EDungeonPhase::Camp) return;
-    run.depth = std::min(run.depth + 1, 1000);
-    run.room = 0;
-    Advance(registry);
-    SaveDungeonRun(registry);
+    if (const auto result = ApplyRunIntent(registry, ERunIntent::LeaveCamp); !result) {
+        LOG_ERROR("Camp could not be left: {}", result.error());
+    }
 }
 
 int FDungeonGrowth::ExperienceForNextLevel(int level) const {

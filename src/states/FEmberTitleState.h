@@ -16,5 +16,6 @@ public:
     ~FEmberTitleState() override = default;
 
     FStateTransition Update(entt::registry& Registry, float DeltaTime) override;
+    void Render(entt::registry& Registry) override;
     [[nodiscard]] std::string_view GetName() const noexcept override { return "Title"; }
 };
