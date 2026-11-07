@@ -7,6 +7,7 @@
 #include "core/Logger.h"
 #include "ecs/components/FActionPoints.h"
 #include "ecs/components/FActiveStatuses.h"
+#include "ecs/components/FBaseCombatStats.h"
 #include "ecs/components/FHealth.h"
 #include "ecs/components/FSkillLoadout.h"
 #include "ecs/components/FSpeed.h"
@@ -69,8 +70,13 @@ bool SetupCombatUnits(
         }
 
         const int maxHealth = static_cast<int>(unit->maxHealth);
-        registry.emplace<FStats>(placement.entity,
-                                FStats{unit->attack, unit->magicAttack, unit->defense, unit->magicDefense});
+        const FStats stats{unit->attack, unit->magicAttack, unit->defense, unit->magicDefense};
+        // 불변 베이스(WP-03): 파생 갱신(RefreshCombatSheet)이 매번 여기서부터 재계산한다. 초기값은 아래
+        // FStats/FHealth/FSpeed와 동일 — 동작 불변. 여기서 갱신을 호출하지 않는다: forest는 인라인 패시브
+        // 가산(FBattleState.cpp)이 뒤에 오므로 순서가 겹치면 이중 가산이 된다.
+        registry.emplace<FBaseCombatStats>(
+            placement.entity, FBaseCombatStats{stats, maxHealth, static_cast<int>(unit->speed)});
+        registry.emplace<FStats>(placement.entity, stats);
         registry.emplace<FHealth>(placement.entity, FHealth{maxHealth, maxHealth});
         registry.emplace<FActionPoints>(placement.entity,
                                         FActionPoints{unit->moveAp, unit->moveAp, unit->skillAp, unit->skillAp});

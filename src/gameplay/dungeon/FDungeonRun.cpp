@@ -14,6 +14,7 @@
 #include "ecs/components/FHealth.h"
 #include "ecs/components/FSpeed.h"
 #include "ecs/components/FStats.h"
+#include "gameplay/combat/FCombatSheet.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonSave.h"
@@ -433,35 +434,12 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
 }
 
 void ApplyRunParty(entt::registry& registry) {
-    const auto& run = registry.ctx().get<FDungeonRun>();
-    const auto* growth = registry.ctx().find<FDungeonGrowth>();
-    if (growth == nullptr) LOG_ERROR("Run growth content is missing; node bonuses are not applied.");
-    for (const auto entity : registry.view<FUnitData, FHealth, FStats>()) {
-        auto& health = registry.get<FHealth>(entity);
-        auto& stats = registry.get<FStats>(entity);
-        if (registry.all_of<FPartyMember>(entity)) {
-            const auto& id = registry.get<FUnitData>(entity).definition.id;
-            const auto found = std::ranges::find(run.party, id, &FRunMember::id);
-            if (found == run.party.end()) continue;
-            const FPassiveStatBonuses nodes = growth != nullptr
-                ? growth->passiveTree.Bonuses(found->allocatedNodes) : FPassiveStatBonuses{};
-            health.max += found->bonusHealth + nodes.maxHealth;
-            if (found->health >= 0) health.current = std::clamp(found->health, 1, health.max);
-            else health.current = health.max;
-            stats.attack += found->bonusAttack + nodes.attack;
-            stats.magicAttack += found->bonusMagic + nodes.magicAttack;
-            stats.defense += found->bonusDefense + nodes.defense;
-            stats.magicDefense += found->bonusMagicDefense + nodes.magicDefense;
-            if (auto* speed = registry.try_get<FSpeed>(entity)) speed->value += found->bonusSpeed + nodes.speed;
-            if (!found->skills.empty()) registry.get<FSkillLoadout>(entity).slots = found->skills;
-        } else {
-            const int extra = std::min(run.depth - 1, 100);
-            health.max += extra * DungeonBalance(registry, "enemy_health_per_depth") + run.room * 5;
-            health.current = health.max;
-            stats.attack += extra * DungeonBalance(registry, "enemy_attack_per_depth") + run.room;
-            stats.magicAttack += extra * DungeonBalance(registry, "enemy_attack_per_depth") + run.room;
-        }
+    // WP-03: 런 보너스는 제자리 가산이 아니라 RefreshCombatSheet의 파생 계산이 소유한다(멱등 —
+    // 호출마다 값이 부푸는 결함 제거). 순서가 계약이다: 갱신(갱신 후 max) → ApplyBattleStart(HP/로드아웃).
+    if (const auto* content = registry.ctx().find<gameplay::FContentRegistry>()) {
+        RefreshAllCombatSheets(registry, *content);
     }
+    ApplyBattleStart(registry);
 }
 
 void CaptureRunParty(entt::registry& registry) {

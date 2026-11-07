@@ -17,6 +17,7 @@
 #include "gameplay/combat/FCombatApply.h"
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FCombatRules.h"
+#include "gameplay/combat/FCombatSheet.h"
 #include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/combat/FStatusRules.h"
@@ -163,6 +164,14 @@ private:
             return Reject(log, "Line of sight blocked by stone.");
         }
 
+        // 프리뷰 = 실제 계산(WP-03): 갱신된 컴포넌트로 같은 함수 경로(ComputeSkillDamage/Heal + 같은
+        // 대상 규칙)를 한 번만 돌린다. 부작용이 없어(RNG·상태 변경 없음) AP 차감 전에 두고, 실패는
+        // AP를 소모하지 않는다. 적용·로그는 아래에서 이 결과를 그대로 쓴다 — 두 번째 계산이 없다.
+        const auto preview = PreviewSkill(registry, actor, *resolved, *targetCell, *actorCell);
+        if (!preview) {
+            return Reject(log, UnitDisplayName(registry, actor) + ": skill preview failed.");
+        }
+
         if (points->skill < resolved->apCost) {
             return Reject(log, UnitDisplayName(registry, actor) + ": not enough skill AP ("
                 + std::to_string(points->skill) + "/" + std::to_string(resolved->apCost) + ")");
@@ -175,32 +184,20 @@ private:
 
         // Shape semantics live in gameplay/combat so the resolver, the HUD and later slices share one
         // definition of what a skill affects (docs/design/skill-rune-progression.md §3.2).
-        const std::vector<FGridPosition> cells = ComputeSkillCells(*resolved, *targetCell, *actorCell);
-        const std::vector<entt::entity> affected = FindUnitsOnCells(registry, cells, affectsParty);
-
-        // §1.1: 공격 항은 damage_type이 고른다. 버프/디버프(stat 상태)는 어느 쪽 공격 항에도 더해진다.
-        int attackModifier = 0;
-        if (const auto* active = registry.try_get<FActiveStatuses>(actor); active && !active->effects.empty()) {
-            attackModifier = StatusAttackModifier(*active, CollectStatuses(*active, content));
-        }
-
         FBattleEvent event{.kind = FBattleEvent::EKind::Skill, .actor = actor, .skillId = slot->skillId,
-                           .aim = *targetCell, .cells = cells};
-        for (const entt::entity target : affected) {
-            const auto& affectedCell = registry.get<FGridPosition>(target);
-            if (!HasGridLineOfSight(registry, *actorCell, affectedCell)) continue;
-            const std::string targetName = UnitDisplayName(registry, target);
-            const auto* healthBefore = registry.try_get<FHealth>(target);
-            FBattleEvent::FTarget reached{.unit = target, .healthBefore = healthBefore ? healthBefore->current : 0,
+                           .aim = *targetCell, .cells = preview->cells};
+        for (const FPreviewTarget& target : preview->targets) {
+            const std::string targetName = UnitDisplayName(registry, target.unit);
+            const auto* healthBefore = registry.try_get<FHealth>(target.unit);
+            FBattleEvent::FTarget reached{.unit = target.unit, .healthBefore = healthBefore ? healthBefore->current : 0,
                                           .hostile = !targetsOwnSide};
             bool died = false;
 
             if (targetsOwnSide) {
                 // Zero-power support skills apply statuses without also becoming heals.
-                const int heal = ComputeSkillHeal(*stats, *resolved);
-                if (auto* health = registry.try_get<FHealth>(target); health && heal > 0) {
+                if (auto* health = registry.try_get<FHealth>(target.unit); health && target.heal > 0) {
                     const int before = health->current;
-                    health->current = std::min(health->max, health->current + heal);
+                    health->current = std::min(health->max, health->current + target.heal);
                     if (log && health->current > before) {
                         log->push(actorName + " / " + skillName + " -> " + targetName + " +"
                                   + std::to_string(health->current - before) + " HP");
@@ -208,15 +205,19 @@ private:
                 }
             } else if (resolved->power > 0) {
                 // §1.1: 감소 항도 damage_type이 고른다(물리: 방어력, 마법: 마법방어력).
-                const auto* targetStats = registry.try_get<FStats>(target);
-                const int damage = ComputeSkillDamage(*stats, attackModifier, *resolved, targetStats ? *targetStats : FStats{});
-                died = ApplyDamageToUnit(registry, target, damage);
+                died = ApplyDamageToUnit(registry, target.unit, target.damage);
                 if (log) {
                     std::string line = actorName + " / " + skillName + " -> " + targetName + " -"
-                        + std::to_string(damage) + " HP";
-                    if (const auto* health = registry.try_get<FHealth>(target)) {
+                        + std::to_string(target.damage) + " HP";
+                    if (const auto* health = registry.try_get<FHealth>(target.unit)) {
                         line += " (" + std::to_string(health->current) + "/" + std::to_string(health->max) + ")";
                     }
+                    // 계산 근거: 프리뷰가 계산에 쓴 항 그대로(atk X + pwr Y - def Z = N). ComputeDamage의
+                    // 하한(최소 1)이 걸려 원식과 결과가 다를 때만 (min)을 붙인다 — 로그는 실제 산술을 보여준다.
+                    line += " [atk " + std::to_string(target.offense) + " + pwr " + std::to_string(target.power)
+                        + " - def " + std::to_string(target.defense) + " = " + std::to_string(target.damage);
+                    if (target.offense + target.power - target.defense < target.damage) line += " (min)";
+                    line += "]";
                     if (died) line += " / KO";
                     log->push(std::move(line));
                     if (died) {
@@ -239,16 +240,16 @@ private:
             }
 
             reached.died = died;
-            const auto* healthAfter = registry.try_get<FHealth>(target);
+            const auto* healthAfter = registry.try_get<FHealth>(target.unit);
             reached.healthAfter = healthAfter ? healthAfter->current : reached.healthBefore;
             event.targets.push_back(reached);
             if (died) {
                 continue;
             }
-            for (const FResolvedStatus& status : resolved->statuses) {
+            for (const FResolvedStatus& status : target.statuses) {
                 const gameplay::FStatusContent* definition = content.statuses.find(status.statusId);
                 if (definition == nullptr) continue;
-                if (auto* active = registry.try_get<FActiveStatuses>(target)) {
+                if (auto* active = registry.try_get<FActiveStatuses>(target.unit)) {
                     ApplyStatus(*active, *definition, status.durationDelta, status.magnitudeDelta);
                 }
             }

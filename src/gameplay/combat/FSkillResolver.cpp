@@ -113,12 +113,20 @@ std::optional<FResolvedSkill> ResolveSkillSlot(
     return ResolveSkill(*skill, runes);
 }
 
-int ComputeSkillDamage(
+FDamageTerms ComputeSkillDamageTerms(
     const FStats& attacker, int attackModifier, const FResolvedSkill& skill, const FStats& defender) {
     const bool magical = skill.damageType == gameplay::kDamageTypeMagical;
-    const int offense = (magical ? attacker.magicAttack : attacker.attack) + attackModifier;
-    const int defense = magical ? defender.magicDefense : defender.defense;
-    return ComputeDamage(offense, skill.power, defense);
+    FDamageTerms terms;
+    terms.offense = (magical ? attacker.magicAttack : attacker.attack) + attackModifier;
+    terms.power = skill.power;
+    terms.defense = magical ? defender.magicDefense : defender.defense;
+    terms.damage = ComputeDamage(terms.offense, terms.power, terms.defense);
+    return terms;
+}
+
+int ComputeSkillDamage(
+    const FStats& attacker, int attackModifier, const FResolvedSkill& skill, const FStats& defender) {
+    return ComputeSkillDamageTerms(attacker, attackModifier, skill, defender).damage;
 }
 
 int ComputeSkillHeal(const FStats& caster, const FResolvedSkill& skill) {
