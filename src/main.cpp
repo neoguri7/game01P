@@ -36,6 +36,7 @@
 #include "presentation/FForestScene.h"
 #include "presentation/FUiFrame.h"
 #include "presentation/FUiTheme.h"
+#include "states/FStateCatalog.h"
 
 #include <cstdlib>
 #include <charconv>
@@ -158,6 +159,8 @@ int main(int argc, char* argv[])
 
     const bool ember = mode == game::EGameMode::Ember;
     if (windowHeight == 0) windowHeight = ember ? 800 : 720;
+    // The catalog owns this mode's state ids and factories; the engine creates no state of its own.
+    engine.setStateCatalog(ember ? game::FStateCatalog::MakeEmber() : game::FStateCatalog::MakeForest());
     if (!engine.initialize(ember ? "Ember Dungeon - Game01P" : "Game01P - Forest Prototype", windowWidth, windowHeight)) {
         return EXIT_FAILURE;
     }
@@ -180,6 +183,13 @@ int main(int argc, char* argv[])
     }
 
     RegisterSystems(engine.getSystemManager());
+    // System/service registration anchors for later work packages. Systems added after onAllSystemsRegistered()
+    // would miss onRegister(), and before initialize() the registry ctx is empty; edit only under your anchor.
+    // [WP-03] combat refresh
+    // [WP-05a] battle flow
+    // [WP-11] intent system
+    // [WP-15] boss goals
+    // [WP-20] meta save
     engine.getSystemManager().onAllSystemsRegistered(engine.getRegistry());
     engine.setOverlayRenderer(ember ? game::RenderDungeonOverlay : game::RenderDebugOverlay);
     if ((!ember || checkAnimation) && !LoadStage0Definitions(startupScene)) {

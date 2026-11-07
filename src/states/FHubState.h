@@ -6,6 +6,9 @@
 #include "FBaseState.h"
 #include <string_view>
 
+/// Catalog id owned by this state (WP-01). FStateCatalog registers under this name; nobody assembles ids.
+inline constexpr std::string_view kForestHubId = "forest.hub";
+
 class FHubState : public FBaseState
 {
 public:

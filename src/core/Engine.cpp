@@ -18,15 +18,35 @@
 #include "core/Logger.h"
 #include "core/ResourceManager.h"
 #include "core/events/FEventBus.h"
-#include "states/FBattleState.h"
-#include "states/FHubState.h"
-#include "states/FTitleState.h"
-#include "states/FEmberBattleState.h"
-#include "states/FEmberHubState.h"
-#include "states/FEmberTitleState.h"
-#include "gameplay/FGameMode.h"
 
 namespace game {
+
+std::string_view StartupStateId(const FStateCatalog& catalog, bool battleStart) noexcept {
+    return battleStart ? catalog.debugBattleId() : catalog.startId();
+}
+
+std::vector<std::string_view> ApplyStackSystemPolicy(const GameStateMachine& machine, SystemManager& systemManager) {
+    std::vector<std::string_view> unregistered;
+    systemManager.disableAll();
+    const auto stack = machine.stack();
+    // Every state below the top that keeps itself visible is paused: render only, update stays off.
+    for (std::size_t index = 0; index + 1 < stack.size(); ++index) {
+        const FBaseState* state = stack[index].state.get();
+        if (state == nullptr || !state->KeepVisibleUnderModals()) continue;
+        for (const auto name : state->RequiredRenderSystems()) {
+            if (!systemManager.setRenderOnly(name)) unregistered.push_back(name);
+        }
+    }
+    if (!stack.empty()) {
+        const FBaseState* top = stack.back().state.get();
+        if (top != nullptr) {
+            for (const auto name : top->RequiredSystems()) {
+                if (!systemManager.setEnabled(name, true)) unregistered.push_back(name);
+            }
+        }
+    }
+    return unregistered;
+}
 
 Engine::Engine() = default;
 
@@ -86,11 +106,16 @@ bool Engine::applyEngineInitializeAbility(const FEngineAbilityRequest& request, 
         return false;
     }
 
-    stateMachine.switchState(std::make_unique<FTitleState>(), registry);
+    // No state is created here: the composition root injects the state catalog before initialize() and the
+    // start state is created once by applyStartupStateOverride(), after content and services are ready.
     updateAppFlowRuntimeState();
 
     applyEngineMarkRunningEffect(true);
     return true;
+}
+
+void Engine::setStateCatalog(FStateCatalog catalog) {
+    stateCatalog = std::move(catalog);
 }
 
 void Engine::setOverlayRenderer(std::function<void(entt::registry&, const Time&, const SystemManager&)> renderer) {
@@ -98,13 +123,26 @@ void Engine::setOverlayRenderer(std::function<void(entt::registry&, const Time&,
 }
 
 void Engine::applyStartupStateOverride() {
-    if (IsEmberMode(registry)) applyStateTransition(EStateTransition::ToTitle);
-    const char* requestedStart = SDL_getenv("GAME01P_START"); // boundary: env key
-    if (requestedStart == nullptr || std::string_view(requestedStart) != "battle") {
+    startupStateReady = false;
+    flowError = false;
+    if (!stateCatalog) {
+        LOG_ERROR("Engine startup state failed: no state catalog was injected.");
         return;
     }
-    LOG_INFO("Debug start: switching to the battle state.");
-    applyStateTransition(EStateTransition::ToBattle);
+    const char* requestedStart = SDL_getenv("GAME01P_START"); // boundary: env key
+    const bool battleStart = requestedStart != nullptr && std::string_view(requestedStart) == "battle";
+
+    const std::string target(StartupStateId(*stateCatalog, battleStart));
+    const FStateTransition transition{.kind = EStateChangeKind::Root, .targetId = target};
+    if (stateMachine.apply(transition, *stateCatalog, registry) != EStateApplyResult::Applied) {
+        LOG_ERROR("Engine startup state failed: '{}' could not be created.", target);
+        return;
+    }
+    if (battleStart) {
+        LOG_INFO("Debug start: switching to the battle state.");
+    }
+    startupStateReady = stateMachine.stack().size() == 1;
+    updateAppFlowRuntimeState();
 }
 
 void Engine::initializeContextServices() {
@@ -266,6 +304,14 @@ void Engine::shutdownContextServices() {
 
 bool Engine::run(std::uint32_t maxFrames, std::string screenshotPath) {
     ZoneScopedNC("Engine::run", 0x00FF00);
+    if (!stateCatalog) {
+        LOG_ERROR("Engine::run aborted: no state catalog was injected.");
+        return false;
+    }
+    if (!startupStateReady || stateMachine.stack().empty()) {
+        LOG_ERROR("Engine::run aborted: no startup state; applyStartupStateOverride() must create one.");
+        return false;
+    }
     maxFrames_ = maxFrames;
     screenshotPath_ = std::move(screenshotPath);
     captureSucceeded_ = true;
@@ -290,7 +336,7 @@ bool Engine::run(std::uint32_t maxFrames, std::string screenshotPath) {
         FrameMark; // Tracy frame marker
         if (maxFrames_ > 0 && ++frames >= maxFrames_) applyEngineMarkRunningEffect(false);
     }
-    return captureSucceeded_;
+    return captureSucceeded_ && !flowError;
 }
 
 void Engine::processInput() {
@@ -334,7 +380,16 @@ void Engine::processInput() {
 void Engine::update(float dt) {
     ZoneScopedN("Engine::Update");
 
-    applyStateTransition(stateMachine.update(registry, dt));
+    if (stateCatalog) {
+        applyStateTransition(stateCatalog->fromLegacy(stateMachine.update(registry, dt)));
+    }
+    // A transition can legitimately empty the stack (Root with an empty target = unwind only). That is a flow
+    // error, not a boot condition: there is no fallback state, so the loop stops and run() reports failure.
+    if (stateMachine.stack().empty() && !flowError) {
+        flowError = true;
+        LOG_ERROR("App-flow stack is empty: no state can update or render; stopping.");
+        applyEngineMarkRunningEffect(false);
+    }
     syncStateSystemPolicy();
     systemMgr.updateEnabled(registry, dt);
 
@@ -346,40 +401,24 @@ void Engine::update(float dt) {
     // debugOverlay.update(registry, dt);
 }
 
-void Engine::applyStateTransition(EStateTransition transition) {
-    switch (transition) {
-    case EStateTransition::None:
+void Engine::applyStateTransition(const FStateTransition& transition) {
+    if (!stateCatalog) return;
+    switch (stateMachine.apply(transition, *stateCatalog, registry)) {
+    case EStateApplyResult::None:
+    case EStateApplyResult::Failed:
         return;
-    case EStateTransition::ToTitle:
-        if (IsEmberMode(registry)) stateMachine.switchState(std::make_unique<FEmberTitleState>(), registry);
-        else stateMachine.switchState(std::make_unique<FTitleState>(), registry);
-        break;
-    case EStateTransition::ToHub:
-        if (IsEmberMode(registry)) stateMachine.switchState(std::make_unique<FEmberHubState>(), registry);
-        else stateMachine.switchState(std::make_unique<FHubState>(), registry);
-        break;
-    case EStateTransition::ToBattle:
-    case EStateTransition::ToPrototype:
-        if (IsEmberMode(registry)) stateMachine.switchState(std::make_unique<FEmberBattleState>(), registry);
-        else stateMachine.switchState(std::make_unique<FBattleState>(), registry);
-        break;
-    case EStateTransition::Quit:
+    case EStateApplyResult::Quit:
         applyEngineMarkRunningEffect(false);
-        break;
-    case EStateTransition::ToGameOver:
+        return;
+    case EStateApplyResult::Applied:
+        updateAppFlowRuntimeState();
         return;
     }
-    updateAppFlowRuntimeState();
 }
 
 void Engine::syncStateSystemPolicy() {
-    systemMgr.disableAll();
-    const FBaseState* state = stateMachine.currentState();
-    if (!state) return;
-    for (const auto name : state->RequiredSystems()) {
-        if (!systemMgr.setEnabled(name, true)) {
-            LOG_WARN("Required system not registered: {}", name);
-        }
+    for (const auto name : ApplyStackSystemPolicy(stateMachine, systemMgr)) {
+        LOG_WARN("Required system not registered: {}", name);
     }
 }
 
@@ -408,7 +447,7 @@ void Engine::render() {
     (void)ApplyEngineClearBackbufferEffect(renderer.get());
 
     (void)ApplyEngineWorldRenderEffect(registry, systemMgr);
-    if (auto* state = stateMachine.currentState()) state->Render(registry);
+    stateMachine.renderStack(registry);
 
     (void)ApplyEngineOverlayRenderEffect(registry, frameTime, systemMgr, overlayRenderer);
 
@@ -447,7 +486,7 @@ void Engine::applyEngineShutdownAbility(const FEngineAbilityRequest& request) {
     LOG_INFO("Engine shutting down...");
     applyEngineMarkRunningEffect(false);
 
-    stateMachine.popState(registry);
+    stateMachine.unwindAll(registry);
 
     applyEngineShutdownEntitiesEffect();
 

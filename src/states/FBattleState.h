@@ -6,6 +6,9 @@
 #include <string_view>
 #include "gameplay/factory/FScene.h"
 
+/// Catalog id owned by this state (WP-01). FStateCatalog registers under this name; nobody assembles ids.
+inline constexpr std::string_view kForestBattleId = "forest.battle";
+
 class FBattleState final : public FBaseState
 {
 public:

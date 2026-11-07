@@ -36,6 +36,17 @@ std::span<const std::string_view> FEmberBattleState::RequiredSystems() const noe
     return systems;
 }
 
+std::span<const std::string_view> FEmberBattleState::RequiredRenderSystems() const noexcept
+{
+    // render-only while a modal is pushed above the battle: the field and HUD keep drawing, their update stops.
+    static constexpr std::string_view systems[]{
+        "EmberGridRenderSystem",
+        "EmberCombatHudSystem",
+        "BattleAnimationSystem"
+    };
+    return systems;
+}
+
 void FEmberBattleState::OnEnter(entt::registry& Registry)
 {
     battleReady = false;

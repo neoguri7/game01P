@@ -2,11 +2,11 @@
 
 #include <entt/entt.hpp>
 #include <span>
+#include <string>
 #include <string_view>
 
-/// App-flow transition intents only.
-/// Gameplay state must not be represented here; use ECS tag components plus
-/// FEventBus-driven transition systems with documented transition tables.
+/// Legacy closed transition intents. Still returned by FBaseState::Update during WP-01a; WP-01b migrates
+/// every state to FStateTransition. Engine no longer switches on this enum — FStateCatalog::fromLegacy maps it.
 enum class EStateTransition
 {
     None,
@@ -16,6 +16,24 @@ enum class EStateTransition
     ToPrototype,
     ToGameOver,
     Quit
+};
+
+/// How an app-flow transition changes the state stack.
+/// The target is a catalog id; the core never interprets it (FStateCatalog owns id -> factory).
+enum class EStateChangeKind
+{
+    None,
+    Push,        // pause the current top (simulation stops, rendering stays) and push targetId
+    Pop,         // exit and remove the top; the new top resumes
+    ReplaceTop,  // exit the top, then push targetId in its place (depth unchanged — modal-to-modal)
+    Root,        // unwind the whole stack top -> bottom, then push targetId (depth 1); empty id = unwind only
+    Quit
+};
+
+struct FStateTransition
+{
+    EStateChangeKind kind{EStateChangeKind::None};
+    std::string targetId;    // catalog id, e.g. "ember.reward" — core never interprets it
 };
 
 /// Base interface for high-level app-flow states only (title, menus, scene flow).
@@ -35,9 +53,21 @@ public:
 
     [[nodiscard]] virtual std::span<const std::string_view> RequiredSystems() const noexcept { return {}; }
 
+    /// Keep this state's screen visible while a modal is pushed above it (A1: paused, not exited).
+    [[nodiscard]] virtual bool KeepVisibleUnderModals() const { return false; }
+
+    /// Render-only systems (update stays off) to keep drawing while this state is paused under a modal.
+    [[nodiscard]] virtual std::span<const std::string_view> RequiredRenderSystems() const noexcept { return {}; }
+
     /// Called when this state becomes active.
     virtual void OnEnter(entt::registry& Registry) {}
 
     /// Called when this state is being replaced.
     virtual void OnExit(entt::registry& Registry) {}
+
+    /// Called when another state is pushed above this one. The state stays alive (no destruction).
+    virtual void OnPause(entt::registry& Registry) {}
+
+    /// Called when the state above this one is popped. The state becomes the active top again.
+    virtual void OnResume(entt::registry& Registry) {}
 };
