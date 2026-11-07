@@ -4,6 +4,7 @@
 #include "core/Logger.h"
 #include "gameplay/ai/FAiLibrary.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FSaveSections.h"
 
 #include <tracy/Tracy.hpp>
 
@@ -38,10 +39,25 @@ bool FGameplayServices::Initialize(entt::registry& registry) {
 
     registry.ctx().emplace<FContentRegistry>(std::move(*content));
     registry.ctx().emplace<ai::FAiLibrary>(std::move(*library));
+
+    // Later work packages add one registration line directly under their own anchor; registration happens
+    // only here (the composition root), never through static self-registration.
+    // [WP-07] save sections
+    RegisterCoreSaveSections(registry);
+    // [WP-02]
+    // [WP-04]
+    // [WP-09]
+    // [WP-16]
+    // [WP-17]
+    // [WP-19a]
+    // [WP-25]
     return true;
 }
 
 void FGameplayServices::Shutdown(entt::registry& registry) {
+    if (registry.ctx().contains<FSaveSectionRegistry>()) {
+        registry.ctx().erase<FSaveSectionRegistry>();
+    }
     if (registry.ctx().contains<ai::FAiLibrary>()) {
         registry.ctx().erase<ai::FAiLibrary>();
     }
