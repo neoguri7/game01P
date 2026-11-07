@@ -1,4 +1,5 @@
 #include "FEmberBattleState.h"
+#include "FEmberHubState.h"
 
 #include <SDL3/SDL.h>
 
@@ -32,6 +33,17 @@ std::span<const std::string_view> FEmberBattleState::RequiredSystems() const noe
         "BattleAnimationSystem",
         "CombatOutcomeSystem",
         "EmberCombatHudSystem"
+    };
+    return systems;
+}
+
+std::span<const std::string_view> FEmberBattleState::RequiredRenderSystems() const noexcept
+{
+    // render-only while a modal is pushed above the battle: the field and HUD keep drawing, their update stops.
+    static constexpr std::string_view systems[]{
+        "EmberGridRenderSystem",
+        "EmberCombatHudSystem",
+        "BattleAnimationSystem"
     };
     return systems;
 }
@@ -149,11 +161,11 @@ void FEmberBattleState::OnExit(entt::registry& Registry)
     battleReady = false;
 }
 
-EStateTransition FEmberBattleState::Update(entt::registry& Registry, float DeltaTime)
+FStateTransition FEmberBattleState::Update(entt::registry& Registry, float DeltaTime)
 {
     (void)DeltaTime;
     if (!battleReady) {
-        return EStateTransition::ToHub;
+        return {EStateChangeKind::ReplaceTop, std::string(kEmberHubId)};
     }
 
     auto* run = Registry.ctx().find<game::FDungeonRun>();
@@ -161,21 +173,23 @@ EStateTransition FEmberBattleState::Update(entt::registry& Registry, float Delta
         // Back to the menu with the run kept on disk; Continue picks it up from the last autosave.
         game::SaveDungeonRun(Registry);
         Registry.ctx().erase<game::FDungeonRun>();
-        return EStateTransition::ToHub;
+        return {EStateChangeKind::ReplaceTop, std::string(kEmberHubId)};
     }
     if (run && run->abandonRequested) {
         game::DeleteDungeonSave(Registry);
         Registry.ctx().erase<game::FDungeonRun>();
-        return EStateTransition::ToHub;
+        return {EStateChangeKind::ReplaceTop, std::string(kEmberHubId)};
     }
     if (run && run->advanceRequested) {
         run->advanceRequested = false;
-        return EStateTransition::ToBattle;
+        // A2: leaving the battle context clears the whole stack, so the old battle's OnExit ctx erase runs
+        // before the new battle's OnEnter. At depth 1 (today) this is identical to ReplaceTop.
+        return {EStateChangeKind::Root, std::string(kEmberBattleId)};
     }
 
     const auto* outcome = Registry.ctx().find<game::FBattleOutcome>();
     if (outcome && outcome->resolved) {
         game::CompleteDungeonBattle(Registry, outcome->victory);
     }
-    return EStateTransition::None;
+    return {};
 }

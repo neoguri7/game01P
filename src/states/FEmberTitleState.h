@@ -6,12 +6,15 @@
 #include "FBaseState.h"
 #include <string_view>
 
+/// Catalog id owned by this state (WP-01). FStateCatalog registers under this name; nobody assembles ids.
+inline constexpr std::string_view kEmberTitleId = "ember.title";
+
 class FEmberTitleState : public FBaseState
 {
 public:
     FEmberTitleState() = default;
     ~FEmberTitleState() override = default;
 
-    EStateTransition Update(entt::registry& Registry, float DeltaTime) override;
+    FStateTransition Update(entt::registry& Registry, float DeltaTime) override;
     [[nodiscard]] std::string_view GetName() const noexcept override { return "Title"; }
 };

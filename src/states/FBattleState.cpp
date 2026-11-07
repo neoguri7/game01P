@@ -1,5 +1,7 @@
 #include "FBattleState.h"
 
+#include "FHubState.h"
+
 #include <SDL3/SDL.h>
 
 #include "core/JsonLoader.h"
@@ -187,19 +189,19 @@ void FBattleState::OnExit(entt::registry& Registry)
     battleReady = false;
 }
 
-EStateTransition FBattleState::Update(entt::registry& Registry, float DeltaTime)
+FStateTransition FBattleState::Update(entt::registry& Registry, float DeltaTime)
 {
     (void)DeltaTime;
     if (!battleReady) {
         if (auto* run = Registry.ctx().find<game::FPrototypeRun>()) run->End();
-        return EStateTransition::ToHub;
+        return {EStateChangeKind::ReplaceTop, std::string(kForestHubId)};
     }
 
     const auto* input = Registry.ctx().find<game::FInputState>();
     const auto* outcome = Registry.ctx().find<game::FBattleOutcome>();
     if ((input && input->isActionPressed(game::EInputAction::Cancel)) || (outcome && outcome->abandonRequested)) {
         if (auto* run = Registry.ctx().find<game::FPrototypeRun>()) run->End();
-        return EStateTransition::ToHub;
+        return {EStateChangeKind::ReplaceTop, std::string(kForestHubId)};
     }
 
     if (outcome && outcome->resolved) {
@@ -207,8 +209,8 @@ EStateTransition FBattleState::Update(entt::registry& Registry, float DeltaTime)
             if (auto* run = Registry.ctx().find<game::FPrototypeRun>(); run && run->active) {
                 (void)run->ResolveCurrentBattle(outcome->victory);
             }
-            return EStateTransition::ToHub;
+            return {EStateChangeKind::ReplaceTop, std::string(kForestHubId)};
         }
     }
-    return EStateTransition::None;
+    return {};
 }

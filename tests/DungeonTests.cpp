@@ -41,6 +41,7 @@
 #include "presentation/FUiFrame.h"
 #include "presentation/FUiLayout.h"
 #include "states/FEmberBattleState.h"
+#include "states/FEmberHubState.h"
 #include "states/FEmberMenuRequest.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FDungeonArt.h"
@@ -106,7 +107,7 @@ struct FFixture {
     }
 
     void nextRoom() {
-        CHECK(battle.Update(registry, 0) == EStateTransition::ToBattle);
+        CHECK((battle.Update(registry, 0) == FStateTransition{EStateChangeKind::Root, std::string(kEmberBattleId)}));
         battle.OnExit(registry);
         battle.OnEnter(registry);
     }
@@ -545,7 +546,7 @@ void CompleteRun(std::uint32_t seed) {
         while (!registry.ctx().get<game::FBattleOutcome>().resolved && steps++ < 5000) fixture.step();
         CHECK(steps < 5000);
         CHECK(registry.ctx().get<game::FBattleOutcome>().victory);
-        CHECK(fixture.battle.Update(registry, 0) == EStateTransition::None);
+        CHECK(fixture.battle.Update(registry, 0) == FStateTransition{});
         auto& run = registry.ctx().get<game::FDungeonRun>();
         CHECK(run.phase == game::EDungeonPhase::Reward);
         CHECK(run.runes.size() == static_cast<std::size_t>(room + 1));
@@ -831,7 +832,7 @@ void SaveAndContinue() {
     {
         FFixture leave;
         leave.registry.ctx().get<game::FDungeonRun>().leaveRequested = true;
-        CHECK(leave.battle.Update(leave.registry, 0) == EStateTransition::ToHub);
+        CHECK((leave.battle.Update(leave.registry, 0) == FStateTransition{EStateChangeKind::ReplaceTop, std::string(kEmberHubId)}));
         CHECK(!leave.registry.ctx().contains<game::FDungeonRun>());
         CHECK(leave.registry.ctx().get<game::FDungeonSave>().exists && std::filesystem::exists(leave.runSave));
         CHECK(game::ContinueDungeonRun(leave.registry));
@@ -841,7 +842,7 @@ void SaveAndContinue() {
     {
         FFixture abandon;
         abandon.registry.ctx().get<game::FDungeonRun>().abandonRequested = true;
-        CHECK(abandon.battle.Update(abandon.registry, 0) == EStateTransition::ToHub);
+        CHECK((abandon.battle.Update(abandon.registry, 0) == FStateTransition{EStateChangeKind::ReplaceTop, std::string(kEmberHubId)}));
         CHECK(!abandon.registry.ctx().contains<game::FDungeonRun>());
         CHECK(!abandon.registry.ctx().get<game::FDungeonSave>().exists && !std::filesystem::exists(abandon.runSave));
     }
@@ -864,7 +865,7 @@ void SaveAndContinue() {
         between.battle.OnEnter(r);
         CHECK(game::AliveCount(r, false) == 0 && game::AliveCount(r, true) == 4);
         CHECK(r.ctx().get<game::FBattleOutcome>().resolved && r.ctx().get<game::FBattleOutcome>().victory);
-        CHECK(between.battle.Update(r, 0) == EStateTransition::None);
+        CHECK(between.battle.Update(r, 0) == FStateTransition{});
         CHECK(r.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Reward);
         game::ContinueDungeonReward(r);
         CHECK(r.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Event);
@@ -877,7 +878,7 @@ void SaveAndContinue() {
         r.ctx().erase<game::FDungeonRun>();
         r.ctx().get<game::FMenuRequest>().value = game::EMenuRequest::Continue;
         const auto next = ResolveEmberMenuRequest(r);
-        CHECK(next.has_value() && *next == EStateTransition::ToBattle);
+        CHECK(next.has_value() && (*next == FStateTransition{EStateChangeKind::ReplaceTop, std::string(kEmberBattleId)}));
         CHECK(r.ctx().contains<game::FDungeonRun>() && r.ctx().get<game::FMenuRequest>().value == game::EMenuRequest::None);
         r.ctx().erase<game::FDungeonRun>();
         std::filesystem::remove(menu.runSave);
