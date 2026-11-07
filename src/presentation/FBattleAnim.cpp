@@ -349,6 +349,16 @@ std::expected<FBattleAnimData, std::string> ParseBattleAnim(
         if (attack == nullptr || set.impactFrame < 0 || set.impactFrame >= static_cast<int>(attack->frames.size())) {
             return Fail("units." + unitId, "impact_frame is outside the attack clip");
         }
+        // WP-24a (W3 correction #6): a one-shot action authored loop:true is a data defect, not a boot
+        // failure — the gate deliberately excludes loop clips, so it cannot deadlock, but a looping death
+        // would play under the victory modal forever. Warn so the data author sees it.
+        for (const std::size_t action : {static_cast<std::size_t>(EUnitAnim::Attack),
+                                         static_cast<std::size_t>(EUnitAnim::Death)}) {
+            const FAnimClip* oneShot = library.get(set.clips[action]);
+            if (oneShot != nullptr && oneShot->loop) {
+                LOG_WARN("Unit '{}': loop clip on a one-shot action — gate will wait visually.", unitId);
+            }
+        }
         data.setByUnit.emplace(unitId, data.sets.size());
         data.sets.push_back(set);
     }
