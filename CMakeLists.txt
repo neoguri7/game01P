@@ -100,6 +100,13 @@ if(BUILD_TESTING)
         FIXTURES_REQUIRED AssetStage)
     set_property(TEST dungeon_battle_smoke APPEND PROPERTY ENVIRONMENT "GAME01P_START=battle")
     set_property(TEST forest_battle_smoke APPEND PROPERTY ENVIRONMENT "GAME01P_START=battle")
+    # WP-00b: every test that boots the game exe writes its saves under the build tree, never the user's
+    # %APPDATA%\Game01P\EmberDungeon. One directory per test keeps the runs independent.
+    set(SMOKE_TESTS dungeon_title_smoke dungeon_battle_smoke forest_title_smoke forest_battle_smoke forest_prototype_checks)
+    foreach(smoke_test IN LISTS SMOKE_TESTS)
+        set_property(TEST ${smoke_test} APPEND PROPERTY ENVIRONMENT
+            "GAME01P_SAVE_DIR=${CMAKE_BINARY_DIR}/test-saves/${smoke_test}")
+    endforeach()
     # B7: always run asset staging. A JSON-only change does not relink game01P, so the POST_BUILD copy below does not
     # run; without this fixture the smoke tests would read stale assets.
     add_test(NAME stage_assets COMMAND ${CMAKE_COMMAND} -E copy_directory

@@ -1,6 +1,7 @@
 #include "gameplay/dungeon/FDungeonRun.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -190,6 +191,20 @@ nlohmann::json BuildRoomDocument(const nlohmann::json& data, const gameplay::FRo
     return document;
 }
 
+constexpr const char* kSaveDirEnv = "GAME01P_SAVE_DIR"; // boundary: env key
+
+/// The GAME01P_SAVE_DIR override, or nullopt when unset or empty. std::getenv, not SDL_getenv: SDL caches the
+/// environment on first use, so a test that sets the variable later would not be seen.
+std::optional<std::filesystem::path> SaveDirOverride() {
+    const char* value = nullptr;
+#ifdef _MSC_VER
+#pragma warning(suppress: 4996) // std::getenv: read-only, no buffer to overflow
+#endif
+    value = std::getenv(kSaveDirEnv);
+    if (value == nullptr || *value == '\0') return std::nullopt;
+    return std::filesystem::path(value);
+}
+
 } // namespace
 
 int DungeonBalance(entt::registry& registry, const char* key) {
@@ -311,18 +326,33 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
     registry.ctx().erase<FDungeonCheckpoint>();
     auto& checkpoint = registry.ctx().emplace<FDungeonCheckpoint>();
     // Callers that pick their own checkpoint file (tests) get a run save beside it; otherwise both live in the
-    // preference directory.
+    // preference directory, or in GAME01P_SAVE_DIR when that override is set.
     const bool defaultStorage = checkpointPath.empty();
-    std::string storageDirectory;
+    std::filesystem::path storageDirectory;
+    bool prefPathFailed = false;
     if (defaultStorage) {
-        if (const char* path = SDL_GetPrefPath("Game01P", "EmberDungeon")) {
+        if (const auto override = SaveDirOverride()) {
+            // The override never falls back to the preference directory: that is the user's real save.
+            std::error_code code;
+            std::filesystem::create_directories(*override, code);
+            if (code) {
+                LOG_ERROR("GAME01P_SAVE_DIR '{}' could not be created: {}", override->string(), code.message());
+            } else {
+                storageDirectory = *override;
+                LOG_INFO("save dir override: {}", storageDirectory.string());
+            }
+        } else if (const char* path = SDL_GetPrefPath("Game01P", "EmberDungeon")) {
             storageDirectory = path;
-            checkpointPath = storageDirectory + "checkpoint.json";
+        } else {
+            prefPathFailed = true;
         }
+    }
+    if (defaultStorage && !storageDirectory.empty()) {
+        checkpointPath = (storageDirectory / "checkpoint.json").string();
     }
     if (savePath.empty()) {
         if (!defaultStorage) savePath = checkpointPath + ".run.json";
-        else if (!storageDirectory.empty()) savePath = storageDirectory + "run_save.json";
+        else if (!storageDirectory.empty()) savePath = (storageDirectory / "run_save.json").string();
     }
     registry.ctx().erase<FDungeonSave>();
     registry.ctx().emplace<FDungeonSave>().path = std::move(savePath);
@@ -346,7 +376,7 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
         }
     } else {
         checkpoint.error = "Checkpoint storage unavailable.";
-        LOG_ERROR("SDL_GetPrefPath: {}", SDL_GetError());
+        if (prefPathFailed) LOG_ERROR("SDL_GetPrefPath: {}", SDL_GetError());
     }
     if (!checkpoint.error.empty()) { LOG_WARN("{}", checkpoint.error); }
     registry.ctx().erase<FMenuRequest>();
