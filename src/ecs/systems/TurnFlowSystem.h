@@ -2,10 +2,12 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <entt/entt.hpp>
 
 #include "core/Logger.h"
+#include "core/events/FEventBus.h"
 #include "ecs/components/FActionPoints.h"
 #include "ecs/components/FActiveStatuses.h"
 #include "ecs/components/FFaction.h"
@@ -15,6 +17,7 @@
 #include "gameplay/combat/FCombatApply.h"
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FCombatTypes.h"
+#include "gameplay/combat/FEffectHooks.h"
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
 
@@ -31,6 +34,22 @@ struct TurnFlowSystem {
         auto* content = registry.ctx().find<gameplay::FContentRegistry>();
         if (!runtime || !combat || !outcome || !content || outcome->resolved) {
             return;
+        }
+
+        // WP-04: consume this frame's FTurnEnded events (TurnSystem queued them earlier in the same frame)
+        // before the new turn's start hooks. Dedupe inside the helper keeps a second update in the same
+        // frame from double-firing. The `outcome->resolved` guard above intentionally drops the final
+        // turn's OnTurnEnd: a won battle is closed by OnRoomClear (CombatOutcomeSystem), not by a turn hook.
+        if (const auto* bus = registry.ctx().find<FEventBus>()) {
+            const std::vector<FTurnEnded>& ended = bus->frameEvents<FTurnEnded>();
+            if (!ended.empty()) {
+                std::vector<FTurnEvent> turnEvents;
+                turnEvents.reserve(ended.size());
+                for (const FTurnEnded& event : ended) {
+                    turnEvents.emplace_back(event);
+                }
+                FireTurnEventHooks(registry, turnEvents);
+            }
         }
 
         const FTurnSnapshot snapshot = runtime->controller.snapshot();
@@ -70,6 +89,7 @@ struct TurnFlowSystem {
         }
 
         // Turn start: status tick (docs/design/skill-rune-progression.md §4).
+        bool skipTurn = false;
         if (auto* active = registry.try_get<FActiveStatuses>(actor); turnStarted && active && !active->effects.empty()) {
             const std::vector<const gameplay::FStatusContent*> definitions = CollectStatuses(*active, *content);
             const FStatusTickResult tick = TickStatuses(*active, definitions, combat->rng);
@@ -80,13 +100,22 @@ struct TurnFlowSystem {
                 }
             }
             if (!IsAlive(registry, actor)) {
-                return;
+                return; // a unit that dies from its status tick gets no OnTurnStart
             }
-            if (tick.skipTurn) {
-                if (log) log->push(UnitDisplayName(registry, actor) + " cannot act - turn skipped");
-                runtime->requests.push_back(FEndTurn{token});
-                return;
-            }
+            skipTurn = tick.skipTurn;
+        }
+
+        // WP-04: OnTurnStart fires once per turn, after the tick, even when the turn will be skipped — and
+        // before the skipTurn FEndTurn is queued, so a skipped unit still runs its turn-start hooks. The
+        // live path calls the same helper FireTurnEventHooks uses for FTurnStarted.
+        if (turnStarted) {
+            FireTurnStartedHooks(registry, token);
+        }
+
+        if (skipTurn) {
+            if (log) log->push(UnitDisplayName(registry, actor) + " cannot act - turn skipped");
+            runtime->requests.push_back(FEndTurn{token});
+            return;
         }
 
         const bool isParty = registry.all_of<FPartyMember>(actor);

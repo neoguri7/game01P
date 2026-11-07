@@ -26,6 +26,10 @@ FSkillContent decodeSkill(const FContentRow& row) {
     skill.damageType = row.text(kSkillFieldDamageType);
     if (skill.damageType.empty()) skill.damageType = std::string(kDamageTypePhysical);
     skill.runeSockets = row.integer(kSkillFieldRuneSockets, 3); // fallback: 잠정값 3 (정본 §10)
+
+    // WP-04: typed hooks (optional). The decoder cannot fail; an unknown event name is kept for boot
+    // validation, and the source/id provenance is stamped here.
+    skill.hooks = DecodeHooks(row.objectArray(kSkillFieldHooks), "skill:" + skill.id);
     return skill;
 }
 

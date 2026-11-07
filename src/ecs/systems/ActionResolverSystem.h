@@ -19,6 +19,7 @@
 #include "gameplay/combat/FCombatRules.h"
 #include "gameplay/combat/FCombatSheet.h"
 #include "gameplay/combat/FCombatTypes.h"
+#include "gameplay/combat/FEffectHooks.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
@@ -224,17 +225,27 @@ private:
                         log->push(targetName + " knocked out!");
                     }
                 }
-                // §3.3 흡혈: 피해를 준 공격자의 HP를 회복한다(대상이 쓰러져도 적용).
-                if (resolved->lifeOnHit > 0) {
-                    if (auto* actorHealth = registry.try_get<FHealth>(actor);
-                        actorHealth != nullptr && actorHealth->current > 0) {
-                        const int before = actorHealth->current;
-                        actorHealth->current = std::min(actorHealth->max, actorHealth->current + resolved->lifeOnHit);
-                        if (log && actorHealth->current > before) {
-                            log->push(actorName + " leech +" + std::to_string(actorHealth->current - before));
-                        }
-                    }
+                // §3.3 흡혈은 WP-04에서 훅으로 이관: FSkillResolver가 on_hit -> heal_self 훅을 합성하고
+                // FActiveHooks가 OnHit에 발화한다. 여기서 직접 회복하지 않는다(이중 회복 방지).
+                // WP-04 §3: typed hooks fire per hit in a fixed order — OnHit(attacker) first, then either
+                // OnKill (the target died) or OnDamageTaken (the victim survived). Hooks can kill or heal
+                // either side, so `died` is recomputed from IsAlive after the dispatch and the status
+                // application below is skipped for a target dead at that point. Trap and status-tick
+                // damage never reach this branch, so they can never fire these events.
+                const FHookContext hit{.owner = actor, .other = target.unit, .amount = target.damage,
+                                       .skillId = slot->skillId};
+                (void)FireHooks(registry, gameplay::EHookEvent::OnHit, hit);
+                const bool deadAfterHooks = !IsAlive(registry, target.unit);
+                const FHookContext reaction{.owner = deadAfterHooks ? actor : target.unit,
+                                            .other = deadAfterHooks ? target.unit : actor,
+                                            .amount = target.damage, .skillId = slot->skillId};
+                (void)FireHooks(registry,
+                                deadAfterHooks ? gameplay::EHookEvent::OnKill : gameplay::EHookEvent::OnDamageTaken,
+                                reaction);
+                if (deadAfterHooks && !died && log) {
+                    log->push(targetName + " knocked out!"); // a hook finished the target after the hit
                 }
+                died = deadAfterHooks;
             } else if (log && !resolved->statuses.empty()) {
                 log->push(actorName + " / " + skillName + " -> " + targetName + " status applied");
             }

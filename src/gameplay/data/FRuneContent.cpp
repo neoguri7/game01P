@@ -20,6 +20,10 @@ FRuneContent decodeRune(const FContentRow& row) {
     rune.statusDurationDelta = row.integer(kRuneFieldStatusDurationDelta, 0);
     rune.statusMagnitudeDelta = row.integer(kRuneFieldStatusMagnitudeDelta, 0);
     rune.lifeOnHit = row.integer(kRuneFieldLifeOnHit, 0);
+
+    // WP-04: typed hooks (optional). The decoder cannot fail; an unknown event name is kept for boot
+    // validation, and the source/id provenance is stamped here.
+    rune.hooks = DecodeHooks(row.objectArray(kRuneFieldHooks), "rune:" + rune.id);
     return rune;
 }
 

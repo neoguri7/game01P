@@ -2,6 +2,7 @@
 
 #include "core/data/FContentRow.h"
 #include "core/data/FContentSchema.h"
+#include "gameplay/data/FEffectContent.h"
 
 #include <cstddef>
 #include <string>
@@ -30,6 +31,10 @@ struct FSkillContent {
     std::string damageType{"physical"};
     // §3.1: 이 스킬에 장착 가능한 룬 수(PoE 소켓 모방). L2 승격은 이 값을 캐릭터 단위로 +1 한다(미구현).
     int runeSockets{3};
+
+    // WP-04: the skill's own typed hooks (optional field in JSON, authored by WP-22). They fire before any
+    // rune hook of the same slot; `source` is stamped "skill:<id>" at decode.
+    std::vector<FHook> hooks;
 };
 
 /// Field order IS the projection order FContentLoader uses (R22).
@@ -48,6 +53,7 @@ inline constexpr FContentField kSkillFields[] = {
     {"applies_status", EContentFieldType::Id, false},  // boundary: asset key
     {"damage_type", EContentFieldType::Text, false},   // boundary: asset key
     {"rune_sockets", EContentFieldType::Number, false}, // boundary: asset key
+    {"hooks", EContentFieldType::ObjectArray, false, &kHookSchema}, // boundary: asset key (WP-04, last field)
 };
 
 inline constexpr std::size_t kSkillFieldId = 0;
@@ -62,8 +68,9 @@ inline constexpr std::size_t kSkillFieldTarget = 8;
 inline constexpr std::size_t kSkillFieldAppliesStatus = 9;
 inline constexpr std::size_t kSkillFieldDamageType = 10;
 inline constexpr std::size_t kSkillFieldRuneSockets = 11;
+inline constexpr std::size_t kSkillFieldHooks = 12;
 
-static_assert(std::size(kSkillFields) == 12, "kSkillFields and the kSkillField* indices drifted apart");
+static_assert(std::size(kSkillFields) == 13, "kSkillFields and the kSkillField* indices drifted apart");
 
 /// The damage types (docs/design/skill-rune-progression.md §1.1). FContentRegistry rejects any other
 /// value at boot; an empty damage_type is allowed for skills that never deal damage.

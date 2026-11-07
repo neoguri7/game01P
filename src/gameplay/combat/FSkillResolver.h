@@ -7,6 +7,7 @@
 #include "ecs/components/FGridPosition.h"
 #include "ecs/components/FSkillLoadout.h"
 #include "ecs/components/FStats.h"
+#include "gameplay/data/FEffectContent.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/data/FRuneContent.h"
 #include "gameplay/data/FSkillContent.h"
@@ -37,6 +38,10 @@ struct FResolvedSkill {
     int lifeOnHit{0};                   // §3.3 흡혈: 피해를 준 공격자의 HP 회복(명중당)
     std::vector<FResolvedStatus> statuses; // base skill + element runes, with enhance-rune deltas
     std::vector<std::string> runeIds;      // provenance for tooltips/diagnostics
+    // WP-04: the typed hooks this skill resolves to — skill's own hooks first, then each rune's in equip
+    // order, with the leech `on_hit -> heal_self` hook synthesized at the first life_on_hit rune's
+    // position. Execution is the hook pipeline's business; this vector is the merged data.
+    std::vector<gameplay::FHook> hooks;
 };
 
 /// Applies runes in order: form runes replace the shape, element runes add a status, enhance runes move

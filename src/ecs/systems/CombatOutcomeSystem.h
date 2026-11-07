@@ -1,12 +1,16 @@
 #pragma once
 
+#include <algorithm>
 #include <string>
+#include <vector>
 
 #include <entt/entt.hpp>
 
+#include "ecs/components/FFaction.h"
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FCombatTypes.h"
+#include "gameplay/combat/FEffectHooks.h"
 
 namespace game::ecs {
 
@@ -33,6 +37,25 @@ struct CombatOutcomeSystem {
         }
         if (auto* runtime = registry.ctx().find<FTurnRuntime>()) {
             runtime->requests.push_back(FStopTurnSession{});
+        }
+
+        // WP-04: a won room fires OnRoomClear once per living party member, in a deterministic order
+        // (sort by entity id — there is no party slot component). The `continuedAfterRoom` path sets
+        // `resolved` directly (FEmberBattleState), so this early-returns and nothing refires. The heals
+        // land this frame, before the next frame's CaptureRunParty records the party HP.
+        if (outcome->victory) {
+            std::vector<entt::entity> survivors;
+            for (const entt::entity member : registry.view<FPartyMember>()) {
+                if (IsAlive(registry, member)) {
+                    survivors.push_back(member);
+                }
+            }
+            std::ranges::sort(survivors, [](entt::entity left, entt::entity right) {
+                return entt::to_integral(left) < entt::to_integral(right);
+            });
+            for (const entt::entity member : survivors) {
+                (void)FireHooks(registry, gameplay::EHookEvent::OnRoomClear, FHookContext{.owner = member});
+            }
         }
     }
 

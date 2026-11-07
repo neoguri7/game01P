@@ -3,6 +3,7 @@
 #include "core/AssetManager.h"
 #include "core/Logger.h"
 #include "gameplay/ai/FAiLibrary.h"
+#include "gameplay/combat/FEffectHooks.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FSaveSections.h"
 
@@ -46,11 +47,18 @@ bool FGameplayServices::Initialize(entt::registry& registry) {
     RegisterCoreSaveSections(registry);
     // [WP-02]
     // [WP-04]
+    RegisterCoreEffects(registry);
     // [WP-09]
     // [WP-16]
     // [WP-17]
     // [WP-19a]
     // [WP-25]
+
+    // keep last: every Register*Effects anchor is above this line
+    if (!ValidateEffectContent(registry)) {
+        LOG_ERROR("gameplay effect content is unusable; boot stopped (see the effect errors above).");
+        return false;
+    }
     return true;
 }
 
@@ -60,6 +68,14 @@ void FGameplayServices::Shutdown(entt::registry& registry) {
     }
     if (registry.ctx().contains<ai::FAiLibrary>()) {
         registry.ctx().erase<ai::FAiLibrary>();
+    }
+    // WP-04: erase the effect layer (kind registry + listeners/dedupe) so listeners never lapse into the
+    // next battle and a re-initialize starts from a clean registration state.
+    if (registry.ctx().contains<FEffectRegistry>()) {
+        registry.ctx().erase<FEffectRegistry>();
+    }
+    if (registry.ctx().contains<FEffectDispatchState>()) {
+        registry.ctx().erase<FEffectDispatchState>();
     }
     if (registry.ctx().contains<FContentRegistry>()) {
         registry.ctx().erase<FContentRegistry>();

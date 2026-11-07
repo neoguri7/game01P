@@ -2,6 +2,7 @@
 
 #include "core/data/FContentRow.h"
 #include "core/data/FContentSchema.h"
+#include "gameplay/data/FEffectContent.h"
 
 #include <cstddef>
 #include <string>
@@ -40,6 +41,10 @@ struct FRuneContent {
 
     // §3.3 흡혈: 피해를 준 공격자의 HP를 명중당 N 회복한다.
     int lifeOnHit{0};
+
+    // WP-04: the rune's own typed hooks (optional field in JSON, authored by WP-22). They fire after the
+    // skill's own hooks, in equip order; `source` is stamped "rune:<id>" at decode.
+    std::vector<FHook> hooks;
 };
 
 /// Field order IS the projection order FContentLoader uses (R22).
@@ -62,6 +67,7 @@ inline constexpr FContentField kRuneFields[] = {
     {"status_duration_delta", EContentFieldType::Number, false},  // boundary: asset key
     {"status_magnitude_delta", EContentFieldType::Number, false}, // boundary: asset key
     {"life_on_hit", EContentFieldType::Number, false},            // boundary: asset key
+    {"hooks", EContentFieldType::ObjectArray, false, &kHookSchema}, // boundary: asset key (WP-04, last field)
 };
 
 inline constexpr std::size_t kRuneFieldId = 0;
@@ -80,8 +86,9 @@ inline constexpr std::size_t kRuneFieldStatusId = 12;
 inline constexpr std::size_t kRuneFieldStatusDurationDelta = 13;
 inline constexpr std::size_t kRuneFieldStatusMagnitudeDelta = 14;
 inline constexpr std::size_t kRuneFieldLifeOnHit = 15;
+inline constexpr std::size_t kRuneFieldHooks = 16;
 
-static_assert(std::size(kRuneFields) == 16, "kRuneFields and the kRuneField* indices drifted apart");
+static_assert(std::size(kRuneFields) == 17, "kRuneFields and the kRuneField* indices drifted apart");
 
 /// Projects one validated row into a rune. Cannot fail (R22): wrong types were rejected at load.
 [[nodiscard]] FRuneContent decodeRune(const FContentRow& row);
