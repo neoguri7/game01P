@@ -17,6 +17,7 @@
 #include "ecs/systems/EmberGridRenderSystem.h"
 #include "ecs/systems/CombatOutcomeSystem.h"
 #include "ecs/systems/DebugPrimitiveRenderSystem.h"
+#include "ecs/systems/FBattleFlowSystem.h"
 #include "ecs/systems/GridCameraSystem.h"
 #include "ecs/systems/GridRenderSystem.h"
 #include "ecs/systems/GridSelectSystem.h"
@@ -187,6 +188,7 @@ int main(int argc, char* argv[])
     // would miss onRegister(), and before initialize() the registry ctx is empty; edit only under your anchor.
     // [WP-03] combat refresh
     // [WP-05a] battle flow
+    engine.getSystemManager().addSystem<game::ecs::FBattleFlowSystem>();
     // [WP-11] intent system
     // [WP-15] boss goals
     // [WP-20] meta save

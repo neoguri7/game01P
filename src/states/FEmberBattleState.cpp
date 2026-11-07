@@ -12,6 +12,7 @@
 #include "ecs/components/FTag.h"
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/battle/FBattleSetup.h"
+#include "gameplay/combat/FBattleFlow.h"
 #include "gameplay/combat/FCombatApply.h"
 #include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/data/FContentRegistry.h"
@@ -46,7 +47,8 @@ std::span<const std::string_view> FEmberBattleState::RequiredSystems() const noe
         "ActionResolverSystem",
         "BattleAnimationSystem",
         "CombatOutcomeSystem",
-        "EmberCombatHudSystem"
+        "EmberCombatHudSystem",
+        "BattleFlowSystem"
     };
     return systems;
 }
@@ -65,7 +67,6 @@ std::span<const std::string_view> FEmberBattleState::RequiredRenderSystems() con
 void FEmberBattleState::OnEnter(entt::registry& Registry)
 {
     battleReady = false;
-    pushedForPhase = false;
     scene = std::make_unique<game::FScene>(Registry, "BattleGrid");
     scene->Load();
 
@@ -148,6 +149,14 @@ void FEmberBattleState::OnEnter(entt::registry& Registry)
         outcome.victory = true;
         game::SettleUnitAnimations(Registry);
     }
+    // WP-05a lifetime: every battle owns a fresh presentation watch (the flow system advances it) and a
+    // fresh flow state; the previous battle's values must not leak into this one. `roomClearedOnEnter`
+    // carries the saved-phase continue, `handoffDone` is the one handoff guard.
+    Registry.ctx().erase<game::FPresentationWatch>();
+    Registry.ctx().emplace<game::FPresentationWatch>();
+    Registry.ctx().erase<game::FBattleFlowState>();
+    auto& flowState = Registry.ctx().emplace<game::FBattleFlowState>();
+    flowState.roomClearedOnEnter = continuedAfterRoom;
     if (auto* runtime = Registry.ctx().find<game::FTurnRuntime>()) {
         runtime->stop();
         if (!continuedAfterRoom) {
@@ -165,6 +174,11 @@ void FEmberBattleState::OnExit(entt::registry& Registry)
         runtime->stop();
     }
     game::EndBattleAnim(Registry);
+    // WP-05a lifetime: the gate (written by the animation system), its watch and the flow state die with
+    // the battle — a stale gate would freeze the next encounter.
+    Registry.ctx().erase<game::FPresentationGate>();
+    Registry.ctx().erase<game::FPresentationWatch>();
+    Registry.ctx().erase<game::FBattleFlowState>();
     Registry.ctx().erase<game::FActionQueue>();
     Registry.ctx().erase<game::FBattleOutcome>();
     Registry.ctx().erase<game::FCombatLog>();
@@ -215,21 +229,27 @@ FStateTransition FEmberBattleState::Update(entt::registry& Registry, float Delta
     }
 
     const auto* outcome = Registry.ctx().find<game::FBattleOutcome>();
-    if (outcome && outcome->resolved) {
-        if (run != nullptr && run->phase == game::EDungeonPhase::Battle) {
+    auto* flow = Registry.ctx().find<game::FBattleFlowState>();
+    // WP-05a handoff: the battle resolves once, after the presentation settles (level-triggered — the gate
+    // is read every frame, never stored). FBattleFlowState::handoffDone is the single once-guard for both
+    // the live run transition and the saved-phase continue modal.
+    if (outcome != nullptr && outcome->resolved && flow != nullptr && !flow->handoffDone &&
+        game::IsPresentationSettled(Registry)) {
+        if (run != nullptr && !flow->roomClearedOnEnter && run->phase == game::EDungeonPhase::Battle) {
             const auto result = game::ResolveRoomVictory(Registry, outcome->victory);
             if (!result) {
+                // The run is untouched and handoffDone stays false, so the next frame retries.
                 LOG_ERROR("Battle resolution failed: {}", result.error());
                 return {};
             }
-            pushedForPhase = true;
+            flow->handoffDone = true;
             return game::ToStateTransition(*result, kEmberBattleId);
         }
         // A saved-phase continue: the room was already cleared. Push its modal once, never re-resolve it.
-        if (run != nullptr && !pushedForPhase) {
+        if (run != nullptr) {
             const auto modalId = game::RunModalIdForPhase(run->phase);
             if (!modalId.empty()) {
-                pushedForPhase = true;
+                flow->handoffDone = true;
                 return {EStateChangeKind::Push, modalId};
             }
         }

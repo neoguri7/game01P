@@ -31,6 +31,4 @@ public:
 private:
     std::unique_ptr<game::FScene> scene;
     bool battleReady{false};
-    /// A saved-phase continue pushes its modal once; a victory/defeat pushes its modal once. Reset on OnEnter.
-    bool pushedForPhase{false};
 };
