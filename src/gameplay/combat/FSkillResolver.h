@@ -60,6 +60,21 @@ struct FResolvedSkill {
 [[nodiscard]] int ComputeSkillDamage(
     const FStats& attacker, int attackModifier, const FResolvedSkill& skill, const FStats& defender);
 
+/// The terms of one hit exactly as ComputeSkillDamage computes them — one source for the numbers and for
+/// anything that shows the arithmetic (preview, combat log reason). `offense` already includes
+/// `attackModifier`; `damage` is the floored result (max(1, offense + power - defense), FCombatRules).
+struct FDamageTerms {
+    int offense{0};
+    int power{0};
+    int defense{0};
+    int damage{0};
+};
+
+/// Same rule as ComputeSkillDamage, keeping the terms it used. Callers that only want the number call
+/// ComputeSkillDamage (which delegates here); callers that also show the arithmetic read all four fields.
+[[nodiscard]] FDamageTerms ComputeSkillDamageTerms(
+    const FStats& attacker, int attackModifier, const FResolvedSkill& skill, const FStats& defender);
+
 /// Healing granted by a support skill to one ally; zero for a skill without power.
 [[nodiscard]] int ComputeSkillHeal(const FStats& caster, const FResolvedSkill& skill);
 
