@@ -56,6 +56,11 @@ template <typename TRow, typename TDecode>
     return kind == kStatusKindDot || kind == kStatusKindControl || kind == kStatusKindStat;
 }
 
+/// Control-status action-loss timing (WP-13, 30-decisions D-12): a closed set the rules switch on.
+[[nodiscard]] bool isKnownStatusMode(std::string_view mode) {
+    return mode == kStatusModeTurnStart || mode == kStatusModeOnApply;
+}
+
 } // namespace
 
 std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& assets) {
@@ -106,6 +111,14 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
     for (const FStatusContent& status : registry.statuses.rows) {
         if (!isKnownStatusKind(status.kind)) {
             LOG_ERROR("content: status '{}' has unknown kind '{}'.", status.id, status.kind);
+            return std::nullopt;
+        }
+        if (!isKnownStatusMode(status.mode)) {
+            LOG_ERROR("content: status '{}' has unknown mode '{}'.", status.id, status.mode);
+            return std::nullopt;
+        }
+        if (status.chanceCap < 0 || status.chanceCap > 100) {
+            LOG_ERROR("content: status '{}' has chance_cap {} outside 0..100.", status.id, status.chanceCap);
             return std::nullopt;
         }
     }

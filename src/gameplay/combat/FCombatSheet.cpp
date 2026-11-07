@@ -27,7 +27,7 @@ inline constexpr int kEnemyAttackPerRoom = 1;
 } // namespace
 
 void RefreshCombatSheet(
-    entt::registry& registry, entt::entity entity, const gameplay::FContentRegistry& /*content*/) {
+    entt::registry& registry, entt::entity entity, const gameplay::FContentRegistry& content) {
     const auto* base = registry.try_get<FBaseCombatStats>(entity);
     auto* stats = registry.try_get<FStats>(entity);
     auto* health = registry.try_get<FHealth>(entity);
@@ -72,9 +72,17 @@ void RefreshCombatSheet(
             extra * DungeonBalance(registry, "enemy_attack_per_depth") + run->room * kEnemyAttackPerRoom;
     }
 
-    // ④ 확장점(빈 항목) — 훅/상태/난이도 보정은 후속 WP-04/13/18이 여기에 추가한다. W1에서는 상태를
-    //    읽지 않는다: 공격 계열 상태 보정은 사용 시점 합성(리졸버 ActionResolverSystem / AI FAiWorld)이
-    //    유지된다 — 시트가 접으면 두 경로가 같은 보정을 두 번 센다(AttackModifierNotDoubleCounted).
+    // ④ 상태 speed_pct — 100 = 변화 없음, 곱으로 합성하고 하한 1: speed = max(1, round(base × Π(pct/100))).
+    //    속도는 이니셔티브(TurnController)가 합성 없이 그대로 읽는 파생 수치라 시트가 소유한다 — 만료되면
+    //    다음 갱신이 배수를 제거해 원래 속도로 돌아온다. 공격 계열 상태 보정은 여기서 접지 않는다: 사용 시점
+    //    합성(리졸버 ActionResolverSystem / AI FAiWorld)이 유지된다 — 시트가 접으면 두 경로가 같은 보정을
+    //    두 번 센다(AttackModifierNotDoubleCounted).
+    if (speed != nullptr) {
+        if (const auto* active = registry.try_get<FActiveStatuses>(entity);
+            active != nullptr && !active->effects.empty()) {
+            speed->value = StatusSpeedValue(speed->value, *active, CollectStatuses(*active, content));
+        }
+    }
 
     // max 변경 시 current 규칙: 감소 시 clamp, 증가 시 유지(비율 보존 없음).
     health->current = std::min(health->current, health->max);

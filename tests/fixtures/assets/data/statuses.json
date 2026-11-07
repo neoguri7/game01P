@@ -15,14 +15,18 @@
       "kind": "control",
       "magnitude": 0,
       "duration_turns": 2,
-      "speed_pct": 50
+      "speed_pct": 50,
+      "mode": "turn_start",
+      "chance_cap": 90
     },
     {
       "id": "status.paralyze",
       "display_name": "Shock",
       "kind": "control",
       "magnitude": 50,
-      "duration_turns": 2
+      "duration_turns": 2,
+      "mode": "on_apply",
+      "chance_cap": 90
     },
     {
       "id": "status.buff",

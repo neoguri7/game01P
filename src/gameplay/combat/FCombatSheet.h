@@ -12,15 +12,15 @@
 namespace game {
 
 /// 최종 수치 = ① 베이스(FBaseCombatStats) + ② 런 보너스(FRunMember bonus*/노드 — FDungeonRun이 있을
-/// 때만) + ③ 적 스케일(depth/room — FDungeonRun이 있을 때만) + ④ 빈 확장점(W1: 항목 없음).
+/// 때만) + ③ 적 스케일(depth/room — FDungeonRun이 있을 때만) + ④ 상태 speed_pct(곱 합성, 하한 1 — WP-13).
 /// 매번 ①에서 시작해 컴포넌트(FStats/FHealth.max/FSpeed)에 덮어쓰므로 같은 입력이면 같은 값이다
 /// (멱등 — 제자리 가산 금지). FBaseCombatStats가 없는 엔티티는 아무것도 하지 않는다.
 /// ②는 FDungeonRun 경로 전용이다 — forest 패시브(FPrototypeRun)는 FBattleState의 인라인 가산이 계속
 /// 소유하므로 여기서 읽지 않는다(읽으면 이중 가산 — ForestNoDoubleBonus).
 /// max가 줄면 current를 clamp하고, 늘면 current를 유지한다(비율 보존 없음). 적의 current=max는
 /// 전투 시작(ApplyBattleStart)에서만 적용한다.
-/// `content`는 아직 쓰지 않는다(④가 소비할 자리 — WP-04/13/18): 수치 소스는 지금 ctx(DungeonBalance/
-/// FDungeonGrowth)다. 시그니처는 WP-03 설계대로 유지한다.
+/// `content`는 ④의 상태 조회(CollectStatuses + StatusSpeedValue)에 쓴다. 나머지 수치 소스는 지금처럼
+/// ctx(DungeonBalance/FDungeonGrowth)다. 시그니처는 WP-03 설계대로 유지한다.
 void RefreshCombatSheet(
     entt::registry& registry, entt::entity entity, const gameplay::FContentRegistry& content);
 

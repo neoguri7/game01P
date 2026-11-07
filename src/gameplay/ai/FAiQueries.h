@@ -34,9 +34,11 @@ struct FSkillOption {
     std::string key; // identifies the attempt: skill id + target cell
 };
 
-/// Value of one status application on one unit, in HP-equivalents. It follows what ApplyStatus would really
+/// Value of one status application on one unit, in HP-equivalents. It follows what the rules would really
 /// store (a debuff the rules clamp to nothing is worth nothing) and counts only the turns the application
-/// adds on top of what the unit already carries.
+/// adds on top of what the unit already carries. An `on_apply` control (WP-13/D-12) is worth its
+/// application chance × kControlLostTurns instead — its loss is decided once, so it is 0 while the
+/// target's pending skip is still unconsumed.
 [[nodiscard]] int ValueOfStatus(
     const FBtContext& ctx, const FResolvedStatus& status, const FUnitView& target, bool targetIsAlly);
 
