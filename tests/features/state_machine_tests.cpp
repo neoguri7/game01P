@@ -193,7 +193,8 @@ void CatalogResolvesEveryRegisteredId() {
         CHECK(std::ranges::adjacent_find(unique) == unique.end());
     };
 
-    check(game::FStateCatalog::MakeEmber(), {"ember.title", "ember.hub", "ember.battle"});
+    check(game::FStateCatalog::MakeEmber(), {"ember.title", "ember.hub", "ember.battle", "ember.prepare",
+        "ember.runEnd", "ember.reward", "ember.event", "ember.camp", "ember.settings", "ember.compendium"});
     check(game::FStateCatalog::MakeForest(), {"forest.title", "forest.hub", "forest.battle"});
 
     const auto ember = game::FStateCatalog::MakeEmber();
@@ -631,8 +632,8 @@ void ForestMappingTable() {
 /// ember: every reachable return point maps 1:1 to the WP-01 §4 table.
 void EmberMappingTable() {
     // Rows deliberately NOT re-driven here (asserted by dungeon_rules / DungeonTests.cpp):
-    //  - FEmberBattleState leave / abandon -> ReplaceTop ember.hub, next room -> Root ember.battle;
-    //  - ResolveEmberMenuRequest Continue -> ReplaceTop ember.battle;
+    //  - FEmberBattleState leave / abandon -> Root ember.title, next room -> Root ember.battle;
+    //  - ResolveEmberMenuRequest Continue -> Root ember.battle;
     //  - the ImGui menu buttons are immediate mode and not drivable headless.
     entt::registry registry;
     game::FInputState::Initialize(registry);
@@ -665,10 +666,10 @@ void EmberMappingTable() {
     rows.push_back({"ResolveEmberMenuRequest Quit", "FEmberMenuRequest.cpp Quit",
                     quit.value_or(FStateTransition{}), {EStateChangeKind::Quit, {}}});
 
-    // Update without OnEnter: not ready -> hub.
+    // Update without OnEnter: not ready -> title.
     FEmberBattleState battle;
     rows.push_back({"FEmberBattleState not ready", "FEmberBattleState::Update", battle.Update(registry, 0.f),
-                    {EStateChangeKind::ReplaceTop, std::string(kEmberHubId)}});
+                    {EStateChangeKind::Root, std::string(kEmberTitleId)}});
 
     for (const FMappingRow& row : rows) CheckRow(row.label, row.source, row.actual, row.expected);
 }

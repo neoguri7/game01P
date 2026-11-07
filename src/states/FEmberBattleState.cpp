@@ -1,5 +1,5 @@
 #include "FEmberBattleState.h"
-#include "FEmberHubState.h"
+#include "FEmberTitleState.h"
 
 #include <SDL3/SDL.h>
 
@@ -19,8 +19,22 @@
 #include "gameplay/grid/FGridSelection.h"
 #include "gameplay/grid/FGridTypes.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FRunFlow.h"
 #include "presentation/FBattleAnim.h"
 #include "presentation/FDungeonArt.h"
+#include "presentation/FDungeonOverlay.h"
+#include "presentation/FDungeonViews.h"
+#include "states/FRunFlowStateMap.h"
+
+namespace game {
+
+bool BattleOwnsScreen(const entt::registry& registry)
+{
+    const auto* run = registry.ctx().find<FDungeonRun>();
+    return run != nullptr && run->phase == EDungeonPhase::Battle;
+}
+
+} // namespace game
 
 std::span<const std::string_view> FEmberBattleState::RequiredSystems() const noexcept
 {
@@ -51,6 +65,7 @@ std::span<const std::string_view> FEmberBattleState::RequiredRenderSystems() con
 void FEmberBattleState::OnEnter(entt::registry& Registry)
 {
     battleReady = false;
+    pushedForPhase = false;
     scene = std::make_unique<game::FScene>(Registry, "BattleGrid");
     scene->Load();
 
@@ -165,20 +180,32 @@ FStateTransition FEmberBattleState::Update(entt::registry& Registry, float Delta
 {
     (void)DeltaTime;
     if (!battleReady) {
-        return {EStateChangeKind::ReplaceTop, std::string(kEmberHubId)};
+        // A failed battlefield setup is a wiring error, not a hub stop: the title is the only safe screen.
+        return {EStateChangeKind::Root, std::string(kEmberTitleId)};
+    }
+
+    if (const auto* input = Registry.ctx().find<game::FInputState>();
+        input && input->isActionPressed(game::EInputAction::Cancel) && game::BattleOwnsScreen(Registry)) {
+        if (auto* ui = Registry.ctx().find<game::FDungeonUiState>()) ui->confirmAbandon = true;
     }
 
     auto* run = Registry.ctx().find<game::FDungeonRun>();
     if (run && run->leaveRequested) {
         // Back to the menu with the run kept on disk; Continue picks it up from the last autosave.
-        game::SaveDungeonRun(Registry);
-        Registry.ctx().erase<game::FDungeonRun>();
-        return {EStateChangeKind::ReplaceTop, std::string(kEmberHubId)};
+        const auto result = game::ApplyRunIntent(Registry, game::ERunIntent::LeaveRun);
+        if (result) return game::ToStateTransition(*result, kEmberBattleId);
+        // The save failed: the run stays and the battle keeps playing. The reason is shown in the run message.
+        if (auto* current = Registry.ctx().find<game::FDungeonRun>()) {
+            current->leaveRequested = false;
+            current->message = "Could not save the expedition: " + result.error();
+        }
+        return {};
     }
     if (run && run->abandonRequested) {
-        game::DeleteDungeonSave(Registry);
-        Registry.ctx().erase<game::FDungeonRun>();
-        return {EStateChangeKind::ReplaceTop, std::string(kEmberHubId)};
+        const auto result = game::ApplyRunIntent(Registry, game::ERunIntent::AbandonRun);
+        if (result) return game::ToStateTransition(*result, kEmberBattleId);
+        run->abandonRequested = false;
+        return {};
     }
     if (run && run->advanceRequested) {
         run->advanceRequested = false;
@@ -189,7 +216,34 @@ FStateTransition FEmberBattleState::Update(entt::registry& Registry, float Delta
 
     const auto* outcome = Registry.ctx().find<game::FBattleOutcome>();
     if (outcome && outcome->resolved) {
-        game::CompleteDungeonBattle(Registry, outcome->victory);
+        if (run != nullptr && run->phase == game::EDungeonPhase::Battle) {
+            const auto result = game::ResolveRoomVictory(Registry, outcome->victory);
+            if (!result) {
+                LOG_ERROR("Battle resolution failed: {}", result.error());
+                return {};
+            }
+            pushedForPhase = true;
+            return game::ToStateTransition(*result, kEmberBattleId);
+        }
+        // A saved-phase continue: the room was already cleared. Push its modal once, never re-resolve it.
+        if (run != nullptr && !pushedForPhase) {
+            const auto modalId = game::RunModalIdForPhase(run->phase);
+            if (!modalId.empty()) {
+                pushedForPhase = true;
+                return {EStateChangeKind::Push, modalId};
+            }
+        }
     }
     return {};
+}
+
+void FEmberBattleState::Render(entt::registry& Registry)
+{
+    // The leave/abandon confirm lives with the battle, not the overlay: it is a popup over the field.
+    // The battle draws it only while it owns the screen: when a run-phase modal (camp) is above, that
+    // modal draws the shared confirm, and a second copy would duplicate its buttons and leak flags.
+    if (!game::BattleOwnsScreen(Registry)) return;
+    auto* ui = Registry.ctx().find<game::FDungeonUiState>();
+    if (ui == nullptr || !ui->confirmAbandon) return;
+    game::DrawAbandonConfirm(Registry, true, false);
 }

@@ -15,6 +15,7 @@ struct FDungeonUiState {
 };
 
 void InitializeDungeonUi(entt::registry& registry);
+/// Debug-only overlay (WP-02b). Titles, hubs and run modals are drawn by the states that own them.
 void RenderDungeonOverlay(entt::registry& registry, const Time& time, const SystemManager& systems);
 
 } // namespace game
