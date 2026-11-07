@@ -58,11 +58,6 @@ public:
         entries.back().state->OnEnter(reg);
     }
 
-    /// Compatibility alias for replaceTop() without a catalog id (removed once every caller migrates).
-    void switchState(std::unique_ptr<FBaseState> newState, entt::registry& reg) {
-        (void)replaceTop(std::string{}, std::move(newState), reg);
-    }
-
     /// Exit and remove the top state; the new top resumes. A depth-1 stack may be emptied this way.
     bool popState(entt::registry& reg) {
         if (entries.empty()) return false;
@@ -95,8 +90,8 @@ public:
     /// Transition vocabulary alias: Root without a target means "unwind everything".
     void popToRoot(entt::registry& reg) { unwindAll(reg); }
 
-    EStateTransition update(entt::registry& reg, float dt) {
-        if (entries.empty()) return EStateTransition::None;
+    FStateTransition update(entt::registry& reg, float dt) {
+        if (entries.empty()) return FStateTransition{};
         return entries.back().state->Update(reg, dt);
     }
 

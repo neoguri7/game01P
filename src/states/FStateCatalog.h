@@ -41,10 +41,6 @@ public:
     /// catalog (tests, future modes) needs it to be bootable through the Engine.
     void setStartIds(std::string start, std::string debugBattle);
 
-    /// WP-01a bridge — deleted in WP-01b: map the legacy closed enum onto (kind, catalog id).
-    /// Every legacy transition replaces the top; the catalog is the only place that knows the mode's ids.
-    [[nodiscard]] FStateTransition fromLegacy(EStateTransition legacy) const;
-
     static FStateCatalog MakeEmber();
     static FStateCatalog MakeForest();
 
@@ -54,21 +50,11 @@ private:
         FFactory factory;
     };
 
-    /// WP-01a bridge — deleted in WP-01b: the ids the closed EStateTransition enum still means for this mode.
-    /// These are "the title" / "the hub" / "the battle", which today coincide with the boot ids but are not
-    /// defined by them.
-    struct FLegacyIds {
-        std::string title;
-        std::string hub;
-        std::string battle;
-    };
-
     [[nodiscard]] const FFactory* find(std::string_view id) const;
 
     std::vector<FEntry> entries;
     std::string startStateId;
     std::string debugBattleStateId;
-    FLegacyIds legacyIds;
 };
 
 } // namespace game

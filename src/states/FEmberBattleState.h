@@ -12,7 +12,7 @@ inline constexpr std::string_view kEmberBattleId = "ember.battle";
 class FEmberBattleState final : public FBaseState
 {
 public:
-    EStateTransition Update(entt::registry& Registry, float DeltaTime) override;
+    FStateTransition Update(entt::registry& Registry, float DeltaTime) override;
     [[nodiscard]] std::string_view GetName() const noexcept override { return "Battle (grid)"; }
     [[nodiscard]] std::span<const std::string_view> RequiredSystems() const noexcept override;
     /// A modal pushed above the battle must keep the field on screen while the simulation stops (WP-01 §2).

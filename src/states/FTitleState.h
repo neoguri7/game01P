@@ -16,10 +16,10 @@ public:
     FTitleState() = default;
     ~FTitleState() override = default;
 
-    EStateTransition Update(entt::registry& Registry, float DeltaTime) override;
+    FStateTransition Update(entt::registry& Registry, float DeltaTime) override;
     void Render(entt::registry& Registry) override;
     [[nodiscard]] std::string_view GetName() const noexcept override { return "Title"; }
     [[nodiscard]] std::span<const std::string_view> RequiredSystems() const noexcept override;
 private:
-    EStateTransition requested{EStateTransition::None};
+    FStateTransition requested{};
 };

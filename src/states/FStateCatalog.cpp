@@ -57,31 +57,12 @@ void FStateCatalog::setStartIds(std::string start, std::string debugBattle) {
     debugBattleStateId = std::move(debugBattle);
 }
 
-FStateTransition FStateCatalog::fromLegacy(EStateTransition legacy) const {
-    switch (legacy) {
-    case EStateTransition::ToTitle:
-        return {EStateChangeKind::ReplaceTop, legacyIds.title};
-    case EStateTransition::ToHub:
-        return {EStateChangeKind::ReplaceTop, legacyIds.hub};
-    case EStateTransition::ToBattle:
-    case EStateTransition::ToPrototype:
-        return {EStateChangeKind::ReplaceTop, legacyIds.battle};
-    case EStateTransition::Quit:
-        return {EStateChangeKind::Quit, {}};
-    case EStateTransition::None:
-    case EStateTransition::ToGameOver:
-        break;
-    }
-    return {};
-}
-
 FStateCatalog FStateCatalog::MakeEmber() {
     FStateCatalog catalog;
     (void)catalog.add(kEmberTitleId, [] { return std::unique_ptr<FBaseState>(std::make_unique<FEmberTitleState>()); });
     (void)catalog.add(kEmberHubId, [] { return std::unique_ptr<FBaseState>(std::make_unique<FEmberHubState>()); });
     (void)catalog.add(kEmberBattleId, [] { return std::unique_ptr<FBaseState>(std::make_unique<FEmberBattleState>()); });
     catalog.setStartIds(std::string(kEmberTitleId), std::string(kEmberBattleId));
-    catalog.legacyIds = {std::string(kEmberTitleId), std::string(kEmberHubId), std::string(kEmberBattleId)};
     return catalog;
 }
 
@@ -91,7 +72,6 @@ FStateCatalog FStateCatalog::MakeForest() {
     (void)catalog.add(kForestHubId, [] { return std::unique_ptr<FBaseState>(std::make_unique<FHubState>()); });
     (void)catalog.add(kForestBattleId, [] { return std::unique_ptr<FBaseState>(std::make_unique<FBattleState>()); });
     catalog.setStartIds(std::string(kForestTitleId), std::string(kForestBattleId));
-    catalog.legacyIds = {std::string(kForestTitleId), std::string(kForestHubId), std::string(kForestBattleId)};
     return catalog;
 }
 

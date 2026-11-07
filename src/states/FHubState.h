@@ -15,7 +15,7 @@ public:
     FHubState() = default;
     ~FHubState() override = default;
 
-    EStateTransition Update(entt::registry& Registry, float DeltaTime) override;
+    FStateTransition Update(entt::registry& Registry, float DeltaTime) override;
     void Render(entt::registry& Registry) override;
     [[nodiscard]] std::string_view GetName() const noexcept override { return "Hub"; }
     void OnEnter(entt::registry& Registry) override;

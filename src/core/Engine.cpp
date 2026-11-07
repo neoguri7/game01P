@@ -381,7 +381,7 @@ void Engine::update(float dt) {
     ZoneScopedN("Engine::Update");
 
     if (stateCatalog) {
-        applyStateTransition(stateCatalog->fromLegacy(stateMachine.update(registry, dt)));
+        applyStateTransition(stateMachine.update(registry, dt));
     }
     // A transition can legitimately empty the stack (Root with an empty target = unwind only). That is a flow
     // error, not a boot condition: there is no fallback state, so the loop stops and run() reports failure.

@@ -1,5 +1,7 @@
 #include "FHubState.h"
 
+#include "FBattleState.h"
+#include "FTitleState.h"
 #include "core/InputState.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/run/FPrototypeRun.h"
@@ -163,19 +165,19 @@ void FHubState::OnExit(entt::registry& Registry)
     (void)Registry;
 }
 
-EStateTransition FHubState::Update(entt::registry& Registry, float DeltaTime)
+FStateTransition FHubState::Update(entt::registry& Registry, float DeltaTime)
 {
     (void)DeltaTime;
     const auto* input = Registry.ctx().find<game::FInputState>();
     auto* run = Registry.ctx().find<game::FPrototypeRun>();
     const auto* content = Registry.ctx().find<game::gameplay::FContentRegistry>();
-    if (!run || !content) return EStateTransition::None;
+    if (!run || !content) return {};
     if (backRequested || (input && input->isActionPressed(game::EInputAction::Cancel))) {
         run->End();
-        return EStateTransition::ToTitle;
+        return {EStateChangeKind::ReplaceTop, std::string(kForestTitleId)};
     }
     if (const auto* room = run->CurrentRoom(); room && room->kind == game::EPrototypeRoom::Battle) {
-        return EStateTransition::ToBattle;
+        return {EStateChangeKind::ReplaceTop, std::string(kForestBattleId)};
     }
     if (proceedRequested || (input && input->isActionPressed(game::EInputAction::Confirm))) {
         proceedRequested = false;
@@ -185,10 +187,10 @@ EStateTransition FHubState::Update(entt::registry& Registry, float DeltaTime)
             (void)run->Start(*content);
         }
         if (const auto* room = run->CurrentRoom(); room && room->kind == game::EPrototypeRoom::Battle) {
-            return EStateTransition::ToBattle;
+            return {EStateChangeKind::ReplaceTop, std::string(kForestBattleId)};
         }
     }
-    return EStateTransition::None;
+    return {};
 }
 
 void FHubState::Render(entt::registry& Registry)

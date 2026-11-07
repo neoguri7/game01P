@@ -1,10 +1,11 @@
-// App-flow state stack v2 (WP-01a): transition kinds, stack API, catalog injection, and the modal
-// visibility policy — a paused battle keeps rendering (render-only systems) while its simulation stops.
+// App-flow state stack v2 (WP-01): transition kinds, stack API, catalog injection, the modal visibility
+// policy (a paused battle keeps rendering while its simulation stops), and the state -> transition mapping
+// tables migrated from the closed legacy enum.
 //
 // Fakes record every lifecycle/render call into a shared log, so the assertions pin design intent
 // (order, object identity, call counts) instead of "did not crash".
 //
-// The two Engine tests (no state before services, shutdown unwind) run headless through SDL's dummy
+// The Engine tests (no state before services, shutdown unwind, boot paths) run headless through SDL's dummy
 // video/audio drivers. If that harness ever stops working the fallback seam is GameStateMachine itself:
 // Engine::shutdown is exactly one unwindAll() call and Engine::run() refuses an empty stack.
 
@@ -12,7 +13,9 @@
 #include "../TestSupport.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -21,8 +24,18 @@
 #include <SDL3/SDL.h>
 
 #include "core/Engine.h"
+#include "core/InputState.h"
 #include "core/SystemManager.h"
+#include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/run/FPrototypeRun.h"
+#include "states/FBattleState.h"
+#include "states/FEmberBattleState.h"
+#include "states/FEmberHubState.h"
+#include "states/FEmberMenuRequest.h"
+#include "states/FEmberTitleState.h"
+#include "states/FHubState.h"
 #include "states/FStateCatalog.h"
+#include "states/FTitleState.h"
 #include "states/GameStateMachine.h"
 
 namespace {
@@ -46,9 +59,9 @@ public:
           requiredSystems(std::move(required)), renderSystems(std::move(renderSystems)),
           visibleUnderModals(keepVisible) {}
 
-    EStateTransition Update(entt::registry&, float) override {
+    FStateTransition Update(entt::registry&, float) override {
         callLog->add(stateName + ".update");
-        return EStateTransition::None;
+        return {};
     }
     void Render(entt::registry&) override { callLog->add(stateName + ".render"); }
     [[nodiscard]] std::string_view GetName() const noexcept override { return stateName; }
@@ -104,6 +117,35 @@ private:
     SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software");
     return engine.initialize("state-machine-tests", 320, 200);
 }
+
+/// One key-down through the real input path (what Engine::processInput feeds the states).
+void PressKey(entt::registry& registry, SDL_Scancode scancode) {
+    auto* input = registry.ctx().find<game::FInputState>();
+    CHECK(input != nullptr);
+    SDL_Event event{};
+    event.type = SDL_EVENT_KEY_DOWN;
+    event.key.scancode = scancode;
+    (void)input->processEvent(event);
+}
+
+[[nodiscard]] std::string Describe(const FStateTransition& transition) {
+    return "kind " + std::to_string(static_cast<int>(transition.kind)) + " id '" + transition.targetId + "'";
+}
+
+/// Compare one mapping-table row; the failure names the state and its return point, not just the expression.
+void CheckRow(const char* label, const char* source, const FStateTransition& actual, const FStateTransition& expected) {
+    if (actual == expected) return;
+    throw std::runtime_error(std::string("mapping row '") + label + "' (" + source + ") returned " + Describe(actual) +
+                             ", expected " + Describe(expected));
+}
+
+/// A mapping-table row: one state return point and the transition WP-01 §4 assigns to it.
+struct FMappingRow {
+    const char* label;
+    const char* source;
+    FStateTransition actual;
+    FStateTransition expected;
+};
 
 /// GAME01P_START is read through SDL_getenv, which reads SDL's own environment snapshot — so the tests write
 /// through the same API instead of the CRT's _putenv_s.
@@ -531,6 +573,141 @@ void ShutdownUnwindsWholeStack() {
     CHECK(position("B.exit") < position("A.exit"));
 }
 
+/// forest: every reachable return point maps 1:1 to the WP-01 §4 table.
+void ForestMappingTable() {
+    // Rows deliberately NOT re-driven here (they are asserted elsewhere):
+    //  - FBattleState resolved / abandon / cancel -> hub: `--forest --verify-prototype`
+    //    ("battle result advances app flow") and PrototypeChecks' auto-combat path;
+    //  - FHubState proceed -> battle: PrototypeChecks "event continuation reaches next battle" and
+    //    "room flow enters next battle";
+    //  - the ImGui buttons (Prepare party, Start run, Title): immediate mode, not drivable headless.
+    const std::filesystem::path checkpoint = std::filesystem::path("out") / "state-machine-forest-checkpoint.json";
+    auto loaded = game_test::LoadTestRegistry(TestAssetRoots(), checkpoint.string());
+    CHECK(loaded.content);
+    auto& registry = loaded.registry;
+
+    auto run = game::FPrototypeRun::Load(registry.ctx().get<game::gameplay::FContentRegistry>());
+    CHECK(run.has_value());
+    CHECK(run->rooms.front().kind == game::EPrototypeRoom::Battle);
+    auto& runState = registry.ctx().emplace<game::FPrototypeRun>(std::move(*run));
+    game::FInputState::Initialize(registry);
+    auto& input = registry.ctx().get<game::FInputState>();
+
+    std::vector<FMappingRow> rows;
+
+    FTitleState title;
+    PressKey(registry, SDL_SCANCODE_RETURN);
+    rows.push_back({"FTitleState Confirm", "FTitleState::Update", title.Update(registry, 0.f),
+                    {EStateChangeKind::ReplaceTop, std::string(kForestHubId)}});
+    input.beginFrame();
+
+    // The prepared party starts a run whose first room is a battle, so the hub hands over without input.
+    CHECK(runState.Start(registry.ctx().get<game::gameplay::FContentRegistry>()));
+    CHECK(runState.CurrentRoom() != nullptr && runState.CurrentRoom()->kind == game::EPrototypeRoom::Battle);
+    FHubState hub;
+    hub.OnEnter(registry);
+    rows.push_back({"FHubState in a battle room", "FHubState::Update room", hub.Update(registry, 0.f),
+                    {EStateChangeKind::ReplaceTop, std::string(kForestBattleId)}});
+    input.beginFrame();
+
+    // Cancel leaves the battle room for the title and ends the run (behaviour unchanged).
+    PressKey(registry, SDL_SCANCODE_ESCAPE);
+    rows.push_back({"FHubState Cancel", "FHubState::Update back", hub.Update(registry, 0.f),
+                    {EStateChangeKind::ReplaceTop, std::string(kForestTitleId)}});
+    input.beginFrame();
+    CHECK(!runState.active);
+
+    // Update without OnEnter: the battle never became ready, so it bounces back to the hub.
+    FBattleState battle;
+    rows.push_back({"FBattleState not ready", "FBattleState::Update", battle.Update(registry, 0.f),
+                    {EStateChangeKind::ReplaceTop, std::string(kForestHubId)}});
+
+    for (const FMappingRow& row : rows) CheckRow(row.label, row.source, row.actual, row.expected);
+
+    std::error_code error;
+    std::filesystem::remove(checkpoint, error);
+}
+
+/// ember: every reachable return point maps 1:1 to the WP-01 §4 table.
+void EmberMappingTable() {
+    // Rows deliberately NOT re-driven here (asserted by dungeon_rules / DungeonTests.cpp):
+    //  - FEmberBattleState leave / abandon -> ReplaceTop ember.hub, next room -> Root ember.battle;
+    //  - ResolveEmberMenuRequest Continue -> ReplaceTop ember.battle;
+    //  - the ImGui menu buttons are immediate mode and not drivable headless.
+    entt::registry registry;
+    game::FInputState::Initialize(registry);
+    auto& input = registry.ctx().get<game::FInputState>();
+
+    std::vector<FMappingRow> rows;
+
+    FEmberTitleState title;
+    PressKey(registry, SDL_SCANCODE_RETURN);
+    rows.push_back({"FEmberTitleState Confirm", "FEmberTitleState::Update", title.Update(registry, 0.f),
+                    {EStateChangeKind::ReplaceTop, std::string(kEmberHubId)}});
+    input.beginFrame();
+
+    FEmberHubState hub;
+    PressKey(registry, SDL_SCANCODE_RETURN);
+    rows.push_back({"FEmberHubState Confirm", "FEmberHubState::Update Confirm", hub.Update(registry, 0.f),
+                    {EStateChangeKind::ReplaceTop, std::string(kEmberBattleId)}});
+    input.beginFrame();
+
+    PressKey(registry, SDL_SCANCODE_ESCAPE);
+    rows.push_back({"FEmberHubState Cancel", "FEmberHubState::Update Cancel", hub.Update(registry, 0.f),
+                    {EStateChangeKind::ReplaceTop, std::string(kEmberTitleId)}});
+    input.beginFrame();
+
+    // The shared menu request: Quit is a plain Quit transition (no target id).
+    entt::registry menu;
+    menu.ctx().emplace<game::FMenuRequest>().value = game::EMenuRequest::Quit;
+    const auto quit = ResolveEmberMenuRequest(menu);
+    CHECK(quit.has_value());
+    rows.push_back({"ResolveEmberMenuRequest Quit", "FEmberMenuRequest.cpp Quit",
+                    quit.value_or(FStateTransition{}), {EStateChangeKind::Quit, {}}});
+
+    // Update without OnEnter: not ready -> hub.
+    FEmberBattleState battle;
+    rows.push_back({"FEmberBattleState not ready", "FEmberBattleState::Update", battle.Update(registry, 0.f),
+                    {EStateChangeKind::ReplaceTop, std::string(kEmberHubId)}});
+
+    for (const FMappingRow& row : rows) CheckRow(row.label, row.source, row.actual, row.expected);
+}
+
+/// A2: Root clears every battle frame before the new battle enters, so the old battle's ctx erase cannot
+/// wipe the new battle's context.
+void BattleUniquenessUnderRoot() {
+    entt::registry registry;
+    game::GameStateMachine machine;
+    auto log = std::make_shared<FCallLog>();
+    game::FStateCatalog catalog;
+    int created = 0;
+    CHECK(catalog.add("fake.battle", [&created, log] {
+        return Recording("Battle" + std::to_string(++created), log);
+    }));
+
+    machine.pushState("fake.battle", catalog.create("fake.battle"), registry);
+    machine.pushState("fake.modal", Recording("Modal", log), registry);
+    CHECK(machine.stack().size() == 2);
+
+    CHECK(machine.apply({EStateChangeKind::Root, "fake.battle"}, catalog, registry) == game::EStateApplyResult::Applied);
+    CHECK(machine.stack().size() == 1);
+    CHECK(machine.stack()[0].id == "fake.battle");
+
+    const auto battleFrames = std::ranges::count_if(machine.stack(), [](const game::GameStateMachine::FStackEntry& entry) {
+        return entry.id.ends_with(".battle");
+    });
+    CHECK(battleFrames == 1);
+    CHECK(log->count("Battle1.exit") == 1);
+    CHECK(log->count("Battle2.enter") == 1);
+
+    const auto position = [&log](const std::string& entry) {
+        const auto found = std::ranges::find(log->calls, entry);
+        return found == log->calls.end() ? std::string::npos : static_cast<std::size_t>(found - log->calls.begin());
+    };
+    // The old battle's OnExit (ctx erase) finished before the new battle's OnEnter.
+    CHECK(position("Battle1.exit") < position("Battle2.enter"));
+}
+
 } // namespace
 
 int main() {
@@ -546,5 +723,8 @@ int main() {
         {"no state before services", NoStateBeforeServices},
         {"start state created once", StartStateCreatedOnce},
         {"shutdown unwinds the whole stack", ShutdownUnwindsWholeStack},
+        {"forest mapping table", ForestMappingTable},
+        {"ember mapping table", EmberMappingTable},
+        {"battle uniqueness under root", BattleUniquenessUnderRoot},
     });
 }

@@ -5,19 +5,6 @@
 #include <string>
 #include <string_view>
 
-/// Legacy closed transition intents. Still returned by FBaseState::Update during WP-01a; WP-01b migrates
-/// every state to FStateTransition. Engine no longer switches on this enum — FStateCatalog::fromLegacy maps it.
-enum class EStateTransition
-{
-    None,
-    ToTitle,
-    ToHub,
-    ToBattle,
-    ToPrototype,
-    ToGameOver,
-    Quit
-};
-
 /// How an app-flow transition changes the state stack.
 /// The target is a catalog id; the core never interprets it (FStateCatalog owns id -> factory).
 enum class EStateChangeKind
@@ -34,6 +21,9 @@ struct FStateTransition
 {
     EStateChangeKind kind{EStateChangeKind::None};
     std::string targetId;    // catalog id, e.g. "ember.reward" — core never interprets it
+
+    /// kind + id in one expression (tests, prototype checks).
+    friend bool operator==(const FStateTransition&, const FStateTransition&) = default;
 };
 
 /// Base interface for high-level app-flow states only (title, menus, scene flow).
@@ -45,7 +35,7 @@ public:
     virtual ~FBaseState() = default;
 
     /// Per-frame logic. Returns transition intent.
-    virtual EStateTransition Update(entt::registry& Registry, float DeltaTime) = 0;
+    virtual FStateTransition Update(entt::registry& Registry, float DeltaTime) = 0;
     virtual void Render(entt::registry& Registry) {}
 
     /// Human-readable app-flow state name for diagnostics.
