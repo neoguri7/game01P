@@ -1,11 +1,10 @@
-// WP-05a battle-flow tests. The unit (gameplay + ecs driver) is exercised two ways:
-//   * level predicate / fail-safe clock / gate counting / FEndTurn deferral / derived view — on small
-//     hand-built registries, asserting exact values (gate.busy, deque contents, controller snapshot tokens,
-//     change-return of the compare-and-log step);
-//   * handoff — on a real FEmberBattleState battle (content + scene + turn runtime, the run_modal_tests
-//     boot recipe), asserting the exact FStateTransition and the run/save state on disk.
+// WP-05 battle-flow tests (05a + 05b). The unit (gameplay + ecs drivers) is exercised two ways:
+//   * level predicate / fail-safe clock / gate counting / FEndTurn deferral / derived view / the TurnFlow
+//     hold — on small hand-built registries, asserting exact values (gate.busy, deque contents, controller
+//     snapshot tokens, AP/status/thinkDelay state, change-return of the compare-and-log step, hook counts);
+//   * handoff and the stalemate chain — on a real FEmberBattleState battle (content + scene + turn runtime,
+//     the run_modal_tests boot recipe), asserting the exact FStateTransition and the run/save state on disk.
 // Grep tests pin the layer boundary (gameplay/ must not include ecs/systems/ or presentation/).
-// The 05b guard (TurnFlowSystem hold) is not tested here; it lands with 05b.
 
 #define GAME01P_TEST_SUPPORT_CHECK
 #include "../TestSupport.h"
@@ -31,16 +30,21 @@
 #include "core/Engine.h"
 #include "core/SystemManager.h"
 #include "core/events/FEventBus.h"
+#include "ecs/components/FActionPoints.h"
+#include "ecs/components/FActiveStatuses.h"
 #include "ecs/components/FFaction.h"
+#include "ecs/components/FHealth.h"
 #include "ecs/components/FSpeed.h"
 #include "ecs/components/FTurnParticipant.h"
 #include "ecs/systems/BattleAnimationSystem.h"
 #include "ecs/systems/CombatOutcomeSystem.h"
 #include "ecs/systems/FBattleFlowSystem.h"
+#include "ecs/systems/TurnFlowSystem.h"
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/combat/FBattleFlow.h"
 #include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/combat/FEffectHooks.h"
+#include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FRunFlow.h"
 #include "presentation/FBattleAnim.h"
@@ -830,6 +834,280 @@ void ContinuedNoRoomClearHook() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// 05b: TurnFlow driver guard
+// ---------------------------------------------------------------------------------------------
+
+/// A minimal battle context for the TurnFlow guard: turn runtime, combat/outcome/content contexts, a queue,
+/// a log and an event bus. Two participants (speed 20 vs 10, so the fast one acts first) with AP pools and a
+/// burn-shaped status. No battle state — the guard is a TurnFlow property; the win/lose handoff is covered
+/// by the battle fixtures above.
+struct FTurnFlowFixture {
+    entt::registry registry;
+    game::ecs::TurnSystem turns;
+    game::ecs::TurnFlowSystem flow;
+    entt::entity fast{entt::null};
+    entt::entity slow{entt::null};
+
+    FTurnFlowFixture() {
+        turns.onRegister(registry);
+        registry.ctx().emplace<game::FEventBus>();
+        registry.ctx().emplace<FPresentationGate>();
+        registry.ctx().emplace<game::FCombatRuntime>();
+        registry.ctx().emplace<game::FBattleOutcome>();
+        registry.ctx().emplace<game::gameplay::FContentRegistry>();
+        registry.ctx().emplace<game::FActionQueue>();
+        registry.ctx().emplace<game::FCombatLog>();
+        fast = MakeParticipant(20);
+        slow = MakeParticipant(10);
+    }
+
+    entt::entity MakeParticipant(std::int32_t speed) {
+        const entt::entity unit = registry.create();
+        registry.emplace<game::FTurnParticipant>(unit);
+        registry.emplace<game::FSpeed>(unit, game::FSpeed{speed});
+        registry.emplace<game::FActionPoints>(unit, game::FActionPoints{0, 1, 0, 2});
+        game::FActiveStatuses statuses;
+        statuses.effects.push_back(game::FStatusEffect{"status.burn", 3, 5});
+        registry.emplace<game::FActiveStatuses>(unit, std::move(statuses));
+        return unit;
+    }
+
+    [[nodiscard]] game::FTurnSnapshot snapshot() {
+        return registry.ctx().get<game::FTurnRuntime>().controller.snapshot();
+    }
+
+    [[nodiscard]] FTurnToken token() {
+        const auto current = snapshot().currentTurn;
+        CHECK(current.has_value());
+        return *current;
+    }
+
+    [[nodiscard]] std::deque<FTurnRequest>& requests() {
+        return registry.ctx().get<game::FTurnRuntime>().requests;
+    }
+
+    void SetGateBusy(int busy) { registry.ctx().get<FPresentationGate>().busy = busy; }
+
+    void start(std::uint32_t seed = 7u) {
+        requests().push_back(game::FStartTurnSession{seed});
+        turns.update(registry, 0.f);
+        CHECK(snapshot().state == ETurnState::Running);
+        CHECK(token().actor == fast);
+    }
+};
+
+void TurnFlowHoldsDuringSettling() {
+    FTurnFlowFixture fixture;
+    fixture.start();
+    auto* combat = fixture.registry.ctx().find<game::FCombatRuntime>();
+    auto& points = fixture.registry.get<game::FActionPoints>(fixture.fast);
+    auto& statuses = fixture.registry.get<game::FActiveStatuses>(fixture.fast);
+    combat->thinkDelay = 0.3f;
+    const auto serialBefore = combat->scheduledTurnSerial;
+    fixture.SetGateBusy(1);
+
+    fixture.flow.update(fixture.registry, 0.1f);
+
+    CHECK(fixture.requests().empty());                        // nothing queued while the show runs
+    CHECK(fixture.registry.ctx().get<game::FActionQueue>().pending.empty());
+    CHECK(points.move == 0 && points.skill == 0);             // no AP refill
+    CHECK(statuses.effects.size() == 1 && statuses.effects.front().turnsRemaining == 3);  // no status tick
+    CHECK(combat->thinkDelay == 0.3f);                        // the countdown did not move
+    CHECK(combat->scheduledTurnSerial == serialBefore);       // turnStarted still pending
+}
+
+void BeginTurnDeferredWhileSettling() {
+    FBattleFixture fixture(UniquePath("flow-begin"));
+    auto& registry = fixture.registry;
+    fixture.turns.update(registry, 0.f);  // process the FStartTurnSession OnEnter queued
+    auto& runtime = registry.ctx().get<game::FTurnRuntime>();
+    CHECK(runtime.controller.snapshot().state == ETurnState::Running);
+    const entt::entity actor = runtime.controller.snapshot().currentTurn->actor;
+
+    auto& points = registry.get<game::FActionPoints>(actor);
+    points.move = 0;
+    points.skill = 0;
+    auto& statuses = registry.emplace_or_replace<game::FActiveStatuses>(actor);
+    statuses.effects.push_back(game::FStatusEffect{"status.burn", 3, 5});
+    const int healthBefore = registry.get<game::FHealth>(actor).current;
+
+    game::ecs::TurnFlowSystem flow;
+    fixture.SetGateBusy(1);
+    flow.update(registry, 1.f);
+    CHECK(points.move == 0 && points.skill == 0);                                        // held: no refill
+    CHECK(statuses.effects.size() == 1 && statuses.effects.front().turnsRemaining == 3); // held: no tick
+    CHECK(registry.get<game::FHealth>(actor).current == healthBefore);                   // held: no damage
+
+    fixture.SetGateBusy(0);
+    flow.update(registry, 1.f);
+    CHECK(points.move == points.moveMax && points.skill == points.skillMax);  // first settled frame: refill
+    CHECK(statuses.effects.size() == 1 && statuses.effects.front().turnsRemaining == 2);  // tick, exactly once
+    CHECK(registry.get<game::FHealth>(actor).current == healthBefore - 5);   // burn dot = status magnitude
+
+    flow.update(registry, 1.f);
+    CHECK(points.move == points.moveMax && points.skill == points.skillMax);  // a later settled frame...
+    CHECK(statuses.effects.size() == 1 && statuses.effects.front().turnsRemaining == 2);  // ...does not repeat
+    CHECK(registry.get<game::FHealth>(actor).current == healthBefore - 5);
+}
+
+void FlowResumesAfterSettle() {
+    FTurnFlowFixture fixture;
+    fixture.start();
+    auto* combat = fixture.registry.ctx().find<game::FCombatRuntime>();
+    combat->thinkDelay = 0.2f;
+    fixture.SetGateBusy(1);
+
+    fixture.flow.update(fixture.registry, 0.5f);
+    CHECK(fixture.requests().empty());
+    CHECK(combat->thinkDelay == 0.2f);  // held together with everything else
+
+    fixture.SetGateBusy(0);
+    fixture.flow.update(fixture.registry, 0.5f);
+    // The held turn is picked up on the first settled frame: start consumed, AP refilled, empty loadout ends.
+    CHECK(combat->scheduledTurnSerial == fixture.token().turnSerial);
+    CHECK(fixture.registry.get<game::FActionPoints>(fixture.fast).move == 1);
+    CHECK(fixture.registry.get<game::FActionPoints>(fixture.fast).skill == 2);
+    CHECK(CountEndTurnRequests(fixture.requests()) == 1);
+}
+
+void GuardNoOpsWithoutGate() {
+    FTurnFlowFixture fixture;
+    fixture.registry.ctx().erase<FPresentationGate>();  // headless fixtures and autoplay carry no gate
+    CHECK(game::IsPresentationSettled(fixture.registry));
+    fixture.start();
+    auto* combat = fixture.registry.ctx().find<game::FCombatRuntime>();
+    combat->thinkDelay = 0.f;
+
+    fixture.flow.update(fixture.registry, 0.5f);
+
+    const auto& points = fixture.registry.get<game::FActionPoints>(fixture.fast);
+    CHECK(points.move == 1 && points.skill == 2);                      // refilled like before WP-05
+    CHECK(combat->scheduledTurnSerial == fixture.token().turnSerial);  // turn start consumed
+    CHECK(CountEndTurnRequests(fixture.requests()) == 1);              // the empty loadout still ends the turn
+    CHECK(fixture.registry.ctx().get<game::FActionQueue>().pending.empty());
+}
+
+void StalemateStillResolves() {
+    FBattleFixture fixture(UniquePath("flow-stalemate"));
+    auto& registry = fixture.registry;
+    auto& runtime = registry.ctx().get<game::FTurnRuntime>();
+    fixture.turns.update(registry, 0.f);  // start the session OnEnter queued
+    CHECK(runtime.controller.snapshot().state == ETurnState::Running);
+
+    // End every turn as it comes (TurnSystem only — no flow system in the loop) until the round limit is
+    // past. Controller bookkeeping only; nothing else runs while the units stand still.
+    const std::size_t unitCount = registry.view<game::FTurnParticipant>().size();
+    CHECK(unitCount >= 2);
+    CHECK(runtime.controller.snapshot().currentTurn.has_value());
+    std::size_t guard = 0;
+    while (runtime.controller.snapshot().roundNumber <= game::kMaxBattleRounds &&
+           guard < (game::kMaxBattleRounds + 2) * unitCount) {
+        runtime.requests.push_back(game::FEndTurn{*runtime.controller.snapshot().currentTurn});
+        fixture.turns.update(registry, 0.f);
+        ++guard;
+    }
+    CHECK(runtime.controller.snapshot().roundNumber > game::kMaxBattleRounds);
+
+    game::ecs::TurnFlowSystem flow;
+    game::InitializeEventBus(registry);  // the fixture boot recipe has no engine bus; TurnSystem flushes into it
+    registry.ctx().get<game::FEventBus>().beginFrame();
+    fixture.SetGateBusy(1);
+    flow.update(registry, 0.f);
+    const auto& outcome = registry.ctx().get<game::FBattleOutcome>();
+    CHECK(!outcome.resolved);       // the stalemate resolution itself waits for the show
+    CHECK(runtime.requests.empty());
+
+    fixture.SetGateBusy(0);
+    flow.update(registry, 0.f);
+    CHECK(outcome.resolved && !outcome.victory);  // defeat by round limit
+    const std::size_t stops = std::ranges::count_if(runtime.requests, [](const FTurnRequest& request) {
+        return std::holds_alternative<game::FStopTurnSession>(request);
+    });
+    CHECK(stops == 1);
+
+    // The battle handoff turns the stalemate into the run-end push after the settle; a defeat is not saved.
+    CHECK((fixture.battle.Update(registry, 0.f) ==
+           FStateTransition{EStateChangeKind::Push, std::string(game::kRunModalRunEnd)}));
+    CHECK(registry.ctx().get<game::FDungeonRun>().phase == EDungeonPhase::Defeat);
+    CHECK(!std::filesystem::exists(fixture.runSave));
+}
+
+void TurnEndHookNotDroppedByGuard() {
+    FTurnFlowFixture fixture;
+    fixture.start();
+    int turnEnds = 0;
+    game::RegisterHookListener(fixture.registry, game::gameplay::EHookEvent::OnTurnEnd,
+        [&turnEnds](entt::registry&, const game::FHookContext&) { ++turnEnds; });
+
+    auto& bus = fixture.registry.ctx().get<game::FEventBus>();
+    fixture.SetGateBusy(1);
+    fixture.requests().push_back(game::FEndTurn{fixture.token()});  // queued right when the show starts
+
+    // Frame 1 (busy): TurnSystem defers the FEndTurn — no Completed event — and the guard keeps TurnFlow
+    // away from the consumption block.
+    bus.beginFrame();
+    fixture.turns.update(fixture.registry, 0.f);
+    fixture.flow.update(fixture.registry, 0.f);
+    CHECK(fixture.requests().size() == 1);  // deferred, not dropped
+    CHECK(bus.frameEvents<game::FTurnEnded>().empty());
+    CHECK(turnEnds == 0);
+
+    // Frame 2 (settled): the deferred turn completes and the same frame consumes it — OnTurnEnd fires once.
+    fixture.SetGateBusy(0);
+    bus.beginFrame();
+    fixture.turns.update(fixture.registry, 0.f);
+    CHECK(bus.frameEvents<game::FTurnEnded>().size() == 1);  // Completed: only produced while settled
+    fixture.flow.update(fixture.registry, 0.f);
+    CHECK(turnEnds == 1);
+
+    // A second TurnFlow update in the same frame must not fire it again (the helper dedupes).
+    fixture.flow.update(fixture.registry, 0.f);
+    CHECK(turnEnds == 1);
+}
+
+template<typename T>
+concept HasFocusField = requires(T value) { value.focus; };
+template<typename T>
+concept HasMoveTargetingField = requires(T value) { value.moveTargeting; };
+template<typename T>
+concept HasSkillTargetingField = requires(T value) { value.skillTargeting; };
+template<typename T>
+concept HasInputModeField = requires(T value) { value.inputMode; };
+template<typename E>
+concept EnumHasInput = requires { E::Input; };
+template<typename E>
+concept EnumHasMoveTargeting = requires { E::MoveTargeting; };
+template<typename E>
+concept EnumHasSkillTargeting = requires { E::SkillTargeting; };
+template<typename E>
+concept EnumHasFocus = requires { E::Focus; };
+
+void InputSubModesAbsent() {
+    // Positive controls: the probes do find a real phase and a field of the probed shape.
+    static_assert(EnumHasInput<EBattlePhase>);
+    struct FFieldProbe {
+        int focus;
+    };
+    static_assert(HasFocusField<FFieldProbe>);
+
+    // The flow state and its inputs carry no input sub-mode; EBattlePhase has no input sub-phases. The HUD
+    // (WP-12) is the one source of input modes (W3 review §6.7).
+    static_assert(!EnumHasMoveTargeting<EBattlePhase>);
+    static_assert(!EnumHasSkillTargeting<EBattlePhase>);
+    static_assert(!EnumHasFocus<EBattlePhase>);
+    static_assert(!HasFocusField<game::FBattleFlowState>);
+    static_assert(!HasMoveTargetingField<game::FBattleFlowState>);
+    static_assert(!HasSkillTargetingField<game::FBattleFlowState>);
+    static_assert(!HasInputModeField<game::FBattleFlowState>);
+    static_assert(!HasFocusField<game::FBattlePhaseInputs>);
+    static_assert(!HasMoveTargetingField<game::FBattlePhaseInputs>);
+    static_assert(!HasSkillTargetingField<game::FBattlePhaseInputs>);
+    static_assert(!HasInputModeField<game::FBattlePhaseInputs>);
+
+    CHECK(std::string(game::BattlePhaseName(EBattlePhase::Input)) == "Input");  // the one input phase stays a name
+}
+
+// ---------------------------------------------------------------------------------------------
 // Layering / policy
 // ---------------------------------------------------------------------------------------------
 
@@ -949,6 +1227,13 @@ int main() {
         {"ContinuedNoExtraSave", ContinuedNoExtraSave},
         {"ContinuedSkipsTurnSession", ContinuedSkipsTurnSession},
         {"ContinuedNoRoomClearHook", ContinuedNoRoomClearHook},
+        {"TurnFlowHoldsDuringSettling", TurnFlowHoldsDuringSettling},
+        {"BeginTurnDeferredWhileSettling", BeginTurnDeferredWhileSettling},
+        {"FlowResumesAfterSettle", FlowResumesAfterSettle},
+        {"GuardNoOpsWithoutGate", GuardNoOpsWithoutGate},
+        {"StalemateStillResolves", StalemateStillResolves},
+        {"TurnEndHookNotDroppedByGuard", TurnEndHookNotDroppedByGuard},
+        {"InputSubModesAbsent", InputSubModesAbsent},
         {"NoPresentationInclude", NoPresentationInclude},
         {"NoEcsSystemsIncludeInFlow", NoEcsSystemsIncludeInFlow},
         {"FlowNotEnabledUnderModal", FlowNotEnabledUnderModal},

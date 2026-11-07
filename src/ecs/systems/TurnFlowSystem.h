@@ -14,6 +14,7 @@
 #include "ecs/components/FSkillLoadout.h"
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/combat/FAutoAction.h"
+#include "gameplay/combat/FBattleFlow.h"
 #include "gameplay/combat/FCombatApply.h"
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FCombatTypes.h"
@@ -33,6 +34,24 @@ struct TurnFlowSystem {
         auto* outcome = registry.ctx().find<FBattleOutcome>();
         auto* content = registry.ctx().find<gameplay::FContentRegistry>();
         if (!runtime || !combat || !outcome || !content || outcome->resolved) {
+            return;
+        }
+
+        // WP-05b driver guard: the turn flow waits for the presentation to settle, exactly like TurnSystem
+        // defers FEndTurn. Everything below is held while the gate is busy: the AP refill, the status tick,
+        // OnTurnStart, the skipTurn FEndTurn, the think-delay countdown, the auto action and its cap, and
+        // the stalemate resolution. `turnStarted` is not consumed while held either (scheduledTurnSerial is
+        // below), so the first settled frame still runs the new turn's refill and tick exactly once.
+        //
+        // This placement cannot drop an OnTurnEnd:
+        //  * a Completed FTurnEnded is only produced when TurnSystem (earlier in this same frame, 54) processes
+        //    an FEndTurn — and 05a defers those while unsettled, so a busy frame produces none;
+        //  * this system (55) reads the same gate (assigned later in the frame by BattleAnimationSystem, 57)
+        //    and the same watch (advanced last by BattleFlowSystem) — the same settled value TurnSystem saw
+        //    in that frame, so any frame that produced a Completed FTurnEnded reaches the consumption below;
+        //  * Removed/Stopped turn ends can be produced while unsettled (synchronize, session stop), but
+        //    FireTurnEndedHooks ignores them (FEffectHooks.cpp:392-396).
+        if (!IsPresentationSettled(registry)) {
             return;
         }
 
