@@ -3,6 +3,7 @@
 #include "core/data/FContentValue.h"
 
 #include <cstddef>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -48,6 +49,26 @@ struct FContentRow {
         const std::vector<std::string>* array = slot ? slot->asTextArray() : nullptr;
         return array ? *array : std::vector<std::string>{};
     }
+
+    /// Nested accessors (WP-26): `object` yields the single row of an Object slot (nullptr when the
+    /// slot is absent or carries no rows), `objectArray` yields the rows of an ObjectArray slot (empty
+    /// span otherwise). The loader guarantees the declared type on every present slot.
+    [[nodiscard]] const FContentRow* object(std::size_t index) const;
+    [[nodiscard]] std::span<const FContentRow> objectArray(std::size_t index) const;
 };
+
+// Defined after the struct: using the stored `std::vector<FContentRow>` needs FContentRow complete,
+// and the class is complete only once its definition has closed.
+inline const FContentRow* FContentRow::object(std::size_t index) const {
+    const FContentValue* slot = at(index);
+    const std::vector<FContentRow>* rows = slot ? slot->asRows() : nullptr;
+    return (rows && !rows->empty()) ? &rows->front() : nullptr;
+}
+
+inline std::span<const FContentRow> FContentRow::objectArray(std::size_t index) const {
+    const FContentValue* slot = at(index);
+    const std::vector<FContentRow>* rows = slot ? slot->asRows() : nullptr;
+    return rows ? std::span<const FContentRow>{*rows} : std::span<const FContentRow>{};
+}
 
 } // namespace game
