@@ -209,7 +209,7 @@ void SceneRule1IsLargestLossRoom() {
     CHECK(HasFact(scene, "Room", "Depth 1 room 1"));
     CHECK(HasFact(scene, "Result", "win"));
     CHECK(HasFact(scene, "Rounds", "6"));
-    CHECK(HasFact(scene, "Skills used", "skill.maul x2"));
+    CHECK(HasFact(scene, "Skills used (all units)", "skill.maul x2"));
     CHECK(HasFact(scene, "Offer", "rune.fire"));              // the FIRST offer of the room
     CHECK(FactCount(scene, "Offer") == 1);                    // a later skipped offer does not join or overwrite
     CHECK(HasFact(scene, "Encounter", "encounter.ember_pack"));  // the optional room_end keys as facts
@@ -422,10 +422,12 @@ void ScenesAreGrounded() {
         json{{"t", "room_end"}, {"depth", 1}, {"room", 0}, {"result", "win"}, {"rounds", 5},
              {"hp_loss", json::array({{{"id", "party.healer"}, {"loss", 30}}})},
              {"skills_used", {{"skill.zap", 3}}}, {"ko", false}},
-        json{{"t", "offer"}, {"depth", 2}, {"room", 1}, {"picked", "rune.fire"}, {"skipped", false}},
         json{{"t", "room_end"}, {"depth", 2}, {"room", 1}, {"result", "defeat"}, {"rounds", 8},
              {"hp_loss", json::array({{{"id", "party.warrior"}, {"loss", 9}}})},
              {"skills_used", {{"skill.maul", 1}}}, {"ko", true}},
+        // The offer belongs to (2,1)'s window (directly after its room_end): the position-window rule,
+        // not the bare key, decides which room an offer line decorates.
+        json{{"t", "offer"}, {"depth", 2}, {"room", 1}, {"picked", "rune.fire"}, {"skipped", false}},
         json{{"t", "run_end"}, {"result", "defeat"}, {"depth", 2},
              {"fatal_intent", {{"skill", "skill.maul"},
                                {"declared_at_commit", 8},
@@ -435,6 +437,8 @@ void ScenesAreGrounded() {
     };
     const auto scenes = game::BuildRunScenes(log);
     CHECK(scenes.size() == 2u);  // rule 1 (depth 1 room 0) and the merged rule 2+3 (depth 2 room 1)
+    CHECK(scenes[1].depth == 2 && scenes[1].room == 1);
+    CHECK(HasFact(scenes[1], "Offer", "rune.fire"));  // (2,1)'s window holds its offer line
 
     std::set<long long> logged;
     for (const auto& event : log.events) {
@@ -516,7 +520,7 @@ void SceneOmittedWhenFewerFacts() {
     CHECK(scenes.size() == 1u);
     const game::FRunScene& scene = scenes.front();
     CHECK(!HasFactLabel(scene, "Rounds"));
-    CHECK(!HasFactLabel(scene, "Skills used"));
+    CHECK(!HasFactLabel(scene, "Skills used (all units)"));
     CHECK(!HasFactLabel(scene, "HP lost"));  // hp_loss is absent, not an empty array
     CHECK(HasFact(scene, "Knockout", "yes"));
     CHECK(HasFact(scene, "Room", "Depth 1 room 0"));
@@ -526,6 +530,51 @@ void SceneOmittedWhenFewerFacts() {
     // An empty log has no scenes. The "No decisive moment was recorded." sentence belongs to Render,
     // not to the builder — this test asserts builder output only.
     CHECK(game::BuildRunScenes(game::FRunLog{}).empty());
+}
+
+void OfferWindowExcludesCampPurchase() {
+    // An offer line belongs to a room only inside the position window after that room's room_end (and
+    // before the next room_start/room_end/dungeon_clear/camp). A camp rune purchase is logged as an
+    // offer carrying the last battle room's (depth, room), so only the window keeps it out — its
+    // coordinates match the room.
+    game::FRunLog campBuy;
+    campBuy.events = {
+        json{{"t", "room_end"}, {"depth", 1}, {"room", 2}, {"result", "win"}, {"rounds", 5},
+             {"hp_loss", json::array({{{"id", "party.warrior"}, {"loss", 12}}})}, {"skills_used", {}},
+             {"ko", false}},
+        json{{"t", "dungeon_clear"}, {"depth", 1}},
+        json{{"t", "camp"}, {"depth", 1}, {"id", "camp.rune_offer"}, {"amount", 0}},
+        json{{"t", "offer"}, {"depth", 1}, {"room", 2}, {"picked", "rune.power"}, {"skipped", false}},
+    };
+    const auto campScenes = game::BuildRunScenes(campBuy);
+    CHECK(campScenes.size() == 1u);  // the room is the rule-1 scene (loss 12 > 0)
+    CHECK(campScenes.front().depth == 1 && campScenes.front().room == 2);
+    CHECK(!HasFactLabel(campScenes.front(), "Offer"));  // the camp purchase is not this room's offer
+
+    // The window's positive shape: an offer directly after its room_end, depth/room matching → attaches.
+    game::FRunLog direct;
+    direct.events = {
+        json{{"t", "room_end"}, {"depth", 1}, {"room", 0}, {"result", "win"}, {"rounds", 4},
+             {"hp_loss", json::array({{{"id", "party.warrior"}, {"loss", 5}}})}, {"skills_used", {}},
+             {"ko", false}},
+        json{{"t", "offer"}, {"depth", 1}, {"room", 0}, {"picked", "rune.fire"}, {"skipped", false}},
+    };
+    const auto directScenes = game::BuildRunScenes(direct);
+    CHECK(directScenes.size() == 1u);
+    CHECK(HasFact(directScenes.front(), "Offer", "rune.fire"));
+
+    // A room_start closes the window: the same (depth, room) offer after it attaches to nothing.
+    game::FRunLog restarted;
+    restarted.events = {
+        json{{"t", "room_end"}, {"depth", 1}, {"room", 0}, {"result", "win"}, {"rounds", 4},
+             {"hp_loss", json::array({{{"id", "party.warrior"}, {"loss", 5}}})}, {"skills_used", {}},
+             {"ko", false}},
+        json{{"t", "room_start"}, {"depth", 1}, {"room", 0}},
+        json{{"t", "offer"}, {"depth", 1}, {"room", 0}, {"picked", "rune.fire"}, {"skipped", false}},
+    };
+    const auto restartedScenes = game::BuildRunScenes(restarted);
+    CHECK(restartedScenes.size() == 1u);
+    CHECK(!HasFactLabel(restartedScenes.front(), "Offer"));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -804,7 +853,13 @@ void RunEndLedgerSeparatesLostAndKept() {
         }
     }
     CHECK(runesLine);  // the runes line names every id the run holds
-    // ② lost vs kept: the run-scoped numbers are lost, the meta/checkpoint numbers stay.
+    // ② lost vs kept: the run-scoped numbers are lost, the meta/checkpoint numbers stay. The runes line
+    // is a count only — the id list stays in ① (critic round).
+    CHECK(HasLine(ledger.lost, "Runes lost: 2"));
+    for (const auto& line : ledger.lost) {
+        CHECK(line.find("rune.a") == std::string::npos);
+        CHECK(line.find("rune.b") == std::string::npos);
+    }
     CHECK(HasLine(ledger.lost, "Unspent materials lost: 3"));
     CHECK(HasLine(ledger.lost, "Levels lost: 2"));
     CHECK(HasLine(ledger.lost, "Passive nodes lost: 2"));
@@ -957,6 +1012,7 @@ int main() {
         {"ScenesAreGrounded", ScenesAreGrounded},
         {"NoCounterfactualWithoutNumbers", NoCounterfactualWithoutNumbers},
         {"SceneOmittedWhenFewerFacts", SceneOmittedWhenFewerFacts},
+        {"OfferWindowExcludesCampPurchase", OfferWindowExcludesCampPurchase},
         {"RoomEndCarriesEncounterKeys", RoomEndCarriesEncounterKeys},
         {"NextRunDeltasConcrete", NextRunDeltasConcrete},
         {"MetaDisabledShowsPlaceholder", MetaDisabledShowsPlaceholder},

@@ -397,7 +397,10 @@ constexpr std::string_view kSceneFactResult = "Result";
 constexpr std::string_view kSceneFactRounds = "Rounds";
 constexpr std::string_view kSceneFactHpLost = "HP lost";
 constexpr std::string_view kSceneFactKnockout = "Knockout";
-constexpr std::string_view kSceneFactSkillsUsed = "Skills used";
+// room_end.skills_used counts every accepted command, enemies included (CombatOutcomeSystem); the label
+// says so instead of letting the party scene attribute enemy skills to the player. The ally/enemy split is
+// the 19a schema follow-up, not a 19b change.
+constexpr std::string_view kSceneFactSkillsUsed = "Skills used (all units)";
 constexpr std::string_view kSceneFactEncounter = "Encounter";
 constexpr std::string_view kSceneFactFamily = "Family";
 constexpr std::string_view kSceneFactElite = "Elite";
@@ -524,9 +527,10 @@ FSceneDraft& SceneForRoom(std::vector<FSceneDraft>& scenes, const FSceneRoomEnd&
     return scenes.back();
 }
 
-/// The room_end facts (rules 1 and 2, and rule 3's room too), then the room's first offer fact.
+/// The room_end facts (rules 1 and 2, and rule 3's room too), then the room's first offer fact from its own
+/// position window (`firstOffers` is keyed by the room_end's log position; see the scan in BuildRunScenes).
 void AppendRoomFacts(FRunScene& scene, const FSceneRoomEnd& record,
-                     const std::map<std::pair<int, int>, const nlohmann::json*>& firstOffers) {
+                     const std::map<std::size_t, const nlohmann::json*>& firstOffers) {
     const nlohmann::json& line = *record.line;
     AppendFact(scene, kSceneFactRoom, std::format("Depth {} room {}", record.depth, record.room));
     if (const auto result = StringMember(line, "result")) AppendFact(scene, kSceneFactResult, *result);
@@ -561,7 +565,7 @@ void AppendRoomFacts(FRunScene& scene, const FSceneRoomEnd& record,
     if (const auto elite = BoolMember(line, "elite"); elite && *elite) {
         AppendFact(scene, kSceneFactElite, kSceneValueYes);
     }
-    const auto offer = firstOffers.find({record.depth, record.room});
+    const auto offer = firstOffers.find(record.position);
     if (offer == firstOffers.end()) return;
     if (const auto skipped = BoolMember(*offer->second, "skipped"); skipped && *skipped) {
         AppendFact(scene, kSceneFactOffer, kSceneValueSkipped);
@@ -778,11 +782,19 @@ nlohmann::json FRunReportToJson(const FRunReport& report) {
 }
 
 std::vector<FRunScene> BuildRunScenes(const FRunLog& log) {
-    // One defensive scan: the eligible room_end lines (integer depth and room), the first offer per room,
-    // and the LAST run_end that carries a fatal_intent object. A missing or mistyped key drops only the
-    // fact (or line) that reads it.
+    // One defensive scan: the eligible room_end lines (integer depth and room), the first offer of each
+    // room's position window, and the LAST run_end that carries a fatal_intent object. A missing or
+    // mistyped key drops only the fact (or line) that reads it.
+    //
+    // The offer window is what keeps C10 (no false attribution) honest: camp rune purchases are logged as
+    // `offer` lines carrying the dungeon's last battle room as (depth, room), so keying offers by (depth,
+    // room) would show a camp purchase as that room's reward. An offer belongs to the room_end that most
+    // recently precedes it, and only while no room_start, room_end, dungeon_clear or camp line lies between
+    // that room_end and the offer; the offer's (depth, room) must also equal the room_end's (both guards).
+    // The window keeps the first offer only, and the result is keyed by the room_end's log position.
     std::vector<FSceneRoomEnd> rooms;
-    std::map<std::pair<int, int>, const nlohmann::json*> firstOffers;
+    std::optional<std::size_t> openWindow;                      // index into `rooms`, or no open window
+    std::map<std::size_t, const nlohmann::json*> firstOffers;  // key: the room_end's log position
     const nlohmann::json* fatalIntent = nullptr;
     for (std::size_t index = 0; index < log.events.size(); ++index) {
         const nlohmann::json& event = log.events[index];
@@ -791,6 +803,8 @@ std::vector<FRunScene> BuildRunScenes(const FRunLog& log) {
         if (type == event.end() || !type->is_string()) continue;
         const std::string& name = type->get_ref<const std::string&>();
         if (name == "room_end") {
+            // Any room_end line ends the previous window, even a malformed one that opens none itself.
+            openWindow.reset();
             const auto depth = IntMember(event, "depth");
             const auto room = IntMember(event, "room");
             if (!depth || !room) continue;
@@ -803,14 +817,21 @@ std::vector<FRunScene> BuildRunScenes(const FRunLog& log) {
             record.knockout = BoolMember(event, "ko").value_or(false);
             record.defeat = HasStringMember(event, "result", kSceneResultDefeat);
             rooms.push_back(record);
+            // A new room_end both closes the previous window and opens its own.
+            openWindow = rooms.size() - 1;
+        } else if (name == "room_start" || name == "dungeon_clear" || name == "camp") {
+            openWindow.reset();
         } else if (name == "run_end") {
             if (const auto fatal = event.find("fatal_intent"); fatal != event.end() && fatal->is_object()) {
                 fatalIntent = &*fatal;
             }
         } else if (name == "offer") {
+            if (!openWindow) continue;
+            const FSceneRoomEnd& owner = rooms[*openWindow];
             const auto depth = IntMember(event, "depth");
             const auto room = IntMember(event, "room");
-            if (depth && room) firstOffers.try_emplace({*depth, *room}, &event);
+            if (!depth || !room || *depth != owner.depth || *room != owner.room) continue;
+            firstOffers.try_emplace(owner.position, &event);
         }
     }
 

@@ -315,8 +315,9 @@ FRunEndLedger BuildRunEndLedger(const game::FDungeonRun* run, const game::FRunLo
         ledger.gained.push_back(std::format("Materials: {} spent at camp, {} unspent", campSpent, run->materials));
         ledger.gained.push_back(std::format("Levels gained: {}", levels));
         ledger.gained.push_back(std::format("Passive nodes gained: {}", nodes));
-        // ② What the expedition loses: the run-scoped progress above.
-        ledger.lost.push_back("Runes lost: " + runes);
+        // ② What the expedition loses: the run-scoped progress above — the rune count only; the id list
+        // stays in ① (one full list is enough, the scenes must not sink below the fold).
+        ledger.lost.push_back(std::format("Runes lost: {}", run->runes.size()));
         ledger.lost.push_back(std::format("Unspent materials lost: {}", run->materials));
         ledger.lost.push_back(std::format("Levels lost: {}", levels));
         ledger.lost.push_back(std::format("Passive nodes lost: {}", nodes));

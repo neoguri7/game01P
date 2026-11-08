@@ -72,7 +72,8 @@ struct FRunEndLedger {
                                       //   materials (camp spend + the unspent balance — the held facts,
                                       //   never an "earned" total), levels gained (sum of level-1),
                                       //   passive nodes allocated (sum of allocatedNodes)
-    std::vector<std::string> lost;    // ② what this expedition loses: runes, unspent materials, levels, nodes
+    std::vector<std::string> lost;    // ② what this expedition loses: runes (count only — ids in ①), the
+                                      //   unspent materials, levels and nodes
     std::vector<std::string> kept;    // ② what stays: checkpoint + roster size + owned unlocks
                                       //   (numbers from FNextRunDeltas)
 };
