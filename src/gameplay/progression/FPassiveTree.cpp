@@ -503,16 +503,22 @@ const FPassiveNode* PassiveExclusiveConflict(
     return nullptr;
 }
 
-bool FPassiveTree::CanAllocate(const std::vector<std::string>& allocated, std::string_view nodeId) const {
+EAllocationBlocker FPassiveTree::Blocker(const std::vector<std::string>& allocated, std::string_view nodeId) const {
     const FPassiveNode* node = Find(nodeId);
-    if (node == nullptr || node->id == rootNodeId) return false;
+    if (node == nullptr) return EAllocationBlocker::UnknownNode;
+    if (node->id == rootNodeId) return EAllocationBlocker::Root;
     const int rank = PassiveNodeRank(allocated, nodeId);
-    if (rank >= node->maxRanks) return false;
-    if (PassiveExclusiveConflict(nodes, allocated, nodeId) != nullptr) return false;
-    if (rank >= 1) return true;  // 반복 노드 재할당 = 자기 인접.
-    return std::ranges::any_of(node->neighbors, [&](const std::string& neighborId) {
+    if (rank >= node->maxRanks) return EAllocationBlocker::MaxRank;
+    if (PassiveExclusiveConflict(nodes, allocated, nodeId) != nullptr) return EAllocationBlocker::Exclusive;
+    if (rank >= 1) return EAllocationBlocker::None;  // 반복 노드 재할당 = 자기 인접.
+    const bool adjacent = std::ranges::any_of(node->neighbors, [&](const std::string& neighborId) {
         return neighborId == rootNodeId || std::ranges::find(allocated, neighborId) != allocated.end();
     });
+    return adjacent ? EAllocationBlocker::None : EAllocationBlocker::NotAdjacent;
+}
+
+bool FPassiveTree::CanAllocate(const std::vector<std::string>& allocated, std::string_view nodeId) const {
+    return Blocker(allocated, nodeId) == EAllocationBlocker::None;
 }
 
 FPassiveStatBonuses FPassiveTree::Bonuses(const std::vector<std::string>& allocated) const {

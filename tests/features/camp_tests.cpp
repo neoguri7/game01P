@@ -167,7 +167,13 @@ struct FTempAssets {
     }
 
     void CopyGameplayData(bool withDungeon = false) {
-        for (const char* file : {"units.json", "skills.json", "runes.json", "statuses.json", "ai.json"}) Copy(file);
+        // WP-14a: else the shipped encounters.json falls through the temp root and is validated against the
+        // frozen fixture units (the six new enemies are absent there) — the empty fixture table keeps these
+        // boots on the legacy generation path.
+        for (const char* file : {"units.json", "skills.json", "runes.json", "statuses.json", "ai.json",
+                                 "encounters.json"}) {
+            Copy(file);
+        }
         if (withDungeon) {
             Copy("dungeon.json");
             Copy("passive-tree.json");

@@ -34,16 +34,18 @@
 #include "gameplay/grid/FGridTypes.h"
 
 namespace game {
+
+EIntentMode IntentModeOf(std::string_view target, std::string_view shape) {
+    if (target == "cell" || shape == "spread" || shape == "zone" || shape == "pierce") return EIntentMode::Tile;
+    return EIntentMode::Unit;
+}
+
 namespace {
 
-/// The mode rule (WP-11 §모드 결정): a resolved skill aimed at a cell, or shaped as an area/dash form,
-/// commits to a *tile*; everything else tracks a *unit*. Resolved values are used on purpose — a rune can
-/// change the shape, and the intent must follow the skill the unit really carries.
+/// The mode rule (WP-11 §모드 결정) applied to a *resolved* skill. Resolved values are used on purpose — a
+/// rune can change the shape, and the intent must follow the skill the unit really carries.
 [[nodiscard]] EIntentMode ModeForSkill(const FResolvedSkill& skill) {
-    if (skill.target == "cell" || skill.shape == "spread" || skill.shape == "zone" || skill.shape == "pierce") {
-        return EIntentMode::Tile;
-    }
-    return EIntentMode::Unit;
+    return IntentModeOf(skill.target, skill.shape);
 }
 
 [[nodiscard]] bool IsAttackSkill(const FResolvedSkill& skill) {

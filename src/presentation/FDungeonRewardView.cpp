@@ -182,6 +182,7 @@ void DrawGrowthPanel(
         .rootNodeId = growth.passiveTree.rootNodeId,
         .allocated = &member.allocatedNodes,
         .points = member.passivePoints,
+        .blocker = [&](std::string_view nodeId) { return growth.passiveTree.Blocker(member.allocatedNodes, nodeId); },
         .canAllocate = [&](std::string_view nodeId) { return CanAllocateDungeonNode(registry, memberIndex, nodeId); },
         .allocate = [&](std::string_view nodeId) { (void)AllocateDungeonNode(registry, memberIndex, nodeId); },
     });

@@ -291,12 +291,17 @@ void FinishBattlefield(nlohmann::json& document, const nlohmann::json& data) {
 // `dungeon.json party` (unchanged output), the live battlefield passes the installed run's rows
 // (BattlefieldPartyRows). The generator cells ALWAYS come from the authored `data.at("party")` — terrain
 // and enemy placement must not depend on who is in the party (seed determinism, battle-ordinal identity).
+// [WP-14a] `plan` (P14-2) only fills the request extension; the placement rule stays in GenerateRoom, so
+// this function needs no registry and the boot probe calls it without a plan (ctx-free contract).
 nlohmann::json BuildRoomDocument(const nlohmann::json& data, const nlohmann::json& party,
                                  const gameplay::FRoomGenConfig& config,
                                  std::uint32_t seed, int depth, int room, bool boss,
-                                 gameplay::FGeneratedRoom* generatedOut = nullptr) {
+                                 gameplay::FGeneratedRoom* generatedOut = nullptr,
+                                 const FRoomPlan* plan = nullptr) {
     const auto cells = PartyCells(data.at("party"));
-    const auto generated = gameplay::GenerateRoom(config, {seed, depth, room, boss, cells});
+    gameplay::FRoomRequest request{seed, depth, room, boss, cells};
+    if (plan != nullptr) request.family = plan->family;  // WP-14b adds the extra-enemy / leader fields here
+    const auto generated = gameplay::GenerateRoom(config, request);
     if (generatedOut != nullptr) *generatedOut = generated;
     nlohmann::json document;
     document["name"] = generated.name;
@@ -596,6 +601,16 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
         if (!InstallBossCatalog(registry)) return false;
         const auto& rooms = registry.ctx().get<FRunSequence>();
         const auto* bossCatalog = FindBossCatalog(registry);
+        // WP-14a: a PRESENT encounter table must cover every non-boss battle slot of the sequence (a named
+        // encounter exists and is eligible there; an unnamed slot has at least one eligible encounter).
+        if (const auto* encounters = FindEncounterContent(registry);
+            encounters != nullptr && !encounters->encounters.empty()) {
+            std::string encounterError;
+            if (!ValidateEncounterCoverage(*encounters, rooms, encounterError)) {
+                LOG_ERROR("[encounters] {}", encounterError);
+                return false;
+            }
+        }
         // Probe one representative of every unique (family, boss, resolved boss id) tuple actually authored;
         // the room generation failure class is decided by (family, boss, pool, seed) — the ordinal only feeds
         // Mix. Cost is bounded by the tuple count, not the slot count (WP-08 §4).
@@ -860,9 +875,20 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
     } else {
         registry.ctx().erase<FBossBattle>();
     }
+    // WP-14a: the composition plan of this battle (a pure read; boss slots carry no encounter). ApplyEncounter
+    // writes roleSlots/fill/enemyCount into THIS build's config copy — the shared parsed config stays as is.
+    const FRoomPlan plan = FrameRoomPlan(registry, run.room);
+    const auto* encounters = FindEncounterContent(registry);
+    const FEncounterDef* encounter =
+        (encounters != nullptr && !plan.encounterId.empty()) ? encounters->Find(plan.encounterId) : nullptr;
+    if (encounter != nullptr) ApplyEncounter(slotConfig, *encounter, content);
     gameplay::FGeneratedRoom generated;
     auto document = BuildRoomDocument(data, BattlefieldPartyRows(registry, run, data), slotConfig, run.seed,
-                                      run.depth, run.room, slot != nullptr && !slot->boss.empty(), &generated);
+                                      run.depth, run.room, slot != nullptr && !slot->boss.empty(), &generated, &plan);
+    // P14-6: the plan of the room being fought — ctx only, never saved (a Battle continue rebuilds it from
+    // the same seed and gets the general composition again, P14-3). Erase+emplace keeps re-installs idempotent.
+    registry.ctx().erase<FRoomPlan>();
+    registry.ctx().emplace<FRoomPlan>(plan);
     run.roomName = document.at("name").get<std::string>();
     // WP-19a: a saved-phase continue (Reward/Event/Camp/Defeat) also builds the field but must not record a
     // battle that will not happen; only a real Battle phase writes dungeon_enter/room_start. The emergent
@@ -875,6 +901,15 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
         LOG_INFO("[room] family={} strength={} walls={} reachable={:.2f} min_path={} cover={} traps={}",
                  slotConfig.family, strength ? gameplay::FamilyStrengthName(*strength) : "unknown", metrics.walls,
                  metrics.reachableRatio, metrics.minPath, metrics.coverCells, metrics.traps);
+        // WP-14a 보고: the resolved composition (`legacy` = the weighted generation pool), the enemies placed
+        // and the role slot names in spawn order ("" for a legacy/boss room).
+        std::string roleNames;
+        for (const gameplay::FRoleSlotSpawn& roleSlot : slotConfig.roleSlots) {
+            if (!roleNames.empty()) roleNames += ',';
+            roleNames += roleSlot.role;
+        }
+        LOG_INFO("[encounter] id={} enemies={} roles={}", plan.encounterId.empty() ? "legacy" : plan.encounterId,
+                 generated.enemies.size(), roleNames);
         // WP-15: one line per real boss battle; parts = the mapped part rows' summed count (0 = fallback).
         if (bossBattle && slot != nullptr) {
             int partCount = 0;

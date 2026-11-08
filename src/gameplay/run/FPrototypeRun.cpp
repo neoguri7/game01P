@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <set>
+
+#include <nlohmann/json.hpp>
 
 #include "core/JsonLoader.h"
 #include "gameplay/battle/FBattleSetup.h"
@@ -27,10 +30,8 @@ std::optional<FPrototypeRun> FPrototypeRun::Load(const gameplay::FContentRegistr
             run.runeInventory.push_back(runeId);
         }
 
-        // WP-32a: the ship tree is schema 2 (FPassiveTree::Load validates both 1 and 2 itself).
-        const auto passiveTreeDocument = FJsonLoader::Load(document->at("passive_tree").get<std::string>(), 2);
-        if (!passiveTreeDocument) return std::nullopt;
-        const auto tree = FPassiveTree::Load(*passiveTreeDocument);
+        // WP-32h: schema version is validated by FPassiveTree::Load alone (v1 and v2), not by FJsonLoader.
+        const auto tree = LoadPassiveTreeFile(document->at("passive_tree").get<std::string>());
         if (!tree) return std::nullopt;
         run.tree = *tree;
 
@@ -95,6 +96,20 @@ std::optional<FPrototypeRun> FPrototypeRun::Load(const gameplay::FContentRegistr
         return std::nullopt;
     }
     return run;
+}
+
+std::optional<FPassiveTree> FPrototypeRun::LoadPassiveTreeFile(const std::filesystem::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        LOG_ERROR("prototype passive tree file is missing or unreadable: {}", path.string());
+        return std::nullopt;
+    }
+    auto document = nlohmann::json::parse(file, nullptr, false);
+    if (document.is_discarded()) {
+        LOG_ERROR("prototype passive tree file is not valid JSON: {}", path.string());
+        return std::nullopt;
+    }
+    return FPassiveTree::Load(document);
 }
 
 bool FPrototypeRun::CanStart(const gameplay::FContentRegistry& content) const {

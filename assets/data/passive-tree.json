@@ -17,7 +17,7 @@
       "description": "+5 maximum health.",
       "next": ["node.precision"],
       "x": 20,
-      "y": 78,
+      "y": 90,
       "bonuses": { "max_health": 5, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }
     },
     {
@@ -44,7 +44,7 @@
       "description": "+1 magical attack.",
       "next": ["node.endurance"],
       "x": 80,
-      "y": 78,
+      "y": 90,
       "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 1, "defense": 0, "magic_defense": 0, "speed": 0 }
     },
     {
@@ -97,8 +97,8 @@
       "display_name": "Conduction",
       "description": "+1 magical attack.",
       "next": ["node.overload"],
-      "x": 34,
-      "y": 44,
+      "x": 30,
+      "y": 47,
       "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 1, "defense": 0, "magic_defense": 0, "speed": 0 }
     },
     {
@@ -106,8 +106,8 @@
       "display_name": "Permafrost",
       "description": "+1 physical defense.",
       "next": ["node.bulwark", "node.zenith"],
-      "x": 66,
-      "y": 44,
+      "x": 70,
+      "y": 47,
       "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 1, "magic_defense": 0, "speed": 0 }
     },
     {
@@ -133,7 +133,7 @@
       "display_name": "Overload",
       "description": "+1 magical attack.",
       "next": [],
-      "x": 28,
+      "x": 20,
       "y": 26,
       "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 1, "defense": 0, "magic_defense": 0, "speed": 0 }
     },
@@ -143,7 +143,7 @@
       "description": "+1 initiative speed.",
       "next": ["node.warpath", "node.wardpath", "node.tempered", "node.attunement"],
       "x": 50,
-      "y": 26,
+      "y": 36,
       "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 1 }
     },
     {
@@ -151,7 +151,7 @@
       "display_name": "Bulwark",
       "description": "+1 physical defense.",
       "next": [],
-      "x": 72,
+      "x": 74,
       "y": 26,
       "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 1, "magic_defense": 0, "speed": 0 }
     },
@@ -179,7 +179,7 @@
       "display_name": "Wardpath",
       "description": "+6 maximum health, +2 physical defense.",
       "next": [],
-      "x": 38,
+      "x": 40,
       "y": 8,
       "exclusive_group": "capstone.doctrine",
       "bonuses": { "max_health": 6, "attack": 0, "magic_attack": 0, "defense": 2, "magic_defense": 0, "speed": 0 }
@@ -189,7 +189,7 @@
       "display_name": "Tempered",
       "description": "+2 maximum health (repeatable, up to 5 ranks).",
       "next": [],
-      "x": 62,
+      "x": 58,
       "y": 8,
       "max_ranks": 5,
       "bonuses": { "max_health": 2, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }

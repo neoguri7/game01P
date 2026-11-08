@@ -3,6 +3,7 @@
 #include "core/AssetManager.h"
 #include "core/ResourceManager.h"
 #include "core/Logger.h"
+#include "gameplay/data/FContentRegistry.h"
 #include <algorithm>
 #include <cstdint>
 #include <imgui.h>
@@ -16,6 +17,40 @@ std::uint32_t CellHash(int x, int y) {
     h ^= h >> 13;
     h *= 0x5BD1E995u;
     return h ^ (h >> 15);
+}
+
+/// P14-8: the eight art ids `assets/data/units.json` authors. A unit's sprite is its content row's
+/// `sprite` id resolved through this one table — never a hardcoded template-id chain.
+struct FUnitSpriteEntry {
+    std::string_view artId;
+    EDungeonSprite sprite;
+};
+
+constexpr std::array<FUnitSpriteEntry, 8> kUnitSpriteTable{{
+    {"art/warrior", EDungeonSprite::Warrior},
+    {"art/archer", EDungeonSprite::Archer},
+    {"art/mage", EDungeonSprite::Mage},
+    {"art/healer", EDungeonSprite::Healer},
+    {"art/imp", EDungeonSprite::Imp},
+    {"art/imp_archer", EDungeonSprite::ImpArcher},
+    {"art/imp_shaman", EDungeonSprite::ImpShaman},
+    {"art/guardian", EDungeonSprite::Guardian},
+}};
+
+/// The fallback for a unit whose sprite cannot be resolved (P14-8): an unknown enemy never renders as a
+/// party warrior — `enemy.*` reads as the imp; party/unknown ids keep the warrior default.
+[[nodiscard]] EDungeonSprite FallbackUnitSprite(std::string_view templateId) {
+    return templateId.starts_with("enemy.") ? EDungeonSprite::Imp : EDungeonSprite::Warrior;
+}
+
+[[nodiscard]] EDungeonSprite ResolveUnitSprite(const gameplay::FContentRegistry& content,
+                                               std::string_view templateId) {
+    const gameplay::FUnitContent* unit = content.units.find(templateId);
+    if (unit == nullptr) {
+        return FallbackUnitSprite(templateId);
+    }
+    const auto found = std::ranges::find(kUnitSpriteTable, unit->spriteId, &FUnitSpriteEntry::artId);
+    return found != kUnitSpriteTable.end() ? found->sprite : FallbackUnitSprite(templateId);
 }
 
 } // namespace
@@ -122,16 +157,13 @@ void InstallDungeonUiSkin(entt::registry& registry) {
 }
 
 void AssignDungeonSprites(entt::registry& registry, std::span<const FUnitPlacement> units) {
+    // P14-8: the sprite is the unit's content `sprite` id mapped through kUnitSpriteTable, so a new enemy
+    // needs data only. A registry without content (a bare test boot) keeps the per-side fallback.
+    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
     for (const auto& unit : units) {
-        EDungeonSprite sprite = EDungeonSprite::Warrior;
-        if (unit.unitTemplateId == "char.archer") sprite = EDungeonSprite::Archer;
-        else if (unit.unitTemplateId == "char.mage") sprite = EDungeonSprite::Mage;
-        else if (unit.unitTemplateId == "char.healer") sprite = EDungeonSprite::Healer;
-        else if (unit.unitTemplateId == "enemy.imp") sprite = EDungeonSprite::Imp;
-        else if (unit.unitTemplateId == "enemy.imp_archer") sprite = EDungeonSprite::ImpArcher;
-        else if (unit.unitTemplateId == "enemy.imp_shaman") sprite = EDungeonSprite::ImpShaman;
-        else if (unit.unitTemplateId == "enemy.guardian") sprite = EDungeonSprite::Guardian;
-        else if (unit.unitTemplateId == "enemy.guardian_heart") sprite = EDungeonSprite::Guardian;  // WP-15 part (art: WP-23)
+        const EDungeonSprite sprite = content != nullptr
+            ? ResolveUnitSprite(*content, unit.unitTemplateId)
+            : FallbackUnitSprite(unit.unitTemplateId);
         registry.emplace<FUnitArt>(unit.entity, sprite);
     }
 }
