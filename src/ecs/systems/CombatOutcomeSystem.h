@@ -9,13 +9,17 @@
 #include <entt/entt.hpp>
 
 #include "core/events/FEventBus.h"
+#include "ecs/components/FBossGoals.h"
 #include "ecs/components/FFaction.h"
 #include "ecs/components/FHealth.h"
+#include "ecs/systems/FBossGoalSystem.h"
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/combat/FBattleCommand.h"
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/combat/FEffectHooks.h"
+#include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunLog.h"
 #include "gameplay/factory/FEntityDefinitions.h"
 
@@ -29,6 +33,11 @@ struct CombatOutcomeSystem {
         // stats live in the gameplay layer (FRunLog.h) because gameplay must not include this header.
         AccumulateRoomStats(registry);
 
+        // WP-15: the boss evaluation also sits before the resolved guard — the frame that lands the killing
+        // blow must announce the transition it caused (a killing blow changes the cache silently), and a
+        // continued room must still refresh the cache it never announces.
+        EvaluateBossGoals(registry);
+
         auto* outcome = registry.ctx().find<FBattleOutcome>();
         if (!outcome || outcome->resolved) {
             return;
@@ -38,6 +47,13 @@ struct CombatOutcomeSystem {
         const int party = AliveCount(registry, true);
         const int enemies = AliveCount(registry, false);
         if (party + enemies == 0 || (party > 0 && enemies > 0)) {
+            return;
+        }
+
+        // WP-15: a boss room is won only when every goal is complete (every body dead, no part left alive).
+        // Defensive while parts/body are enemies — "enemies == 0" already implies it — but the rule is
+        // explicit here so a future non-enemy part cannot silently end the fight.
+        if (enemies == 0 && !BossGoalsComplete(registry)) {
             return;
         }
 
@@ -55,6 +71,17 @@ struct CombatOutcomeSystem {
         // `resolved` directly (FEmberBattleState), so this early-returns and nothing refires. The heals
         // land this frame, before the next frame's CaptureRunParty records the party HP.
         if (outcome->victory) {
+            // WP-15/WP-20 cross contract: a won boss battle appends BossDefeated exactly once (this branch
+            // runs once — `resolved` above and the `continuedAfterRoom` path that sets `resolved` itself both
+            // keep it single). A fallback boss still appends (the FBossBattle marker carries its bossId).
+            // Forest battles have no FDungeonRun; the guard matters because AppendRunEvent creates a log when
+            // none exists.
+            if (registry.ctx().contains<FDungeonRun>()) {
+                if (const auto* boss = registry.ctx().find<FBossBattle>()) {
+                    AppendRunEvent(registry, ERunEventKind::BossDefeated, boss->bossId);
+                }
+            }
+
             std::vector<entt::entity> survivors;
             for (const entt::entity member : registry.view<FPartyMember>()) {
                 if (IsAlive(registry, member)) {

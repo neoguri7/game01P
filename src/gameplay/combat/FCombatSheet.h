@@ -48,6 +48,9 @@ struct FPreviewTarget {
     int offense{0}; // 공격 항(공격력/마법공격력 + 사용 시점 상태 보정)
     int power{0};
     int defense{0};
+    /// WP-15: the boss gate reduced this hit (BossBodyDamageCap) — a display hook for WP-12; the numbers
+    /// above are already the capped ones.
+    bool blockedByGate{false};
 };
 
 struct FSkillPreview {
@@ -59,6 +62,8 @@ struct FSkillPreview {
 /// 프리뷰 = 실제 계산(WP-03): 리졸버와 같은 경로(갱신된 컴포넌트 + ComputeSkillDamage/Heal + 같은 대상
 /// 규칙: 시전자 관점 진영, ComputeSkillCells, FindUnitsOnCells, 대상별 LoS)를 쓴다. AP/사거리/턴
 /// 검증은 하지 않는다(리졸버 소유). RNG를 쓰지 않는다 — 상태 부여는 결정적이다.
+/// WP-15: 보스 게이트의 정본이기도 하다 — 피해는 ApplyDamageToUnit과 같은 BossBodyDamageCap을 지나며
+/// (최소 1 뒤 — 바닥에서는 진짜 0), 대상의 blockedByGate가 그 사실을 표시한다.
 /// statuses는 부여 목록만 담는다: 정의가 존재하는 FResolvedStatus이고, lethal 대상은 빈 목록이다.
 /// FContentRegistry(또는 시전자 FStats)가 없으면 nullopt.
 [[nodiscard]] std::optional<FSkillPreview> PreviewSkill(

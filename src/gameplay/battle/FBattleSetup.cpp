@@ -3,11 +3,14 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "core/Logger.h"
 #include "ecs/components/FActionPoints.h"
 #include "ecs/components/FActiveStatuses.h"
 #include "ecs/components/FBaseCombatStats.h"
+#include "ecs/components/FBossGoals.h"
 #include "ecs/components/FHealth.h"
 #include "ecs/components/FSkillLoadout.h"
 #include "ecs/components/FSpeed.h"
@@ -16,6 +19,8 @@
 #include "gameplay/ai/FAiBrain.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FBossContent.h"
+#include "gameplay/dungeon/FDungeonRun.h"
 
 namespace game {
 namespace {
@@ -41,6 +46,70 @@ inline constexpr std::size_t kDefaultLoadoutSlots = 4;
         loadout.slots.push_back(FSkillSlot{skillId, {}});
     }
     return loadout;
+}
+
+/// WP-15: attaches the boss goals (body phases, part links) to a battlefield that the generator filled from a
+/// mapped bosses.json entry. Parts themselves are ordinary placements — the room document creates them, this
+/// block only links them (entities can never be added here).
+void AttachBossGoals(entt::registry& registry, const FBattlefieldData& battlefield) {
+    // Only a boss-slot dungeon battle has both the run and the marker; forest battles and validation probes
+    // (SetupCombatUnits on a throwaway registry) are a no-op.
+    if (!registry.ctx().contains<FDungeonRun>()) return;
+    const auto* battle = registry.ctx().find<FBossBattle>();
+    if (battle == nullptr) return;
+    const FBossCatalog* catalog = FindBossCatalog(registry);
+    if (catalog == nullptr) return;
+    const FBossDef* def = catalog->Find(battle->bossId);
+    if (def == nullptr) {
+        // A fallback boss (unmapped slot): single phase, no parts, no gate — the pre-WP-15 guardian path.
+        return;
+    }
+
+    // The body is the first enemy placement of the boss unit (the generator puts the boss before its escorts
+    // and parts).
+    entt::entity body = entt::null;
+    for (const FUnitPlacement& placement : battlefield.units) {
+        if (placement.faction == EUnitFaction::Enemy && placement.unitTemplateId == def->unit) {
+            body = placement.entity;
+            break;
+        }
+    }
+    if (body == entt::null) {
+        LOG_WARN("battle: boss '{}' has no placed body for unit '{}'; goals are not attached.",
+                 def->id, def->unit);
+        return;
+    }
+
+    FBossGoals goals;
+    goals.bossId = def->id;
+    goals.name = def->name;
+    goals.phases.reserve(def->phases.size());
+    for (const FBossPhaseDef& phase : def->phases) {
+        goals.phases.push_back(
+            FBossPhase{phase.hpAbove, phase.partsGate, phase.bodyImmunities, phase.notes});
+    }
+    registry.emplace_or_replace<FBossGoals>(body, std::move(goals));
+
+    // Parts: each row claims the LAST `count` enemy placements of its unit (walking the placements backwards)
+    // that are neither the body nor already claimed by this boss. The generator appends parts after the
+    // escorts, so a part unit that also appears in the escort pool is still claimed correctly.
+    std::vector<bool> claimed(battlefield.units.size(), false);
+    int partCount = 0;
+    for (const FBossPartDef& row : def->parts) {
+        int remaining = row.count;
+        for (std::size_t i = battlefield.units.size(); i > 0 && remaining > 0; --i) {
+            const FUnitPlacement& placement = battlefield.units[i - 1];
+            if (placement.faction != EUnitFaction::Enemy) continue;
+            if (placement.unitTemplateId != row.unit) continue;
+            if (placement.entity == body || claimed[i - 1]) continue;
+            claimed[i - 1] = true;
+            registry.emplace_or_replace<FBossPart>(placement.entity, FBossPart{body});
+            ++partCount;
+            --remaining;
+        }
+    }
+
+    LOG_INFO("[boss] {} goals attached: {} phase(s), {} part(s)", def->id, def->phases.size(), partCount);
 }
 
 } // namespace
@@ -107,6 +176,10 @@ bool SetupCombatUnits(
             registry.emplace_or_replace<ai::FAiBrain>(placement.entity, ai::MakeBrain(*profile));
         }
     }
+
+    // WP-15: goals/parts after the last placement (the whole battlefield is known, so part claiming can walk
+    // it backwards).
+    AttachBossGoals(registry, battlefield);
     return true;
 }
 
