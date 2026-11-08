@@ -37,10 +37,17 @@ struct FRunResult {
 
 /// The intent a run view (or a state) asks the run flow to apply. The views post it; the app layer's
 /// modal host consumes it and applies it exactly once (WP-02b).
+///
+/// The event room is two-stage (WP-09 §4): `ChooseEventOption` resolves the choice carried in the request
+/// payload and stays on the result screen; `ContinueEvent` closes it and advances the room.
+/// `ChooseEventRest`/`ChooseEventLoot` are the legacy aliases — option 0/1 plus the continue, in one step
+/// (the pre-WP-09 behaviour every unedited caller relies on).
 enum class ERunIntent {
     ContinueReward,
     ChooseEventRest,
     ChooseEventLoot,
+    ChooseEventOption,
+    ContinueEvent,
     LeaveCamp,
     AbandonRun,
     RetryAfterDefeat,
@@ -50,18 +57,19 @@ enum class ERunIntent {
 /// The one-frame request in the context. Only one may be pending; the newest post wins.
 struct FRunIntentRequest {
     ERunIntent intent{ERunIntent::ContinueReward};
+    int choice{-1};  // the event option index for ChooseEventOption; -1 = none
 };
 
 /// Posts a run intent. A second post in the same frame logs a warning and replaces the first request.
-void PostRunIntent(entt::registry& registry, ERunIntent intent);
+void PostRunIntent(entt::registry& registry, ERunIntent intent, int choice = -1);
 
 /// Installs a new run (seed, depth from the checkpoint, party) and saves it. The only new-run entry point;
 /// the legacy StartDungeonRun delegates here. The run creation itself stays in FDungeonRun.cpp.
 void StartRun(entt::registry& registry, std::uint32_t seed, bool fresh);
 
 /// Applies one intent to the run's current phase. A wrong-phase intent returns an error and changes
-/// nothing — no state, no save, no event.
-std::expected<FRunResult, std::string> ApplyRunIntent(entt::registry& registry, ERunIntent intent);
+/// nothing — no state, no save, no event. `choice` carries the event option index (ChooseEventOption).
+std::expected<FRunResult, std::string> ApplyRunIntent(entt::registry& registry, ERunIntent intent, int choice = -1);
 
 /// Resolves a finished battle. A victory captures the party, advances the room rewards (heal, materials,
 /// rune, EXP) and sets phase=Reward. A defeat loses the run: phase=Defeat and the save is deleted.
@@ -77,8 +85,8 @@ std::expected<FRunResult, std::string> ResolveRoomVictory(entt::registry& regist
 /// The core phase for a save id, or nullopt when the id is not a core phase.
 [[nodiscard]] std::optional<EDungeonPhase> PhaseFromId(std::string_view id);
 
-/// True for the five core phase ids. FRoomTypeRegistry does not exist yet (WP-09); until it does, the core
-/// ids are the only known ids and this function stays a core-phase lookup.
+/// True for the five core phase ids. Room types are a different vocabulary — they live in
+/// FRoomTypeRegistry.h and are never save phase ids.
 [[nodiscard]] bool IsKnownPhaseId(std::string_view id);
 
 } // namespace game
