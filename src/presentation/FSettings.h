@@ -10,17 +10,27 @@
 namespace game {
 
 /// Player preferences persisted in settings.json, independent of the run/meta saves (WP-24a). Only the
-/// presentation layer consumes them (battle speed and skip today; WP-06 adds the AI think delay), so
-/// rules code (gameplay/) must not include this header. Loaded once at boot from the title anchor;
-/// afterwards every consumer reads the context value — no file IO in the frame loop.
+/// presentation layer consumes them (battle speed, skip, text scale and the onboarding flag; WP-06 adds the
+/// AI think delay), so rules code (gameplay/) must not include this header. Loaded once at boot from the
+/// title anchor; afterwards every consumer reads the context value — no file IO in the frame loop.
 struct FSettings {
     float animSpeed{1.0f};       // 1.0 | 2.0 (kAnimSpeedNormal / kAnimSpeedFast)
     bool skipAnimations{false};
+    // WP-24b: text scale is presentation only (style.FontScaleMain), applied in RenderDungeonOverlay.
+    float textScale{1.0f};       // kTextScaleNormal | kTextScaleLarge | kTextScaleLargest
+    bool onboardingDone{false};  // first-run hints finished; the tutorial replay resets it
 };
 
 /// The only accepted battle speeds. A file or API value outside the set becomes 1.0 with a warning.
 inline constexpr float kAnimSpeedNormal = 1.0f;
 inline constexpr float kAnimSpeedFast = 2.0f;
+
+/// The accepted text scales (WP-24b). JSON stores 1.15 as a binary float, so SanitizeTextScale snaps a
+/// stored value onto the nearest set member within kTextScaleTolerance instead of comparing exactly.
+inline constexpr float kTextScaleNormal = 1.0f;
+inline constexpr float kTextScaleLarge = 1.15f;
+inline constexpr float kTextScaleLargest = 1.25f;
+inline constexpr float kTextScaleTolerance = 0.01f;
 
 /// settings.json schema version. WP-24b extends the document; unknown fields survive a save.
 inline constexpr int kSettingsSchemaVersion = 1;
@@ -52,6 +62,11 @@ void SaveSettings(entt::registry& registry);
 void SetAnimSpeed(entt::registry& registry, float speed);
 void ToggleAnimSpeed(entt::registry& registry);
 void SetSkipAnimations(entt::registry& registry, bool skip);
+
+/// Text scale: 1.0 -> 1.15 -> 1.25 -> 1.0. Every setter saves immediately.
+void SetTextScale(entt::registry& registry, float scale);
+void CycleTextScale(entt::registry& registry);
+void SetOnboardingDone(entt::registry& registry, bool done);
 
 /// The preference-directory fallback (SDL_GetPrefPath in the game; a probe-counting stub in tests). The
 /// resolver's contract: with an override set this is never called — a failed override never falls back

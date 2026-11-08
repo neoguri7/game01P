@@ -13,6 +13,15 @@
   "design": { "width": 1280, "height": 800, "min_width": 1160 },
   "bands": { "left": 0, "right": 0, "top": 40, "bottom": 96 },
   "combat": { "intent_compact_threshold": 12 },
+  "onboarding": {
+    "_comment": "WP-24b first-run hint card. strip = battle hint (top-centre under the top band); side = reward/camp hint, placed in the right margin beside the centred run-phase modal; modal_clearance_width is the SCREEN-pixel width of FDungeonRewardView / FDungeonCampView / FDungeonEventView (all centred and unscaled) — keep it in sync with those views.",
+    "strip_width": 560,
+    "side_width": 340,
+    "top_margin": 6,
+    "side_margin": 16,
+    "padding": 12,
+    "modal_clearance_width": 580
+  },
   "zones": {
     "title":      { "anchor": "top-left",      "rect": [12, 6, 200, 30] },
     "turn_order": { "anchor": "top-center",    "rect": [480, 4, 320, 32] },

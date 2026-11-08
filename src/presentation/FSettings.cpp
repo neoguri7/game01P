@@ -1,5 +1,6 @@
 #include "presentation/FSettings.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <string>
 #include <utility>
@@ -44,6 +45,18 @@ float SanitizeAnimSpeed(float speed) {
     return kAnimSpeedNormal;
 }
 
+/// Snaps a stored/API text scale onto the accepted set: 1.15 does not survive float/JSON round trips
+/// exactly, so a value within kTextScaleTolerance of a member becomes that member. Anything else warns and
+/// falls back to 1.0 (the same shape as SanitizeAnimSpeed).
+float SanitizeTextScale(float scale) {
+    if (std::fabs(scale - kTextScaleNormal) <= kTextScaleTolerance) return kTextScaleNormal;
+    if (std::fabs(scale - kTextScaleLarge) <= kTextScaleTolerance) return kTextScaleLarge;
+    if (std::fabs(scale - kTextScaleLargest) <= kTextScaleTolerance) return kTextScaleLargest;
+    LOG_WARN("text_scale must be {}, {} or {}; got {} - using {}.", kTextScaleNormal, kTextScaleLarge,
+             kTextScaleLargest, scale, kTextScaleNormal);
+    return kTextScaleNormal;
+}
+
 /// Applies the known keys of a parsed document onto `settings`. Bad individual values warn and keep
 /// their default; an unknown schema version keeps all defaults. Never throws, never fails a boot.
 void ApplySettingsDocument(const nlohmann::json& document, const std::filesystem::path& path, FSettings& settings) {
@@ -66,6 +79,16 @@ void ApplySettingsDocument(const nlohmann::json& document, const std::filesystem
     if (skip != document.end()) {
         if (skip->is_boolean()) settings.skipAnimations = skip->get<bool>();
         else LOG_WARN("settings.json skip_animations must be true or false; keeping the default.");
+    }
+    const auto scale = document.find("text_scale");
+    if (scale != document.end()) {
+        if (scale->is_number()) settings.textScale = SanitizeTextScale(scale->get<float>());
+        else LOG_WARN("settings.json text_scale must be a number; using {}.", kTextScaleNormal);
+    }
+    const auto onboarding = document.find("onboarding_done");
+    if (onboarding != document.end()) {
+        if (onboarding->is_boolean()) settings.onboardingDone = onboarding->get<bool>();
+        else LOG_WARN("settings.json onboarding_done must be true or false; keeping the default.");
     }
 }
 
@@ -116,6 +139,10 @@ void SaveSettings(entt::registry& registry) {
     document["schema_version"] = kSettingsSchemaVersion;
     document["anim_speed"] = settings->animSpeed;
     document["skip_animations"] = settings->skipAnimations;
+    // The accepted set is 1.0 / 1.15 / 1.25. A float 1.15 prints as 1.149999976158142, so store the snapped
+    // set member at two decimals: the file stays readable and hand-editable.
+    document["text_scale"] = std::round(static_cast<double>(settings->textScale) * 100.0) / 100.0;
+    document["onboarding_done"] = settings->onboardingDone;
     std::string error;
     if (!WriteSaveFile(*location->path, document, error)) {
         if (!location->saveWarned) {
@@ -140,6 +167,25 @@ void ToggleAnimSpeed(entt::registry& registry) {
 void SetSkipAnimations(entt::registry& registry, bool skip) {
     if (!registry.ctx().contains<FSettings>()) registry.ctx().emplace<FSettings>();
     registry.ctx().get<FSettings>().skipAnimations = skip;
+    SaveSettings(registry);
+}
+
+void SetTextScale(entt::registry& registry, float scale) {
+    if (!registry.ctx().contains<FSettings>()) registry.ctx().emplace<FSettings>();
+    registry.ctx().get<FSettings>().textScale = SanitizeTextScale(scale);
+    SaveSettings(registry);
+}
+
+void CycleTextScale(entt::registry& registry) {
+    const float current = CurrentSettings(registry).textScale;
+    const float next = current == kTextScaleNormal ? kTextScaleLarge
+        : current == kTextScaleLarge ? kTextScaleLargest : kTextScaleNormal;
+    SetTextScale(registry, next);
+}
+
+void SetOnboardingDone(entt::registry& registry, bool done) {
+    if (!registry.ctx().contains<FSettings>()) registry.ctx().emplace<FSettings>();
+    registry.ctx().get<FSettings>().onboardingDone = done;
     SaveSettings(registry);
 }
 

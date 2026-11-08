@@ -61,6 +61,23 @@ struct FInsets {
 /// the glyph/badge decoration. Authored in ui_layout.json (`combat.intent_compact_threshold`).
 inline constexpr int kDefaultIntentCompactThreshold = 12;
 
+/// WP-24b onboarding card placement (design px). It is not a HUD zone: the card is drawn straight into
+/// ImGui's foreground draw list (no window, so it cannot take input by construction) above every other
+/// window, and its height comes from the wrapped text at draw time — no authored height can overflow 1.25.
+struct FOnboardingSpec {
+    float stripWidth{560.f};   // battle hint: centered card under the top band
+    float sideWidth{340.f};    // reward/camp hint: card in the right margin beside the centered modal
+    float topMargin{6.f};      // distance below the arena's top edge
+    float sideMargin{16.f};    // gap to the modal column and to the screen edge
+    float padding{12.f};       // inner padding on every side
+    /// Width of the centered run-phase modals (FDungeonRewardView / FDungeonCampView / FDungeonEventView),
+    /// in SCREEN pixels: those views do not scale with the layout, so the side card must clear this band.
+    float modalClearanceWidth{580.f};
+};
+
+/// Narrowest usable side card (screen px at scale 1): the layout refuses a document that leaves less.
+inline constexpr float kOnboardingSideMinWidth = 160.f;
+
 /// Authored layout of the floating combat HUD (assets/data/ui_layout.json). Every number is in design pixels.
 struct FUiLayoutSpec {
     float designWidth{1280.f};
@@ -71,6 +88,7 @@ struct FUiLayoutSpec {
     /// paints them: the world reaches every window edge.
     FInsets bands;
     int intentCompactThreshold{kDefaultIntentCompactThreshold};
+    FOnboardingSpec onboarding;
     FHudZones<FZoneSpec> zones;
 };
 
@@ -88,6 +106,16 @@ struct FUiLayout {
     /// The part of the viewport clear of the top and bottom HUD clusters; the isometric arena is fitted into
     /// it, so the clusters never cover a cell even when the bands reserve nothing.
     FRect arena;
+    /// The onboarding hint anchors (screen px). `strip` is the battle hint (top-centre under the top band);
+    /// `side` is the reward/camp hint in the right margin beside the centered run-phase modal column
+    /// (`modalColumn`). The card is drawn at the anchor's top-left with the anchor's width and the wrapped
+    /// text's height, so it always stays inside the anchor. All three lie inside `arena`.
+    struct FOnboardingPlacement {
+        FRect strip;
+        FRect side;
+        FRect modalColumn;
+        float padding{0.f};
+    } onboarding;
     /// The authored density threshold (design data, never a magic number in the renderer).
     int intentCompactThreshold{kDefaultIntentCompactThreshold};
     FHudZones<FRect> zones;

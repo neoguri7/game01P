@@ -19,6 +19,7 @@
 #include "presentation/FForestScene.h"
 #include "presentation/FIsoView.h"
 #include "presentation/FUiFrame.h"
+#include "presentation/FUiTheme.h"
 
 namespace game::ecs {
 namespace {
@@ -307,6 +308,7 @@ void DrawUnit(entt::registry& registry, SDL_Renderer* renderer, const FIsoView& 
         Ring(renderer, feet, 26.f * scale, 13.f * scale, {255, 224, 100, 255});
         Ring(renderer, feet, 25.f * scale, 12.4f * scale, {255, 224, 100, 150});
     }
+    // Faction colour ring at the feet (secondary cue; the readable shape cue is the badge above the head).
     Ring(renderer, feet, 21.f * scale, 10.5f * scale, {faction.r, faction.g, faction.b, static_cast<Uint8>(shownDead ? 70 : 210)});
     const auto sprite = registry.get<FUnitArt>(entity).sprite;
     const SDL_FRect rect{center.x - kUnitSpriteSize * .5f * scale, center.y - kUnitHeadAboveFeet * scale,
@@ -331,6 +333,34 @@ void DrawUnit(entt::registry& registry, SDL_Renderer* renderer, const FIsoView& 
     bar.w *= std::clamp(static_cast<float>(shownHealth) / std::max(1, health.max), 0.f, 1.f);
     SDL_SetRenderDrawColor(renderer, faction.r, faction.g, faction.b, 255);
     SDL_RenderFillRect(renderer, &bar);
+
+    // WP-24b: the faction shape cue is a small filled badge at the left end of the HP bar — above the head,
+    // so the sprite can never cover it, and screen-axis-aligned so it can't be mistaken for a highlight
+    // outline. Party = square, enemies = upward triangle; faction colour fill with a dark 1px outline.
+    constexpr float kBadgeHeight = kUnitHealthBarHeight * 2.f;  // design px, tied to the bar
+    constexpr float kBadgeGap = 2.f;
+    const float badge = kBadgeHeight * scale;
+    const glm::vec2 badgeAt{bar.x - kBadgeGap * scale - badge * .5f, bar.y + bar.h * .5f};
+    const ui::FMarkerOutline shape =
+        ui::FactionMarkerOutline(ui::FactionMarkerFor(party), badgeAt.x, badgeAt.y, badge * .5f, badge * .5f);
+    SDL_FColor fill{static_cast<float>(faction.r) / 255.f, static_cast<float>(faction.g) / 255.f,
+                    static_cast<float>(faction.b) / 255.f, 1.f};
+    std::array<SDL_Vertex, 4> badgeVertices{};
+    for (int index = 0; index < shape.count; ++index) {
+        badgeVertices[static_cast<std::size_t>(index)] = {
+            {shape.points[index].x, shape.points[index].y}, fill, {}};
+    }
+    constexpr int kSquareIndices[6]{0, 1, 2, 0, 2, 3};
+    constexpr int kTriangleIndices[3]{0, 1, 2};
+    SDL_RenderGeometry(renderer, nullptr, badgeVertices.data(), shape.count,
+                       shape.count == 4 ? kSquareIndices : kTriangleIndices, shape.count == 4 ? 6 : 3);
+    std::array<SDL_FPoint, 5> badgeOutline{};
+    for (int index = 0; index < shape.count; ++index) {
+        badgeOutline[static_cast<std::size_t>(index)] = {shape.points[index].x, shape.points[index].y};
+    }
+    badgeOutline[static_cast<std::size_t>(shape.count)] = badgeOutline[0];  // SDL_RenderLines is open
+    SDL_SetRenderDrawColor(renderer, 8, 8, 12, 255);
+    SDL_RenderLines(renderer, badgeOutline.data(), shape.count + 1);
 }
 
 // Everything that stands on the ground, in draw order: back to front, a higher x + y is nearer the camera.

@@ -1,5 +1,9 @@
 #pragma once
 
+#include <array>
+#include <span>
+#include <string_view>
+
 #include <imgui.h>
 
 namespace game::ui {
@@ -29,6 +33,53 @@ inline constexpr ImVec4 kGoldBrightV{0.94f, 0.81f, 0.50f, 1.f};
 inline constexpr ImVec4 kPartyV{0.31f, 0.55f, 1.f, 1.f};
 inline constexpr ImVec4 kEnemyV{0.90f, 0.31f, 0.31f, 1.f};
 } // namespace palette
+
+// ---------------------------------------------------------------------------------------------
+// WP-24b non-colour information cues
+// ---------------------------------------------------------------------------------------------
+
+/// One row of the WP-24b "no information by colour alone" audit. `cue` names the redundant channel
+/// (shape, glyph, number, text) or, for FollowUp, the gap and where it is recorded.
+enum class EInfoCueStatus { Covered, FollowUp };
+
+struct FInfoCueRow {
+    std::string_view id;
+    std::string_view what;
+    std::string_view cue;
+    EInfoCueStatus status;
+};
+
+/// The 6-row checklist the acceptance criterion refers to (the data lives in FUiTheme.cpp). A renderer or
+/// test reads this instead of restating the audit; the residual gaps stay visible as FollowUp rows.
+[[nodiscard]] std::span<const FInfoCueRow> InfoCueChecklist();
+
+/// The faction marker shapes. The world draws the filled shape above the unit's head (party = square, enemy
+/// = triangle), so faction never depends on the ring colour.
+enum class EFactionMarker { Square, Triangle };
+
+struct FMarkerPoint {
+    float x{0.f};
+    float y{0.f};
+};
+
+/// Up to four screen-axis outline points. `count` is 4 for Square and 3 for Triangle; the last point is NOT
+/// repeated (the renderer closes the loop) and the points run clockwise on screen (y down).
+struct FMarkerOutline {
+    std::array<FMarkerPoint, 4> points{};
+    int count{0};
+};
+
+/// Party = square, enemy = upward triangle.
+[[nodiscard]] EFactionMarker FactionMarkerFor(bool party) noexcept;
+
+/// Filled-badge outline inside (rx, ry) around (cx, cy): axis-aligned, not iso-projected. Pure geometry: no
+/// ImGui types, so the SDL world renderer can consume it.
+[[nodiscard]] FMarkerOutline FactionMarkerOutline(EFactionMarker marker, float cx, float cy, float rx,
+                                                  float ry) noexcept;
+
+/// Applies the user's text scale through ImGui's one global font factor (style.FontScaleMain). This is the
+/// only place the game writes FontScaleMain: explicit PushFont(font, size) sites scale automatically.
+void ApplyTextScale(float scale);
 
 /// One piece of the carved-metal UI skin. An empty piece (size 0) means "draw the procedural fallback".
 struct FSkinPiece {

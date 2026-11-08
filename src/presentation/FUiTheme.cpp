@@ -9,6 +9,28 @@
 namespace game::ui {
 namespace {
 
+// WP-24b info-cue checklist. The order and ids are the acceptance table's ㉠…㉥ rows; the FollowUp rows
+// are the gaps the audit keeps visible instead of pretending they are covered.
+constexpr std::array<FInfoCueRow, 6> kInfoCueChecklist{{
+    {"world.faction", "Unit faction in the world",
+     "filled square (party) / upward triangle (enemy) badge at the HP bar's left end above the head; the "
+     "faction-coloured feet ring and trim stay secondary",
+     EInfoCueStatus::Covered},
+    {"board.ranges", "Move and hit range cells on the board",
+     "filled-cell colour only; the ? tooltip names cyan/red (gap - follow-up: outline style, out of scope)",
+     EInfoCueStatus::FollowUp},
+    {"hud.faction", "Unit faction in the HUD",
+     "unit name and attack/support wording; faction trim is secondary", EInfoCueStatus::Covered},
+    {"hud.action_points", "Action-point gems and skill slot gems",
+     "M / S letters, filled vs hollow gem count, AP numbers on the slots", EInfoCueStatus::Covered},
+    {"result.banner", "Battle result banner and journal",
+     "text: VICTORY / DEFEAT, room label and log lines", EInfoCueStatus::Covered},
+    {"unit.statuses", "Statuses on a unit",
+     "count/duration/dot name are text; per-status kind gems are colour-only -> follow-up: glyph/letter per "
+     "kind in the HUD view, not this lane",
+     EInfoCueStatus::FollowUp},
+}};
+
 struct FFontSet {
     ImGuiContext* context{nullptr};
     ImFont* heading{nullptr};
@@ -41,6 +63,30 @@ void Diamond(ImDrawList* draw, ImVec2 center, float radius, ImU32 color) {
 }
 
 } // namespace
+
+std::span<const FInfoCueRow> InfoCueChecklist() { return kInfoCueChecklist; }
+
+EFactionMarker FactionMarkerFor(bool party) noexcept {
+    return party ? EFactionMarker::Square : EFactionMarker::Triangle;
+}
+
+FMarkerOutline FactionMarkerOutline(EFactionMarker marker, float cx, float cy, float rx, float ry) noexcept {
+    FMarkerOutline outline;
+    // Screen-axis shapes (the filled badge next to the HP bar): a party square and an upward enemy triangle.
+    // The feet keep the faction ring — an iso diamond would read as a highlighted cell, not as a faction cue.
+    if (marker == EFactionMarker::Square) {
+        outline.points = {{{cx - rx, cy - ry}, {cx + rx, cy - ry}, {cx + rx, cy + ry}, {cx - rx, cy + ry}}};
+        outline.count = 4;
+        return outline;
+    }
+    outline.points = {{{cx, cy - ry}, {cx + rx, cy + ry}, {cx - rx, cy + ry}}};
+    outline.count = 3;
+    return outline;
+}
+
+void ApplyTextScale(float scale) {
+    ImGui::GetStyle().FontScaleMain = scale > 0.f ? scale : 1.f;
+}
 
 void InstallSkin(const FSkin& skin) { g_skin = skin; }
 
@@ -128,6 +174,15 @@ void ApplyTheme() {
     c[ImGuiCol_TitleBg] = {0.12f, 0.07f, 0.06f, 1.f};
     c[ImGuiCol_TitleBgActive] = {0.2f, 0.1f, 0.07f, 1.f};
     c[ImGuiCol_CheckMark] = palette::kGoldV;
+    // WP-24b compendium tabs: the selected tab is a raised, gold-overline panel — shape/position, not just
+    // colour, marks which tab is open.
+    c[ImGuiCol_Tab] = {0.14f, 0.085f, 0.075f, 1.f};
+    c[ImGuiCol_TabHovered] = {0.34f, 0.15f, 0.11f, 1.f};
+    c[ImGuiCol_TabSelected] = {0.30f, 0.14f, 0.10f, 1.f};
+    c[ImGuiCol_TabSelectedOverline] = palette::kGoldV;
+    c[ImGuiCol_TabDimmed] = {0.11f, 0.07f, 0.06f, 1.f};
+    c[ImGuiCol_TabDimmedSelected] = {0.22f, 0.11f, 0.09f, 1.f};
+    c[ImGuiCol_TabDimmedSelectedOverline] = palette::kGoldV;
 }
 
 void DrawPanel(ImDrawList* draw, ImVec2 min, ImVec2 max, bool fill) {

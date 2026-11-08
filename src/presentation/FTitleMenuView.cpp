@@ -8,6 +8,7 @@
 
 #include "core/EngineState.h"
 #include "core/Logger.h"
+#include "presentation/FCompendiumView.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FModalViewRegistry.h"
@@ -128,6 +129,9 @@ void RegisterTitleMenuItems(entt::registry& registry) {
     RegisterModalView(registry, kEmberSettingsId, RenderSettingsView);
     LoadSettings(registry);
     // [WP-24b] compendium: append the menu item and RegisterModalView here.
+    items.insert(items.end() - 1, {std::string(kCompendiumModalId), "COMPENDIUM", {},
+                                    {EStateChangeKind::Push, std::string(kCompendiumModalId)}, true});
+    RegisterModalView(registry, kCompendiumModalId, RenderCompendiumView);
 }
 
 void DrawTitleMenu(entt::registry& registry) {

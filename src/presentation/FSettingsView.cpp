@@ -1,8 +1,12 @@
 #include "presentation/FSettingsView.h"
 
+#include <cmath>
+#include <cstdio>
+
 #include <imgui.h>
 
 #include "core/EngineState.h"
+#include "presentation/FDungeonOverlay.h"
 #include "presentation/FModalViewRegistry.h"
 #include "presentation/FSettings.h"
 #include "presentation/FUiTheme.h"
@@ -19,8 +23,9 @@ void MutedWrappedText(const char* text) {
 
 } // namespace
 
-/// Two rows, both saved the moment they change: the speed button toggles 1x/2x, the checkbox flips the
-/// skip. Everything else on the screen is read-only text.
+/// Four rows, all saved the moment they change: the speed button toggles 1x/2x, the checkbox flips the
+/// skip, the text-size button cycles 100/115/125%, and the tutorial button replays the onboarding walk.
+/// Everything else on the screen is read-only text.
 void RenderSettingsView(entt::registry& registry) {
     const auto* window = registry.ctx().find<FEngineWindowState>();
     if (window == nullptr) return;
@@ -44,6 +49,21 @@ void RenderSettingsView(entt::registry& registry) {
         bool skip = settings.skipAnimations;
         if (ImGui::Checkbox("Skip battle animations", &skip)) SetSkipAnimations(registry, skip);
         MutedWrappedText("Drains each action's show in one frame; the fight resolves identically.");
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Text size");
+        ImGui::SameLine();
+        char textScale[16];
+        std::snprintf(textScale, sizeof textScale, "%d%%",
+                      static_cast<int>(std::lround(settings.textScale * 100.f)));
+        if (ui::Button(textScale, {150, 32})) CycleTextScale(registry);
+        MutedWrappedText("(applies to every screen; 125% is the largest supported size)");
+
+        ImGui::Separator();
+        ImGui::TextUnformatted("Tutorial hints");
+        ImGui::SameLine();
+        if (ui::Button("Replay tutorial hints", {220, 32})) ReplayOnboarding(registry);
+        MutedWrappedText("(shows the step-by-step hints again on your next expedition)");
 
         ImGui::Separator();
         if (ui::Button("Close", {-1, 40})) {
