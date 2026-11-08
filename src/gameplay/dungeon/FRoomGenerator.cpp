@@ -120,10 +120,32 @@ void ShuffleSlots(FRandom& random, std::vector<FCell>& slots) {
     }
 }
 
-/// Enemy placement on a prepared slot list: the slot order is the family's formation. The boss unit leads a
-/// boss room, the weighted pool pick otherwise (draw order preserved from the classic path).
-void PlaceEnemies(FRandom& random, const FRoomGenConfig& config, bool boss, std::span<const FCell> slots,
-                  std::vector<FCell>& units, FGeneratedRoom& room) {
+/// The weighted pool enemy `index` draws from: boss rooms and legacy configs keep the pre-WP-14 `enemies`
+/// pool; an encounter composition takes role slot `index` first, then `fill`, and defensively the last role
+/// slot's pool when the fill is missing (the loader forbids that case). Placement itself stays one loop below.
+const std::vector<FEnemyChoice>& EnemyPoolFor(const FRoomGenConfig& config, bool boss, int index) {
+    if (boss || config.roleSlots.empty()) return config.enemies;
+    if (index < static_cast<int>(config.roleSlots.size())) {
+        return config.roleSlots[static_cast<std::size_t>(index)].units;
+    }
+    if (!config.fill.empty()) return config.fill;
+    return config.roleSlots.back().units;
+}
+
+/// Enemy placement on a prepared slot list: the slot order is the family's formation and this is the SINGLE
+/// placement rule (P14-2 — role picks, extras and the leader prefix never grow a second algorithm). Boss
+/// rooms keep the classic lead: the boss unit, then `config.enemies` picks; roleSlots, extras and the leader
+/// prefix are ignored. A non-boss room draws the base count first (`random.in(config.enemyCount)` — the same
+/// first draw as the pre-WP-14 generator): with role slots, enemy i is picked from roleSlots[i] and the rest
+/// of the count from `fill`; without role slots the weighted `config.enemies` pool is drawn exactly as
+/// before, so that path stays byte-identical. The extras (`request.extraEnemyCount`) then take the NEXT slots
+/// of the same list with NO extra random draws; the total is min(count + extras, slots.size()), so the base
+/// composition is seated first and the extras shrink when the family runs out of spawn slots (never a failed
+/// room — W10 §5-4). The leader prefix renames enemy.1 (P14-4). Every family seats enemies before its wall
+/// pass, so "walls never disconnect any unit" covers the extras too.
+void PlaceEnemies(FRandom& random, const FRoomGenConfig& config, const FRoomRequest& request,
+                  std::span<const FCell> slots, std::vector<FCell>& units, FGeneratedRoom& room) {
+    const bool boss = request.boss;
     int enemyCount = boss ? 3 : random.in(config.enemyCount);
     enemyCount = std::min(enemyCount, static_cast<int>(slots.size()));
     for (int i = 0; i < enemyCount; ++i) {
@@ -132,7 +154,7 @@ void PlaceEnemies(FRandom& random, const FRoomGenConfig& config, bool boss, std:
             enemy.unit = config.bossUnit;
             enemy.displayName = config.bossName;
         } else {
-            const auto& choice = PickEnemy(random, config.enemies);
+            const auto& choice = PickEnemy(random, EnemyPoolFor(config, boss, i));
             enemy.unit = choice.unit;
             enemy.displayName = choice.displayName;
         }
@@ -140,6 +162,17 @@ void PlaceEnemies(FRandom& random, const FRoomGenConfig& config, bool boss, std:
         enemy.y = slots[static_cast<std::size_t>(i)].y;
         units.push_back({enemy.x, enemy.y});
         room.enemies.push_back(std::move(enemy));
+    }
+    if (!boss && request.extraEnemyCount > 0) {
+        const int total = std::min(enemyCount + request.extraEnemyCount, static_cast<int>(slots.size()));
+        for (int i = enemyCount; i < total; ++i) {
+            const FCell slot = slots[static_cast<std::size_t>(i)];
+            units.push_back(slot);
+            room.enemies.push_back({request.extraEnemyUnit, request.extraEnemyName, slot.x, slot.y});
+        }
+    }
+    if (!boss && !request.leaderNamePrefix.empty() && !room.enemies.empty()) {
+        room.enemies.front().displayName = request.leaderNamePrefix + room.enemies.front().displayName;
     }
 }
 
@@ -152,7 +185,7 @@ FGeneratedRoom BeginClassicRoom(FRandom& random, const FRoomGenConfig& config, c
     for (const auto& [x, y] : request.partyCells) units.push_back({x, y});
     auto slots = BandSlots();
     ShuffleSlots(random, slots);
-    PlaceEnemies(random, config, request.boss, slots, units, room);
+    PlaceEnemies(random, config, request, slots, units, room);
     return room;
 }
 
@@ -242,7 +275,7 @@ FGeneratedRoom GenerateOpenVariant(const FRoomGenConfig& config, const FRoomRequ
         if (i < leftFlank.size()) flank.push_back(leftFlank[i]);
         if (i < rightFlank.size()) flank.push_back(rightFlank[i]);
     }
-    PlaceEnemies(random, config, request.boss, flank, units, room);
+    PlaceEnemies(random, config, request, flank, units, room);
 
     const auto occupied = [&](FCell cell) { return std::ranges::find(units, cell) != units.end(); };
 
@@ -622,12 +655,14 @@ FRoomMetrics MeasureRoom(const FGeneratedRoom& room, std::span<const std::pair<i
 }
 
 FGeneratedRoom GenerateRoom(const FRoomGenConfig& config, const FRoomRequest& request) {
+    // P14-2: the request's family wins when set (WP-14b's elite family flip), else the slot's config family.
     // The loader refuses unknown family names at boot, so the fall-through is the classic layout.
+    const std::string& family = request.family.empty() ? config.family : request.family;
     FGeneratedRoom room;
-    if (config.family == "open_variant") room = GenerateOpenVariant(config, request);
-    else if (config.family == "corridor") room = GenerateCorridor(config, request);
-    else if (config.family == "cover") room = GenerateCover(config, request);
-    else if (config.family == "split") room = GenerateSplit(config, request);
+    if (family == "open_variant") room = GenerateOpenVariant(config, request);
+    else if (family == "corridor") room = GenerateCorridor(config, request);
+    else if (family == "cover") room = GenerateCover(config, request);
+    else if (family == "split") room = GenerateSplit(config, request);
     else room = GenerateOpen(config, request);
     // WP-15: boss parts join the document for a boss room (bosses only; no random draws — the classic
     // output is pinned by golden tests).

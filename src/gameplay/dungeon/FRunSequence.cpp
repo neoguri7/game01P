@@ -340,4 +340,29 @@ FCycleScale CycleScaleFor(const entt::registry& registry) {
     return scale;
 }
 
+FRoomPlan FrameRoomPlan(const entt::registry& registry, int battleOrdinal) {
+    // A pure ctx read: the plan is derived from the live run position, the slot and the installed encounter
+    // table. The caller (BuildDungeonBattlefield) is the only writer — the boot probe never lands here.
+    FRoomPlan plan;
+    const auto* sequence = FindRunSequence(registry);
+    const auto position = RunPosition(registry);
+    if (sequence == nullptr || !position) return plan;
+    const FRunRoomSlot* slot = sequence->BattleSlotAt(*position, battleOrdinal);
+    if (slot == nullptr) return plan;
+    plan.family = slot->family;
+    // Boss slots stay on the WP-15 generation pool (encounters never apply to them).
+    if (sequence->IsBossBattle(*position, battleOrdinal)) return plan;
+    const auto* table = FindEncounterContent(registry);
+    const auto* run = registry.ctx().find<FDungeonRun>();
+    if (table == nullptr || table->encounters.empty() || run == nullptr) return plan;
+    // PositionOf clamps to a valid theme, so themes[position.theme] is always addressable (CycleScaleFor
+    // relies on the same invariant).
+    const std::string& themeId = sequence->themes[position->theme].id;
+    if (const FEncounterDef* def = ResolveEncounter(*table, slot->encounter, themeId, run->seed, run->depth,
+                                                    battleOrdinal)) {
+        plan.encounterId = def->id;
+    }
+    return plan;
+}
+
 } // namespace game

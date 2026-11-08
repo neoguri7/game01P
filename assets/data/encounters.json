@@ -1,0 +1,87 @@
+{
+  "_comment": "WP-14a 인카운터 구성(선택 파일). 존재 = 몬스터 방 구성을 이 표에서 결정(부팅 엄격 검증), 부재 = 레거시 generation.enemies 경로. 보스 슬롯은 이 표를 쓰지 않는다(WP-15 generation.boss_unit). 역할(melee/ranged/support/artillery)은 AI 프로파일이 아니라 스킬 조합으로 저작되고, 모든 조우는 타일-커밋 의도를 공급하는 artillery 슬롯을 1개 이상 갖는다(D-16). introduced_at_depth = 런 깊이 게이트, tags = 테마 게이트(부재 = 모든 테마).",
+  "schema_version": 1,
+  "encounters": [
+    {
+      "id": "enc.crypt_first",
+      "introduced_at_depth": 1,
+      "tags": ["theme.ember_crypt"],
+      "count": [3, 3],
+      "slots": [
+        {"role": "melee", "units": [{"unit": "enemy.imp", "weight": 4}, {"unit": "enemy.brute", "weight": 1}]},
+        {"role": "ranged", "units": [{"unit": "enemy.imp_archer", "weight": 4}, {"unit": "enemy.slinger", "weight": 1}]},
+        {"role": "artillery", "units": [{"unit": "enemy.imp_shaman", "weight": 1}]}
+      ],
+      "intent_commit_mix": 1,
+      "_comment": "깊이 1-2의 약한 풀(StS Exordium): 기존 3종 + 신규 근접/원거리 저가중치, 3체 고정."
+    },
+    {
+      "id": "enc.crypt_swarm",
+      "introduced_at_depth": 1,
+      "tags": ["theme.ember_crypt"],
+      "count": [3, 4],
+      "slots": [
+        {"role": "melee", "units": [{"unit": "enemy.imp", "weight": 4}, {"unit": "enemy.brute", "weight": 2}]},
+        {"role": "ranged", "units": [{"unit": "enemy.imp_archer", "weight": 3}, {"unit": "enemy.slinger", "weight": 2}]},
+        {"role": "artillery", "units": [{"unit": "enemy.imp_shaman", "weight": 2}]}
+      ],
+      "fill": {"units": [{"unit": "enemy.imp", "weight": 3}, {"unit": "enemy.imp_archer", "weight": 2}]},
+      "intent_commit_mix": 1
+    },
+    {
+      "id": "enc.crypt_ritual",
+      "introduced_at_depth": 2,
+      "tags": ["theme.ember_crypt"],
+      "count": [4, 4],
+      "slots": [
+        {"role": "melee", "units": [{"unit": "enemy.imp", "weight": 2}, {"unit": "enemy.brute", "weight": 2}]},
+        {"role": "ranged", "units": [{"unit": "enemy.imp_archer", "weight": 2}, {"unit": "enemy.slinger", "weight": 2}]},
+        {"role": "support", "units": [{"unit": "enemy.chanter", "weight": 1}]},
+        {"role": "artillery", "units": [{"unit": "enemy.imp_shaman", "weight": 1}, {"unit": "enemy.mortar", "weight": 2}]}
+      ],
+      "intent_commit_mix": 1,
+      "_comment": "깊이 2+: support(chanter)와 artillery(mortar) 첫 등장."
+    },
+    {
+      "id": "enc.crypt_guard",
+      "introduced_at_depth": 3,
+      "tags": ["theme.ember_crypt"],
+      "count": [3, 4],
+      "slots": [
+        {"role": "melee", "units": [{"unit": "enemy.brute", "weight": 2}, {"unit": "enemy.bone_guard", "weight": 2}]},
+        {"role": "ranged", "units": [{"unit": "enemy.slinger", "weight": 2}, {"unit": "enemy.imp_archer", "weight": 1}]},
+        {"role": "artillery", "units": [{"unit": "enemy.mortar", "weight": 2}, {"unit": "enemy.imp_shaman", "weight": 1}]}
+      ],
+      "fill": {"units": [{"unit": "enemy.imp", "weight": 2}, {"unit": "enemy.brute", "weight": 1}]},
+      "intent_commit_mix": 1,
+      "_comment": "깊이 3+: 심층 근접(bone_guard) 첫 등장."
+    },
+    {
+      "id": "enc.ashen_watch",
+      "introduced_at_depth": 5,
+      "tags": ["theme.ashen_reach"],
+      "count": [4, 4],
+      "slots": [
+        {"role": "melee", "units": [{"unit": "enemy.bone_guard", "weight": 2}, {"unit": "enemy.brute", "weight": 2}]},
+        {"role": "support", "units": [{"unit": "enemy.chanter", "weight": 1}]},
+        {"role": "artillery", "units": [{"unit": "enemy.mortar", "weight": 2}]},
+        {"role": "artillery", "units": [{"unit": "enemy.ash_priest", "weight": 1}]}
+      ],
+      "intent_commit_mix": 2,
+      "_comment": "Ashen Reach: support + artillery 2슬롯, 심층 artillery(ash_priest) 첫 등장."
+    },
+    {
+      "id": "enc.ashen_host",
+      "introduced_at_depth": 5,
+      "tags": ["theme.ashen_reach"],
+      "count": [3, 4],
+      "slots": [
+        {"role": "melee", "units": [{"unit": "enemy.brute", "weight": 2}, {"unit": "enemy.bone_guard", "weight": 1}]},
+        {"role": "ranged", "units": [{"unit": "enemy.slinger", "weight": 2}, {"unit": "enemy.imp_archer", "weight": 1}]},
+        {"role": "artillery", "units": [{"unit": "enemy.ash_priest", "weight": 2}, {"unit": "enemy.mortar", "weight": 1}]}
+      ],
+      "fill": {"units": [{"unit": "enemy.brute", "weight": 2}, {"unit": "enemy.slinger", "weight": 1}]},
+      "intent_commit_mix": 1
+    }
+  ]
+}

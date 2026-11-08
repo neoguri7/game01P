@@ -4,6 +4,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -26,6 +27,11 @@ namespace game {
 ///    move. Stepping off the tile is the counterplay; moving the caster off its firing cell ("displaced")
 ///    makes the shot whiff too.
 enum class EIntentMode : std::uint8_t { Unit, Tile };
+
+/// The mode rule (WP-11 §모드 결정) on a skill's target/shape: aimed at a cell, or shaped as an area/dash
+/// form (spread/zone/pierce), commits to a tile; everything else tracks a unit. The single definition —
+/// the intent system applies it to resolved skills, the WP-14a encounter validator to authored skills.
+[[nodiscard]] EIntentMode IntentModeOf(std::string_view target, std::string_view shape);
 
 /// What a validation of the committed intent says about it (pure, derived from world state — never from
 /// events, so trap deaths, status ticks, pushes and chain kills are all covered by the same rule).

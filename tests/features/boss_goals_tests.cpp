@@ -237,8 +237,11 @@ struct FTempAssets {
         // bosses.json is part of the frozen fixture too: the fixture root is first in every boot, and the
         // shipped catalog names a part unit the fixture's units.json does not carry (an empty fixture
         // catalog keeps those boots on the single-phase fallback instead of failing validation).
+        // encounters.json (WP-14a), like bosses.json: else the shipped encounters.json falls through and is
+        // validated against the frozen fixture units (the six new enemies are absent there).
         for (const char* file : {"units.json", "skills.json", "runes.json", "statuses.json", "ai.json",
-                                 "rewards.json", "passive-tree.json", "dungeon.json", "bosses.json"}) {
+                                 "rewards.json", "passive-tree.json", "dungeon.json", "bosses.json",
+                                 "encounters.json"}) {
             Copy(file);
         }
     }

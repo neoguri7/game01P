@@ -33,6 +33,13 @@ struct FBossPartSpawn {
     int count{1};
 };
 
+/// WP-14a: one role slot of an encounter composition. The generator places exactly one unit of `units`
+/// (weighted pick) for it; `role` is carried for the log/tests only (validated at boot, P14-5).
+struct FRoleSlotSpawn {
+    std::string role;
+    std::vector<FEnemyChoice> units;
+};
+
 struct FRoomGenConfig {
     std::vector<std::string> names;
     std::vector<FEnemyChoice> enemies;
@@ -50,6 +57,12 @@ struct FRoomGenConfig {
     /// part-less boss rooms output byte-identical rooms). Placed after `family` so pre-parts aggregate
     /// initializers keep their meaning.
     std::vector<FBossPartSpawn> bossParts;
+    /// WP-14a: encounter composition (ApplyEncounter). Empty = the legacy weighted `enemies` pool, byte-
+    /// identical output. Non-empty (non-boss rooms only): enemy i < roleSlots.size() is picked from
+    /// roleSlots[i], the rest of `enemyCount` from `fill`. Appended last so older aggregate initializers
+    /// keep their meaning.
+    std::vector<FRoleSlotSpawn> roleSlots;
+    std::vector<FEnemyChoice> fill;
 };
 
 /// The spawn band: every family keeps enemies inside these rows (the header contract, tested).
@@ -72,6 +85,14 @@ struct FRoomRequest {
     bool boss{false};
     // Party start cells; they and every enemy are guaranteed to stay mutually reachable.
     std::span<const std::pair<int, int>> partyCells;
+    // P14-2 — the request extension: the SINGLE placement rule stays in GenerateRoom (no second placement
+    // algorithm anywhere). All defaults = the pre-WP-14 output.
+    std::string family;               ///< "" = config.family; otherwise this family (loader-valid name).
+    int extraEnemyCount{0};           ///< Non-boss rooms: extra units appended after the composition through
+                                      ///< the same spawn-slot list; shrinks (never fails) when slots run out.
+    std::string extraEnemyUnit;       ///< Unit id of the extra enemies.
+    std::string extraEnemyName;       ///< Display name of the extra enemies.
+    std::string leaderNamePrefix;     ///< Non-boss rooms: prepended to the first enemy's (leader) name.
 };
 
 struct FGeneratedEnemy {
