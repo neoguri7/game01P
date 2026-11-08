@@ -18,8 +18,9 @@ inline constexpr int kMaxDungeonSlots = 8;
 /// open room-type key ("battle" | "event" — WP-09 widens the set), `family` names the room generator
 /// template family: "open" (default) / "open_variant" (light) or "corridor" / "cover" / "split" (heavy;
 /// loader-enforced to boss slots only, and only when `family_rules.boss_rooms_allow_heavy` is true —
-/// D-23's data flip for WP-14), `boss` is "" | "mid" | "final" (battle slots only). `encounter` (WP-14)
-/// and `event_pool` (WP-09) are stored but not consumed yet.
+/// D-23's data flip for WP-14), `boss` is "" | "mid" | "final" (battle slots only). `event_pool` is
+/// consumed by the WP-09 event pick (the gap slot's pool selects the event); `encounter` (WP-14) is stored
+/// but not consumed yet.
 struct FRunRoomSlot {
     std::string type;
     std::string family;

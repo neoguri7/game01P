@@ -16,7 +16,8 @@ namespace {
 bool AcceptsIntent(std::string_view id, game::ERunIntent intent) {
     if (id == game::kRunModalReward) return intent == game::ERunIntent::ContinueReward;
     if (id == game::kRunModalEvent) {
-        return intent == game::ERunIntent::ChooseEventRest || intent == game::ERunIntent::ChooseEventLoot;
+        return intent == game::ERunIntent::ChooseEventRest || intent == game::ERunIntent::ChooseEventLoot ||
+               intent == game::ERunIntent::ChooseEventOption || intent == game::ERunIntent::ContinueEvent;
     }
     if (id == game::kRunModalCamp) {
         return intent == game::ERunIntent::LeaveCamp || intent == game::ERunIntent::AbandonRun;
@@ -54,12 +55,13 @@ FStateTransition FEmberModalHostState::Update(entt::registry& Registry, float De
     auto* request = Registry.ctx().find<game::FRunIntentRequest>();
     if (request == nullptr) return {};
     const game::ERunIntent intent = request->intent;
+    const int choice = request->choice;
     Registry.ctx().erase<game::FRunIntentRequest>();
     if (!AcceptsIntent(id, intent)) {
         LOG_ERROR("Run modal '{}' dropped an intent it does not own.", id);
         return {};
     }
-    const auto result = game::ApplyRunIntent(Registry, intent);
+    const auto result = game::ApplyRunIntent(Registry, intent, choice);
     if (!result) {
         LOG_ERROR("Run modal '{}' could not apply its intent: {}", id, result.error());
         return {};

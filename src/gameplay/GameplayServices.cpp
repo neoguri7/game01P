@@ -8,8 +8,12 @@
 #include "gameplay/combat/FSkillApCap.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonCamp.h"
+#include "gameplay/dungeon/FEventContent.h"
+#include "gameplay/dungeon/FEventEffects.h"
+#include "gameplay/dungeon/FEventSection.h"
 #include "gameplay/dungeon/FRewardSection.h"
 #include "gameplay/dungeon/FRewards.h"
+#include "gameplay/dungeon/FRoomTypeRegistry.h"
 #include "gameplay/dungeon/FRunLog.h"
 #include "gameplay/dungeon/FSaveSections.h"
 
@@ -56,6 +60,17 @@ bool FGameplayServices::Initialize(entt::registry& registry) {
     // [WP-04]
     RegisterCoreEffects(registry);
     // [WP-09]
+    RegisterRoomTypes(registry);
+    if (!LoadEventContent(registry, *assets)) {
+        LOG_ERROR("event content is unusable; boot stopped (see the event errors above).");
+        return false;
+    }
+    RegisterEventEffects(registry);
+    RegisterSaveSection(registry, EventSaveSection());
+    if (!ValidateEventContent(registry, *assets)) {
+        LOG_ERROR("event content validation failed; boot stopped (see the errors above).");
+        return false;
+    }
     // [WP-16]
     RegisterTempoEffects(registry);
     if (!ValidateSkillApCap(*assets, registry.ctx().get<FContentRegistry>())) {

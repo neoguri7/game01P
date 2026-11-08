@@ -842,7 +842,9 @@ void LadderCheckpointCappedLikeCheckpointFile() {
 
 void NewCatalogRosterRowsMergeIntoSave() {
     FMetaFixture fixture("roster-merge");
-    const auto catalog = ReadJson("assets/data/roster.json").at("roster");
+    // The catalog this boot actually loaded: the frozen fixture copy (TestAssetRoots). Reading the ship
+    // file here would let a shipped roster edit turn a fixture test red (critic F1).
+    const auto catalog = ReadJson(FixtureDataPath("roster.json")).at("roster");
     CHECK(catalog.size() > 2);
 
     // An older save: only the first two catalog members, with progress the merge must not touch.
@@ -905,6 +907,10 @@ void MissingUnlocksCatalogFailsInit() {
     CHECK(!code);
     WriteText(root / "data" / "roster.json",
               R"({"schema_version": 1, "roster": [{"id": "party.warrior", "name": "Alden", "enabled": true}]})");
+    // WP-21b: progression.json joined the required catalogs — write it up front so the only file missing
+    // from the first attempt is the unlocks catalog under test.
+    WriteText(root / "data" / "progression.json",
+              R"({"schema_version": 1, "slot_cap": 5, "slot_promotion": false, "socket_promotion": false, "promotion_rewards": {"bosses_per_promotion": 2, "seals_per_overflow": 1}})");
 
     entt::registry registry;
     game::FAssetManager::Initialize(registry, {root.string()});

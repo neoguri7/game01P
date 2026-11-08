@@ -36,6 +36,7 @@
 #include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/meta/FMetaProgress.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FModalViewRegistry.h"
@@ -168,11 +169,13 @@ void WinRoom(FBoot& boot) {
     CHECK(boot.run().phase == game::EDungeonPhase::Reward);
 }
 
-/// Every rune the loaded party can legally socket right now, in content order.
+/// Every rune the offer pool can draw right now, in content order: the loaded party can legally socket it
+/// and it is not held back by an unbought unlocks.json row (WP-21c gate in CandidatesFor).
 std::vector<std::string> LegalRuneIds(FBoot& boot) {
     const auto& content = boot.registry.ctx().get<game::gameplay::FContentRegistry>();
     std::vector<std::string> legal;
     for (const auto& rune : content.runes.rows) {
+        if (game::IsUnlockGated(boot.registry, rune.id)) continue;
         if (!game::RuneFittingSkillNames(boot.registry, rune.id).empty()) legal.push_back(rune.id);
     }
     return legal;

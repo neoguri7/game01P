@@ -34,6 +34,7 @@
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/factory/FScene.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FRunStart.h"
 #include "gameplay/meta/FMetaProgress.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
@@ -275,6 +276,15 @@ int main(int argc, char* argv[])
         }
         // [WP-20] meta save: shipped-content fail-fast; resolves/loads/imports after the checkpoint exists.
         if (!game::InitializeMetaProgress(engine.getRegistry())) {
+            shutdown();
+            return EXIT_FAILURE;
+        }
+        // [WP-21b] boot validation of the roster's skill pools — the prep screen's slot contract depends on
+        // it. The check lives here, not in InitializeMetaProgress: it validates SHIPPED content, while tests
+        // boot with the frozen fixture (3-skill pools) and call ValidateRosterContent directly when they
+        // mean to test the rule.
+        if (const auto problem = game::ValidateRosterContent(engine.getRegistry())) {
+            LOG_ERROR("Roster content is invalid: {}", *problem);
             shutdown();
             return EXIT_FAILURE;
         }

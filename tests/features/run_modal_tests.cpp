@@ -40,6 +40,7 @@
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FDungeonViews.h"
 #include "presentation/FModalViewRegistry.h"
+#include "presentation/FPreparationView.h"
 #include "presentation/FTitleMenuView.h"
 #include "states/FBaseState.h"
 #include "states/FEmberBattleState.h"
@@ -86,13 +87,17 @@ nlohmann::json ReadJsonFile(const std::string& path) {
 }
 
 // --- a booted registry with its own checkpoint and save slot -----------------------------------
+// `prepPools` boots the SHIPPED content (the real 4-slot unit pools and the shipped unlock gates): the
+// preparation screen's default draft is only startable there — the frozen fixture still carries the
+// pre-WP-22 3-skill pools, and splicing the shipped tables under it cannot boot (the shipped rows
+// cross-reference content the fixture snapshot does not carry). The other cases keep the fixture.
 struct FBoot {
     std::string checkpoint;
     entt::registry registry;
     std::string runSave;
 
-    explicit FBoot(std::string path) : checkpoint(std::move(path)) {
-        game::FAssetManager::Initialize(registry, TestAssetRoots());
+    explicit FBoot(std::string path, bool prepPools = false) : checkpoint(std::move(path)) {
+        game::FAssetManager::Initialize(registry, prepPools ? ShipAssetRoots() : TestAssetRoots());
         CHECK(game::gameplay::FGameplayServices::Initialize(registry));
         CHECK(game::InitializeDungeon(registry, checkpoint));
         runSave = registry.ctx().get<game::FDungeonSave>().path;
@@ -360,7 +365,7 @@ void UnknownEmberIdFailsLoudly() {
 // --- title -> prepare -> battle ----------------------------------------------------------------
 
 void TitleNewGoesThroughPrepareOnce() {
-    FBoot boot(UniquePath("title-prepare"));
+    FBoot boot(UniquePath("title-prepare"), true);
     auto& registry = boot.registry;
     registry.ctx().get<game::FMenuRequest>().value = game::EMenuRequest::Start;
     registry.ctx().get<game::FMenuRequest>().fresh = false;
@@ -370,6 +375,9 @@ void TitleNewGoesThroughPrepareOnce() {
     CHECK(registry.ctx().contains<game::FRunStartRequest>());
     CHECK(registry.ctx().get<game::FRunStartRequest>().fresh == false);
 
+    // WP-21b: the run starts when the player confirms on the hub, not on entering it — the command is the
+    // view's Start click (the headless seam is the same ctx object).
+    registry.ctx().insert_or_assign<game::FPreparationCommand>(game::FPreparationCommand{game::EPreparationCommand::Start});
     FEmberPreparationState prepare;
     const auto battle = prepare.Update(registry, 0.f);
     CHECK((battle == FStateTransition{EStateChangeKind::Root, std::string(kEmberBattleId)}));
@@ -377,21 +385,29 @@ void TitleNewGoesThroughPrepareOnce() {
     CHECK(!registry.ctx().contains<game::FRunStartRequest>());  // consumed once
 }
 
-void PrepareStubStartsExactlyOneRun() {
-    FBoot boot(UniquePath("prepare-once"));
+void PrepareStartsExactlyOneRun() {
+    FBoot boot(UniquePath("prepare-once"), true);
     auto& registry = boot.registry;
-    registry.ctx().insert_or_assign<game::FRunStartRequest>(game::FRunStartRequest{true});
+    registry.ctx().insert_or_assign<game::FRunStartRequest>(game::FRunStartRequest{true, -1});
     FEmberPreparationState prepare;
+    // The first update builds the default draft and consumes the carrier; without a confirm nothing starts.
+    CHECK((prepare.Update(registry, 0.f) == FStateTransition{}));
+    CHECK(!registry.ctx().contains<game::FDungeonRun>());
+    CHECK(!registry.ctx().contains<game::FRunStartRequest>());
+    registry.ctx().insert_or_assign<game::FPreparationCommand>(game::FPreparationCommand{game::EPreparationCommand::Start});
     CHECK((prepare.Update(registry, 0.f) == FStateTransition{EStateChangeKind::Root, std::string(kEmberBattleId)}));
-    const auto& run = registry.ctx().get<game::FDungeonRun>();
+    auto& run = registry.ctx().get<game::FDungeonRun>();
     CHECK(run.depth == 1 && run.room == 0);
-    // A second update must not start a second run; it refuses and returns to the title.
+    // A second update must not start a second run; it refuses and returns to the title. The marker proves
+    // it: a reinstall would reset the materials.
+    run.materials = 777;
     CHECK((prepare.Update(registry, 0.f) == FStateTransition{EStateChangeKind::Root, std::string(kEmberTitleId)}));
     CHECK(registry.ctx().get<game::FDungeonRun>().depth == 1);
+    CHECK(registry.ctx().get<game::FDungeonRun>().materials == 777);
 }
 
 void RetryUsesCheckpointNotFresh() {
-    FBoot boot(UniquePath("retry-checkpoint"));
+    FBoot boot(UniquePath("retry-checkpoint"), true);
     auto& registry = boot.registry;
     registry.ctx().get<game::FDungeonCheckpoint>().cleared = 1;
     game::StartRun(registry, kSeed, false);
@@ -405,6 +421,8 @@ void RetryUsesCheckpointNotFresh() {
     CHECK(!registry.ctx().contains<game::FDungeonRun>());
     CHECK(registry.ctx().get<game::FRunStartRequest>().fresh == false);
 
+    // WP-21b: the retry run starts when the player confirms on the hub.
+    registry.ctx().insert_or_assign<game::FPreparationCommand>(game::FPreparationCommand{game::EPreparationCommand::Start});
     FEmberPreparationState prepare;
     CHECK((prepare.Update(registry, 0.f) == FStateTransition{EStateChangeKind::Root, std::string(kEmberBattleId)}));
     CHECK(registry.ctx().get<game::FDungeonRun>().depth == 2);
@@ -655,8 +673,8 @@ void BattleConfirmOnlyInBattlePhase() {
     CHECK(!run.leaveRequested && !run.abandonRequested);
 }
 
-void RunEndRetryStartsExactlyOnce() {
-    FBoot boot(UniquePath("runend-retry"));
+void RunEndRetryStartsExactlyOneRun() {
+    FBoot boot(UniquePath("runend-retry"), true);
     auto& registry = boot.registry;
     game::StartRun(registry, kSeed, true);
     auto& run = registry.ctx().get<game::FDungeonRun>();
@@ -669,11 +687,14 @@ void RunEndRetryStartsExactlyOnce() {
     // starts another prepare or a second run.
     CHECK((runEnd.Update(registry, 0.f) == FStateTransition{EStateChangeKind::Root, std::string(kEmberTitleId)}));
 
+    registry.ctx().insert_or_assign<game::FPreparationCommand>(game::FPreparationCommand{game::EPreparationCommand::Start});
     FEmberPreparationState prepare;
     CHECK((prepare.Update(registry, 0.f) == FStateTransition{EStateChangeKind::Root, std::string(kEmberBattleId)}));
     CHECK(registry.ctx().contains<game::FDungeonRun>());
     // The second update refuses (a run already exists): it never starts a second run.
+    registry.ctx().get<game::FDungeonRun>().materials = 777;
     CHECK((prepare.Update(registry, 0.f) == FStateTransition{EStateChangeKind::Root, std::string(kEmberTitleId)}));
+    CHECK(registry.ctx().get<game::FDungeonRun>().materials == 777);
 }
 
 } // namespace
@@ -690,7 +711,7 @@ int main() {
         {"StubSettingsPopsToTitle", StubSettingsPopsToTitle},
         {"UnknownEmberIdFailsLoudly", UnknownEmberIdFailsLoudly},
         {"TitleNewGoesThroughPrepareOnce", TitleNewGoesThroughPrepareOnce},
-        {"PrepareStubStartsExactlyOneRun", PrepareStubStartsExactlyOneRun},
+        {"PrepareStartsExactlyOneRun", PrepareStartsExactlyOneRun},
         {"RetryUsesCheckpointNotFresh", RetryUsesCheckpointNotFresh},
         {"GAME01P_STARTBattleStillStarts", GAME01P_STARTBattleStillStarts},
         {"TitleStartDoesNotDoubleStart", TitleStartDoesNotDoubleStart},
@@ -708,6 +729,6 @@ int main() {
         {"AbandonLabelAndConfirm", AbandonLabelAndConfirm},
         {"BattleConfirmOnlyInBattlePhase", BattleConfirmOnlyInBattlePhase},
         {"ContinueDoesNotRefireRoomClear", ContinueDoesNotRefireRoomClear},
-        {"RunEndRetryStartsExactlyOnce", RunEndRetryStartsExactlyOnce},
+        {"RunEndRetryStartsExactlyOneRun", RunEndRetryStartsExactlyOneRun},
     });
 }
