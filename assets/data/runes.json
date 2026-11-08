@@ -1,5 +1,5 @@
 {
-  "_comment": "개편 3차 + WP-16/WP-22: 서포트젬식 룬 24종. 축(속성/형태/강화)은 폐기 — 제한은 스킬별 룬 소켓(rune_sockets) + 태그(고정점) + 중복 금지가 담당한다. 수치는 잠정값이다. rune.shock 문구는 D-12(+20%p 마비 부여 확률)를 표시명에 싣는다.",
+  "_comment": "개편 3차 + WP-16/WP-22: 서포트젬식 룬 24종. 축(속성/형태/강화)은 폐기 — 제한은 스킬별 룬 소켓(rune_sockets) + 태그(고정점) + 중복 금지가 담당한다. 수치는 잠정값이다. rune.shock 문구는 D-12(+20%p 마비 부여 확률)를 표시명에 싣는다. WP-28 T1/T2 (post-W7 tuning): ember 4->10, imp_shaman 2->4; rollback = old values.",
   "schema_version": 1,
   "runes": [
     {
@@ -100,7 +100,7 @@
       "requires_all_tags": ["Fire"],
       "status_id": "status.burn",
       "status_magnitude_delta": 2,
-      "drop_weight": 4
+      "drop_weight": 10
     },
     {
       "id": "rune.frostbite",
