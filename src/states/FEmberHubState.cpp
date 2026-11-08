@@ -1,5 +1,4 @@
 #include "FEmberHubState.h"
-#include "FEmberBattleState.h"
 #include "FEmberMenuRequest.h"
 #include "FEmberTitleState.h"
 #include "core/InputState.h"
@@ -22,9 +21,8 @@ FStateTransition FEmberHubState::Update(entt::registry& Registry, float DeltaTim
     if (const auto next = ResolveEmberMenuRequest(Registry)) return *next;
     const auto* input = Registry.ctx().find<game::FInputState>();
     if (!input) return {};
-    if (input->isActionPressed(game::EInputAction::Confirm)) {
-        return {EStateChangeKind::ReplaceTop, std::string(kEmberBattleId)};
-    }
+    // WP-21 §5: no Confirm shortcut into a battle — the menu row is the only start input, so the
+    // preparation screen (and its overwrite confirmation) can never be bypassed.
     if (input->isActionPressed(game::EInputAction::Cancel)) {
         return {EStateChangeKind::ReplaceTop, std::string(kEmberTitleId)};
     }

@@ -649,8 +649,9 @@ void EmberMappingTable() {
 
     FEmberHubState hub;
     PressKey(registry, SDL_SCANCODE_RETURN);
+    // WP-21 §5: the Confirm shortcut into a battle is gone — the hub returns no transition.
     rows.push_back({"FEmberHubState Confirm", "FEmberHubState::Update Confirm", hub.Update(registry, 0.f),
-                    {EStateChangeKind::ReplaceTop, std::string(kEmberBattleId)}});
+                    {}});
     input.beginFrame();
 
     PressKey(registry, SDL_SCANCODE_ESCAPE);

@@ -177,9 +177,10 @@ struct FDungeonRecovery {
 /// KO 바닥: max(1, floor(maxHealth × fraction)) — 기존 정수 나눗셈(max/3)과 같은 형태의 규칙.
 [[nodiscard]] int KoRecoverFloor(int maxHealth, double fraction);
 
-/// The single memberId → unit-template resolver (WP-21 §1): the `data/dungeon party[].id → unit` lookup
-/// today; the roster lookup arrives with 21b. nullptr means the member's unit cannot be resolved — callers
-/// keep their existing warning/fallback. The run max-HP helper below resolves through this function.
+/// The single memberId → unit-template resolver (WP-21 §1/21b): the roster's `unit` wins, a `locked: true`
+/// row is nullptr (even with a unit key), else the `data/dungeon party[].id → unit` fallback decides.
+/// nullptr means the member's unit cannot be resolved — callers keep their existing warning/fallback. The
+/// run max-HP helper below resolves through this function.
 [[nodiscard]] const gameplay::FUnitContent* ResolveRunMemberUnit(const entt::registry& registry, std::string_view memberId);
 
 /// 런 단위 최대 HP (WP-10 ★4): content.units 베이스 maxHealth + bonusHealth + 노드 보너스.maxHealth —
