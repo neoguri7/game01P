@@ -98,6 +98,8 @@ if(BUILD_TESTING)
         TIMEOUT 30
         RUN_SERIAL TRUE
         FIXTURES_REQUIRED AssetStage)
+    # The prototype verifier runs ~26 s of scripted checks on a software renderer: give it headroom over the 30 s.
+    set_tests_properties(forest_prototype_checks PROPERTIES TIMEOUT 90)
     set_property(TEST dungeon_battle_smoke APPEND PROPERTY ENVIRONMENT "GAME01P_START=battle")
     set_property(TEST forest_battle_smoke APPEND PROPERTY ENVIRONMENT "GAME01P_START=battle")
     # WP-00b: every test that boots the game exe writes its saves under the build tree, never the user's
@@ -131,8 +133,11 @@ if(BUILD_TESTING)
         target_link_libraries(${name} PRIVATE game01P_runtime)
         set_target_properties(${name} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON)
         add_test(NAME ${name} COMMAND ${name})
+        # One save directory per feature test (WP-00b follow-up): without it every test falls back to the caller's
+        # GAME01P_SAVE_DIR, so concurrent or back-to-back runs share checkpoint/run-save files and flake.
         set_tests_properties(${name} PROPERTIES
             WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            ENVIRONMENT "GAME01P_SAVE_DIR=${CMAKE_BINARY_DIR}/test-saves/${name}"
             TIMEOUT 120)
         if(WIN32)
             add_custom_command(TARGET ${name} POST_BUILD
