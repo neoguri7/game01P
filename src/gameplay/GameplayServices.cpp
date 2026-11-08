@@ -4,6 +4,7 @@
 #include "core/Logger.h"
 #include "gameplay/ai/FAiLibrary.h"
 #include "gameplay/combat/FEffectHooks.h"
+#include "gameplay/combat/FEngineIgnition.h"
 #include "gameplay/combat/FSkillApCap.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FRewardSection.h"
@@ -69,6 +70,7 @@ bool FGameplayServices::Initialize(entt::registry& registry) {
     // [WP-19a]
     InitializeRunLog(registry);
     // [WP-25]
+    RegisterEngineIgnitionListener(registry);
 
     // keep last: every Register*Effects anchor is above this line
     if (!ValidateEffectContent(registry)) {

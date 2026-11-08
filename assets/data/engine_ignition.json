@@ -1,0 +1,20 @@
+{
+  "_comment": "엔진 점화 2종 (WP-25). 트리거는 '타격 직전' 대상 상태다 — 적용 후 판정은 rune.fire가 매 타격 화상을 부여하므로 첫 타격부터 항상 참이 되어 잉여가 된다(셋업→회수 구조). 시드 2종은 현행 runes.json의 룬만으로 성립해야 한다(UsesExistingRunes가 전 id 실재를 단언). log 문구는 영어다 — HUD 폰트(Alegreya)에 한글이 없다.",
+  "schema_version": 1,
+  "engines": [
+    {
+      "id": "engine.ember",
+      "name": "Ember ignition",
+      "requires_runes": ["rune.fire", "rune.ember"],
+      "trigger": { "kind": "status_on_target", "status_id": "status.burn" },
+      "log": "Ember ignition! Fire and ember runes catch together."
+    },
+    {
+      "id": "engine.frost",
+      "name": "Frost ignition",
+      "requires_runes": ["rune.cold", "rune.frostbite"],
+      "trigger": { "kind": "status_on_target", "status_id": "status.freeze" },
+      "log": "Frost ignition! Cold and frostbite runes lock together."
+    }
+  ]
+}
