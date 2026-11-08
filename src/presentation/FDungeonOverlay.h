@@ -19,6 +19,9 @@ struct FDungeonUiState {
     bool confirmNewExpedition{false};  // starting over would overwrite a saved expedition
     bool newExpeditionFresh{false};    // which "new expedition" button asked
     int selectedGrowthMember{0};
+    // WP-27: the rune picked in this reward modal, kept so the same modal can fit it on the spot. View-
+    // owned, never saved: set only on a Reward-phase pick, cleared on equip or Continue.
+    std::string pickedRuneId;
 };
 
 // ---------------------------------------------------------------------------------------------

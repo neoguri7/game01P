@@ -118,9 +118,15 @@ void RefreshDungeonSave(entt::registry& registry) {
     save.savedAt = loaded->savedAt;
 }
 
+/// The loadout window (WP-27): runes may be changed between rooms — at camp and on the reward screen.
+/// Battle/defeat/event steps reject every edit with the message below (one window, one sentence).
+bool RunesChangeableIn(EDungeonPhase phase) {
+    return phase == EDungeonPhase::Camp || phase == EDungeonPhase::Reward;
+}
+
 std::optional<std::string> ValidateCampSlot(
     const FDungeonRun* run, std::size_t memberIndex, std::size_t slotIndex) {
-    if (!run || run->phase != EDungeonPhase::Camp) return "Runes can only be changed at camp.";
+    if (!run || !RunesChangeableIn(run->phase)) return "Runes can be changed between rooms, not in battle.";
     if (memberIndex >= run->party.size()) return "Unknown party member.";
     if (slotIndex >= run->party[memberIndex].skills.size()) return "Unknown skill slot.";
     return std::nullopt;
@@ -930,8 +936,18 @@ std::optional<std::string> EquipDungeonRune(
     entt::registry& registry, std::size_t memberIndex, std::size_t slotIndex, std::size_t runeIndex) {
     if (const auto error = ValidateDungeonRuneEquip(registry, memberIndex, slotIndex, runeIndex)) return error;
     auto& run = registry.ctx().get<FDungeonRun>();
-    run.party[memberIndex].skills[slotIndex].runeIds.push_back(run.runes[runeIndex]);
+    const std::string runeId = run.runes[runeIndex];  // WP-27: logged below; capture before the erase
+    run.party[memberIndex].skills[slotIndex].runeIds.push_back(runeId);
     run.runes.erase(run.runes.begin() + static_cast<std::ptrdiff_t>(runeIndex));
+    // WP-27: one `loadout` line per successful edit (camp equips log "camp" through the same call).
+    LogRunEvent(registry, nlohmann::json{{"t", "loadout"},
+                                         {"depth", run.depth},
+                                         {"room", run.room},
+                                         {"phase", PhaseId(run.phase)},
+                                         {"member", memberIndex},
+                                         {"slot", slotIndex},
+                                         {"rune", runeId},
+                                         {"action", "equip"}});
     SaveDungeonRun(registry);
     return std::nullopt;
 }
@@ -940,6 +956,8 @@ std::optional<std::string> RemoveDungeonRune(
     entt::registry& registry, std::size_t memberIndex, std::size_t slotIndex, std::size_t runeIndex) {
     auto* run = registry.ctx().find<FDungeonRun>();
     if (const auto error = ValidateCampSlot(run, memberIndex, slotIndex)) return error;
+    // WP-27: removal is rule-allowed in Reward too, but the UI only exposes it at camp (the reward modal
+    // fits the picked rune; unslotting is a camp service).
     auto& slot = run->party[memberIndex].skills[slotIndex];
     if (runeIndex >= slot.runeIds.size()) return "Unknown fitted rune.";
     const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
@@ -947,8 +965,17 @@ std::optional<std::string> RemoveDungeonRune(
     auto candidate = slot;
     candidate.runeIds.erase(candidate.runeIds.begin() + static_cast<std::ptrdiff_t>(runeIndex));
     if (const auto error = ValidateSkillSlot(candidate, *content)) return error;
-    run->runes.push_back(slot.runeIds[runeIndex]);
+    const std::string runeId = slot.runeIds[runeIndex];  // WP-27: logged below; capture before the move
+    run->runes.push_back(runeId);
     slot = std::move(candidate);
+    LogRunEvent(registry, nlohmann::json{{"t", "loadout"},
+                                         {"depth", run->depth},
+                                         {"room", run->room},
+                                         {"phase", PhaseId(run->phase)},
+                                         {"member", memberIndex},
+                                         {"slot", slotIndex},
+                                         {"rune", runeId},
+                                         {"action", "remove"}});
     SaveDungeonRun(registry);
     return std::nullopt;
 }
