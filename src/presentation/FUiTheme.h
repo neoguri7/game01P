@@ -98,6 +98,15 @@ enum class EHudText { Free, Zone };
 
 namespace hud {
 
+// WP-27h: the visible frame band of the hud_panel nine-slice, in fixed SCREEN pixels — the picture's rows
+// 0-15 / 112-127 and columns 0-12 / 243-255 draw 1:1, so the band never scales with the layout. Every
+// readout budget must stay inside `zone +- (kPanelFrameXPx, kPanelFrameYPx)`.
+inline constexpr float kPanelFrameXPx = 13.f;
+inline constexpr float kPanelFrameYPx = 16.f;
+// The nine-slice's corner SLICE size (assets/art/asset_contract.json), in the picture's own pixels. This is
+// NOT the frame thickness above: the 24px corner tiles the ornamental corner; its frame band is 16/13px.
+inline constexpr float kPanelCorner = 24.f;
+
 // WP-12c size table (design px at u = 1): the single source of truth for every HUD text site this WP
 // touched. The view reads these constants; HudTextSizeTable() carries the scope/class audit so a test
 // can report the sizes without restating them. See docs/expansion/plans/WP-12c-hud-legibility.md §2.

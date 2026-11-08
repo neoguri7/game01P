@@ -27,8 +27,9 @@ template <typename TRow>
     return row != nullptr && !row->displayName.empty() ? row->displayName : id;
 }
 
-/// WP-27: the card's effect line — the rune's deltas plus its data-authored hooks ("On hit: chain x2
-/// (dist 1)"). Status ids resolve to display names through `content` (id fallback; `content` may be null).
+/// WP-27: the card's effect line — the rune's deltas plus its data-authored hooks ("On hit: 2 damage to 1
+/// other enemy within 1 tile of the target", WP-27h). Status ids resolve to display names through `content`
+/// (id fallback; `content` may be null).
 [[nodiscard]] std::string RuneEffectSummary(
     const gameplay::FRuneContent& rune, const gameplay::FContentRegistry* content);
 

@@ -28,7 +28,7 @@
     "status":     { "anchor": "top-right",     "rect": [1008, 6, 260, 30] },
     "party":      { "anchor": "bottom-left",   "rect": [12, 708, 336, 84] },
     "skills":     { "anchor": "bottom-center", "rect": [430, 708, 420, 84] },
-    "unit":       { "anchor": "bottom-center", "rect": [858, 708, 150, 84] },
+    "unit":       { "anchor": "bottom-center", "rect": [858, 706, 150, 94] },
     "journal":    { "anchor": "bottom-right",  "rect": [1068, 706, 200, 34] },
     "hints":      { "anchor": "bottom-right",  "rect": [1068, 744, 56, 44] },
     "end_turn":   { "anchor": "bottom-right",  "rect": [1132, 740, 136, 56] },

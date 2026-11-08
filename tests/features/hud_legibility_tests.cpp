@@ -31,6 +31,7 @@
 #include "core/InputState.h"
 #include "core/events/FEventBus.h"
 #include "ecs/components/FActionPoints.h"
+#include "ecs/components/FActiveStatuses.h"
 #include "ecs/components/FDead.h"
 #include "ecs/components/FFaction.h"
 #include "ecs/components/FGridPosition.h"
@@ -568,7 +569,205 @@ void PreviewLiftCappedAtTwoSteps() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// 5. Non-colour channels: status gem shapes and the selection outlines
+// 5. The unit readout inside the panel frame (WP-27h — the frame band is fixed screen px)
+// ---------------------------------------------------------------------------------------------
+
+/// Every readout glyph (name, role, HP numbers, M/S, SKIP + the joined status summary) must sit inside the
+/// hud_panel picture's inner rect: the 16px top/bottom and 13px left/right frame bands are fixed SCREEN px
+/// (ui::hud::kPanelFrameXPx/YPx) and never scale with u. One real render frame per (window, text scale)
+/// case; glyph quads come out of the draw data (font-atlas commands, 6 indices / 4 vertices per glyph; a
+/// quad is untextured when all four corners carry the atlas white-pixel UV). "Kestrel / Sentinel" is ~18
+/// characters and still fits the w7-ux 118px name+role budget NameAndRoleNeverOverlap pins.
+void ReadoutTextInsidePanelFrame() {
+    FCaseTimer timer(__func__);
+    struct FCase {
+        int width;
+        int height;
+        float textScale;
+    };
+    constexpr FCase kCases[]{{1280, 800, 1.f}, {1280, 800, 1.25f}, {1920, 1080, 1.f}, {1920, 1080, 1.25f}};
+    // kLethalText (file-local in EmberCombatHudView.cpp): the decided-turn-loss colour; inside the unit
+    // zone only the SKIP marker uses it.
+    constexpr ImU32 kSkipColor = IM_COL32(255, 70, 60, 255);
+    for (const FCase& test : kCases) {
+        FImGuiFixture imgui;
+        FBattleFixture fixture;
+        fixture.arena();
+        const auto actor = fixture.place(fixture.party("party.archer"), {5, 5});
+        fixture.registry.get<game::FUnitData>(actor).definition.displayName = "Kestrel / Sentinel";
+        const auto imp = fixture.place(fixture.enemies()[0], {5, 4});
+        fixture.skills(actor, {"skill.strike"});
+        fixture.speed(actor, 100);
+        fixture.speed(imp, 1);
+        fixture.frame(0.1f);
+        CHECK(fixture.snapshot().currentTurn->actor == actor);
+
+        // Fixture content (never ship balance): Burn is the dot half of the summary; the on_apply control's
+        // roll is already decided (skipPending), so the readout must show SKIP in front of the summary.
+        auto& statuses = fixture.registry.emplace_or_replace<game::FActiveStatuses>(actor);
+        statuses.effects = {{"status.burn", 3, 3, false}, {"status.paralyze", 2, 50, true}};
+
+        auto& window = fixture.registry.ctx().get<game::FEngineWindowState>();
+        window.width = test.width;
+        window.height = test.height;
+        ImGuiIO& io = ImGui::GetIO();
+        io.DisplaySize = {static_cast<float>(test.width), static_cast<float>(test.height)};
+        game::ui::ApplyTextScale(test.textScale);
+
+        game::ecs::EmberCombatHudSystem hud;
+        hud.boundTurn = fixture.snapshot().currentTurn->turnSerial;
+        hud.update(fixture.registry, 0.f);
+        ImGui::NewFrame();
+        hud.render(fixture.registry);
+        ImGui::Render();
+
+        const game::ui::FUiLayout* layout = game::ui::FindUiLayout(fixture.registry);
+        CHECK(layout != nullptr);
+        const FRect& zone = layout->zones.unit;
+        const float u = layout->scale;
+        const float frameLeft = zone.x + game::ui::hud::kPanelFrameXPx;
+        const float frameTop = zone.y + game::ui::hud::kPanelFrameYPx;
+        const float frameRight = zone.right() - game::ui::hud::kPanelFrameXPx;
+        const float frameBottom = zone.bottom() - game::ui::hud::kPanelFrameYPx;
+
+        // Glyph quads out of the draw data: commands bound to the font atlas only (shapes draw the atlas
+        // white pixel on all four corners). Raw positions, not the clipped ones. The headless test atlas is
+        // never uploaded by a backend, so GetTexID() would hit the "wasn't uploaded to graphics system"
+        // assert (imgui.h:3926-3935); identify atlas commands by their texture-data pointer instead. Every
+        // atlas page is listed in TexList, and a non-atlas texture (e.g. the nine-slice) carries only a raw
+        // _TexID with _TexData == nullptr.
+        const ImVec2 white = io.Fonts->TexUvWhitePixel;
+        const auto isFontAtlasTexture = [fonts = io.Fonts](const ImTextureRef& ref) {
+            if (ref._TexData == nullptr) return false;
+            for (const ImTextureData* page : fonts->TexList) {
+                if (page == ref._TexData) return true;
+            }
+            return false;
+        };
+        struct FGlyph {
+            float x0{0.f};
+            float y0{0.f};
+            float x1{0.f};
+            float y1{0.f};
+            float centreY{0.f};
+            ImU32 colour{0};
+            ImVec4 clip{};
+        };
+        std::vector<FGlyph> glyphs;
+        const ImDrawData* data = ImGui::GetDrawData();
+        CHECK(data != nullptr);
+        for (int list = 0; list < data->CmdListsCount; ++list) {
+            const ImDrawList* draw = data->CmdLists[list];
+            for (const ImDrawCmd& command : draw->CmdBuffer) {
+                if (command.UserCallback != nullptr || !isFontAtlasTexture(command.TexRef) ||
+                    command.ElemCount == 0) {
+                    continue;
+                }
+                // A merged command mixes primitives: ImDrawList emits triangles (3 indices) and quads (6
+                // indices, exactly (i, i+1, i+2, i, i+2, i+3)). Group by the index pattern instead of
+                // stepping blindly by 6 — a blind step over a fill's triangles fuses shape and glyph
+                // vertices into bogus quads.
+                for (unsigned int at = 0; at < command.ElemCount;) {
+                    const ImDrawIdx* order = draw->IdxBuffer.Data + command.IdxOffset + at;
+                    const bool isQuad = at + 6 <= command.ElemCount && order[3] == order[0] &&
+                                        order[4] == order[2] &&
+                                        order[5] == static_cast<ImDrawIdx>(order[2] + 1);
+                    if (!isQuad) {
+                        at += 3;  // a triangle (fill / CPU-AA edge): never a glyph; resync after it
+                        continue;
+                    }
+                    at += 6;
+                    const int base = static_cast<int>(command.VtxOffset);
+                    const ImDrawVert& a = draw->VtxBuffer[base + order[0]];
+                    const ImDrawVert& b = draw->VtxBuffer[base + order[1]];
+                    const ImDrawVert& c = draw->VtxBuffer[base + order[2]];
+                    const ImDrawVert& d = draw->VtxBuffer[base + order[5]];
+                    const auto isWhite = [&white](const ImVec2& uv) { return uv.x == white.x && uv.y == white.y; };
+                    if (isWhite(a.uv) && isWhite(b.uv) && isWhite(c.uv) && isWhite(d.uv)) continue;
+                    FGlyph glyph;
+                    glyph.colour = a.col;
+                    glyph.clip = command.ClipRect;
+                    glyph.x0 = std::min({a.pos.x, b.pos.x, c.pos.x, d.pos.x});
+                    glyph.y0 = std::min({a.pos.y, b.pos.y, c.pos.y, d.pos.y});
+                    glyph.x1 = std::max({a.pos.x, b.pos.x, c.pos.x, d.pos.x});
+                    glyph.y1 = std::max({a.pos.y, b.pos.y, c.pos.y, d.pos.y});
+                    glyph.centreY = (glyph.y0 + glyph.y1) * .5f;
+                    const float centreX = (glyph.x0 + glyph.x1) * .5f;
+                    if (centreX < zone.x || centreX > zone.right() || glyph.centreY < zone.y ||
+                        glyph.centreY > zone.bottom()) {
+                        continue;
+                    }
+                    glyphs.push_back(glyph);
+                }
+            }
+        }
+        float minY = 1e9f;
+        float maxY = -1e9f;
+        const ImU32 nameColour = ImGui::GetColorU32(game::ui::palette::kGoldV);
+        int skipQuads = 0;
+        int summaryQuads = 0;
+        int nameQuads = 0;
+        int verticalViolations = 0;
+        int horizontalViolations = 0;
+        for (const FGlyph& glyph : glyphs) {
+            minY = std::min(minY, glyph.y0);
+            maxY = std::max(maxY, glyph.y1);
+            // VERTICAL: the raw (unclipped) ink stays inside the frame's inner rect — a clipped-away
+            // bottom would otherwise hide a real overflow.
+            if (glyph.y0 < frameTop - .5f || glyph.y1 > frameBottom + .5f) {
+                ++verticalViolations;
+                std::cout << "  [FAIL detail] glyph y [" << glyph.y0 << "," << glyph.y1 << "] x [" << glyph.x0
+                          << "," << glyph.x1 << "] outside y [" << frameTop << "," << frameBottom << "] colour "
+                          << glyph.colour << "\n";
+            }
+            // HORIZONTAL: what the command's clip rect actually shows must stay inside it too; a quad
+            // fully clipped away is ignored.
+            const float shownLeft = std::max(glyph.x0, glyph.clip.x);
+            const float shownRight = std::min(glyph.x1, glyph.clip.z);
+            if (shownRight > shownLeft && (shownLeft < frameLeft - .5f || shownRight > frameRight + .5f)) {
+                ++horizontalViolations;
+                std::cout << "  [FAIL detail] glyph x [" << shownLeft << "," << shownRight << "] outside ["
+                          << frameLeft << "," << frameRight << "] colour " << glyph.colour << "\n";
+            }
+            if (glyph.colour == kSkipColor) ++skipQuads;
+            if (glyph.colour == game::ui::palette::kMuted && glyph.centreY >= zone.y + 60.f * u) ++summaryQuads;
+            if (glyph.colour == nameColour) ++nameQuads;
+        }
+        // The [report] must survive a failing CHECK (the harness throws out of the case), so it prints before
+        // them; a clean failure prints the measured picture instead of vanishing with the exception.
+        std::cout << "  [report] " << test.width << "x" << test.height << " text " << test.textScale << ": u=" << u
+                  << " zone [" << zone.x << "," << zone.y << ".." << zone.right() << "," << zone.bottom() << "]"
+                  << " frame [" << frameLeft << "," << frameTop << ".." << frameRight << "," << frameBottom << "]"
+                  << " glyphs " << glyphs.size();
+        if (!glyphs.empty()) {
+            std::cout << " y [" << minY << "," << maxY << "]";
+        }
+        std::cout << " skip " << skipQuads << " summary " << summaryQuads << " name " << nameQuads << " violations "
+                  << verticalViolations << "," << horizontalViolations << "\n";
+        // Non-vacuous: the SKIP marker (one quad per letter), the summary row and the name really rendered.
+        CHECK(!glyphs.empty());
+        CHECK(verticalViolations == 0);
+        CHECK(horizontalViolations == 0);
+        CHECK(skipQuads >= 4);
+        CHECK(summaryQuads > 0);
+        CHECK(nameQuads > 0);
+        for (const FGlyph& skip : glyphs) {
+            if (skip.colour != kSkipColor) continue;
+            for (const FGlyph& name : glyphs) {
+                if (name.colour != nameColour) continue;
+                const bool overlap =
+                    skip.x0 < name.x1 && name.x0 < skip.x1 && skip.y0 < name.y1 && name.y0 < skip.y1;
+                CHECK(!overlap);
+            }
+        }
+        // The fixture (and its ImGui context) dies at the end of this iteration, so the suite's text scale
+        // is restored here, while the context is still alive.
+        game::ui::ApplyTextScale(1.f);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// 6. Non-colour channels: status gem shapes and the selection outlines
 // ---------------------------------------------------------------------------------------------
 
 void StatusGemShapePerKind() {
@@ -638,7 +837,7 @@ void HoverCursorExempt() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// 6. Click = select, through the real view
+// 7. Click = select, through the real view
 // ---------------------------------------------------------------------------------------------
 
 void ClickSelectsSkill() {
@@ -739,7 +938,7 @@ void ClickSelectsSkill() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// 7. Intent persistence across the turn handoff (the WP-12c §6 contract)
+// 8. Intent persistence across the turn handoff (the WP-12c §6 contract)
 // ---------------------------------------------------------------------------------------------
 
 void IntentsPersistAcrossTurnHandoff() {
@@ -862,6 +1061,7 @@ int main() {
         {"PlateClearsOccupantHpBar", PlateClearsOccupantHpBar},
         {"PlateHasOutlineAndCaret", PlateHasOutlineAndCaret},
         {"PreviewLiftCappedAtTwoSteps", PreviewLiftCappedAtTwoSteps},
+        {"ReadoutTextInsidePanelFrame", ReadoutTextInsidePanelFrame},
         {"StatusGemShapePerKind", StatusGemShapePerKind},
         {"AffectedCellsUseDoubleOutline", AffectedCellsUseDoubleOutline},
         {"HoverCursorExempt", HoverCursorExempt},
