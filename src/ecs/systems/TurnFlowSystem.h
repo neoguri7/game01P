@@ -143,6 +143,10 @@ struct TurnFlowSystem {
         if (auto* active = registry.try_get<FActiveStatuses>(actor); turnStarted && active && !active->effects.empty()) {
             const std::vector<const gameplay::FStatusContent*> definitions = CollectStatuses(*active, *content);
             const FStatusTickResult tick = TickStatuses(*active, definitions, combat->rng);
+            // WP-16 move_lock: deny this turn's movement only — skills stay available.
+            if (auto* points = registry.try_get<FActionPoints>(actor); tick.moveApZero && points != nullptr) {
+                points->move = 0;
+            }
             // WP-06 (P6-6, ★3): the tick can change what the sheet derives (WP-13's speed_pct reads it on
             // its next collect), and the refresh must beat both the status-death early return below and
             // the skip turn. Idempotent; Ember-only guard — a forest refresh would flatten the inline

@@ -45,11 +45,14 @@
 #include "gameplay/ai/FAiBrain.h"
 #include "gameplay/ai/FAiLibrary.h"
 #include "gameplay/ai/FAiNodeRegistry.h"
+#include "gameplay/combat/FBattleCommand.h"
 #include "gameplay/combat/FCombatApply.h"
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FEffectHooks.h"
 #include "gameplay/combat/FIntent.h"
+#include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/data/FStatusContent.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/factory/FEntityDefinitions.h"
 #include "gameplay/grid/FGridQuery.h"
@@ -167,6 +170,27 @@ struct FIntentBattle {
     }
 
     void speed(entt::entity unit, std::int32_t value) { registry.get<game::FSpeed>(unit).value = value; }
+
+    /// Applies status.locked_move (WP-16) through the status rules — the same ApplyStatus the resolver
+    /// runs on a real shackle hit, without needing the caster.
+    void lockMove(entt::entity unit) {
+        if (!registry.all_of<game::FActiveStatuses>(unit)) {
+            registry.emplace<game::FActiveStatuses>(unit);
+        }
+        const game::gameplay::FStatusContent* lock = content().statuses.find("status.locked_move");
+        CHECK(lock != nullptr);
+        game::ApplyStatus(registry.get<game::FActiveStatuses>(unit), *lock);
+    }
+
+    [[nodiscard]] bool holdsStatus(entt::entity unit, std::string_view statusId) const {
+        const auto* active = registry.try_get<game::FActiveStatuses>(unit);
+        if (active == nullptr) {
+            return false;
+        }
+        return std::ranges::any_of(active->effects, [statusId](const game::FStatusEffect& effect) {
+            return effect.statusId == statusId;
+        });
+    }
 
     entt::entity party(std::string_view id) {
         for (const auto entity : everyone) {
@@ -717,6 +741,107 @@ void PushedCasterWhiffs() {
     CHECK(!requests.empty());
     const auto* endTurn = std::get_if<game::FEndTurn>(&requests.front());
     CHECK(endTurn != nullptr);
+
+    // The real path: the warrior shoves through the command API, the resolver and the on_hit hook — the
+    // same pipeline the game runs. The imp's cleave tile was committed on the warrior's cell; one shove
+    // later the caster stands two cells away and the committed tile is beyond its range.
+    {
+        FIntentBattle fixture;
+        fixture.arena();
+        const auto warrior = fixture.place(fixture.party("party.warrior"), {5, 5});
+        const auto imp = fixture.place(fixture.enemies()[0], {4, 5});
+        fixture.skills(warrior, {"skill.shove"}); // 1 AP, range 1, on_hit push from the caster, distance 1
+        fixture.skills(imp, {"skill.cleave"});
+        fixture.speed(warrior, 100);
+        fixture.speed(imp, 1);
+
+        fixture.frame(0.1f); // commit: the imp's tile lands on the warrior's cell
+        const auto* store = fixture.store();
+        CHECK(store != nullptr);
+        CHECK(store->intents.at(imp).mode == EIntentMode::Tile);
+        CHECK((store->intents.at(imp).aim == game::FGridPosition{5, 5}));
+
+        const game::FTurnToken token = *fixture.snapshot().currentTurn;
+        CHECK(token.actor == warrior);
+        CHECK(game::SubmitBattleCommand(fixture.registry,
+                                        game::FBattleCommand{game::FActionRequest{warrior, imp, "skill.shove", token,
+                                                                                 game::FGridPosition{4, 5}},
+                                                             game::ECommandSource::Test, 0}));
+        fixture.drain(); // resolve + the push hook: the imp is shoved away from the caster
+
+        CHECK((fixture.registry.get<game::FGridPosition>(imp) == game::FGridPosition{3, 5}));
+        const auto evaluation = game::EvaluateIntent(fixture.registry, imp, fixture.content());
+        CHECK(evaluation.verdict == EIntentVerdict::Whiff);
+        CHECK(evaluation.reason == "displaced");
+
+        const int warriorHp = fixture.registry.get<game::FHealth>(warrior).current;
+        fixture.endCurrentTurn(); // the warrior hands over; the imp's turn comes up
+        fixture.flowFrame();
+        CHECK(fixture.stats().whiffed == 1);
+        CHECK(fixture.queue().pending.empty()); // no shot, no move
+        CHECK(fixture.registry.get<game::FHealth>(warrior).current == warriorHp);
+        const auto& requests = fixture.runtime().requests;
+        CHECK(!requests.empty());
+        const auto* endTurn = std::get_if<game::FEndTurn>(&requests.front());
+        CHECK(endTurn != nullptr);
+    }
+}
+
+void LockMoveZeroesMoveAp() {
+    // End to end through the real pipeline: the imp shackles the warrior with a real hit, and at the
+    // warrior's next own turn start (WP-16) the move pool is zeroed — skills stay full, a submitted move
+    // is rejected by the drain, and a skill on an adjacent hostile still resolves.
+    FIntentBattle fixture;
+    fixture.arena();
+    const auto warrior = fixture.place(fixture.party("party.warrior"), {5, 3});
+    const auto imp = fixture.place(fixture.enemies()[0], {5, 5});
+    fixture.skills(imp, {"skill.shackle"}); // range 2, applies status.locked_move
+    fixture.skills(warrior, {"skill.strike"});
+    fixture.speed(imp, 100); // the imp opens round 1: its shackle lands before the warrior's own turn
+    fixture.speed(warrior, 1);
+
+    fixture.frame(0.1f); // commit: the imp declares the shackle at the warrior
+    const auto* store = fixture.store();
+    CHECK(store != nullptr);
+    CHECK(store->intents.at(imp).skillId == "skill.shackle");
+
+    fixture.frame(0.5f); // the imp's think pause drains: its intent is submitted and accepted
+    CHECK(fixture.queue().pending.size() == 1);
+    fixture.drain(); // the resolver lands the shackle: the warrior carries status.locked_move
+    CHECK(fixture.holdsStatus(warrior, "status.locked_move"));
+
+    // Close the imp's turn; the warrior's own turn starts and the tick denies it movement.
+    fixture.endCurrentTurn();
+    fixture.frame(0.5f);
+
+    const auto& points = fixture.registry.get<game::FActionPoints>(warrior);
+    CHECK(points.move == 0);                // move_lock denied the move pool
+    CHECK(points.skill == points.skillMax); // skills stay available
+    CHECK(!fixture.holdsStatus(warrior, "status.locked_move")); // duration 1: expired with the tick
+
+    // A move it submits is rejected by the drain (NoAp) — nothing changes.
+    const game::FTurnToken token = *fixture.snapshot().currentTurn;
+    CHECK(token.actor == warrior);
+    CHECK(game::SubmitBattleCommand(
+        fixture.registry,
+        game::FBattleCommand{game::FMoveRequest{warrior, game::FGridPosition{5, 4}, token}, game::ECommandSource::Test, 0}));
+    CHECK(fixture.queue().pending.size() == 1);
+    fixture.drain();
+    CHECK(fixture.queue().pending.empty());
+    CHECK((fixture.registry.get<game::FGridPosition>(warrior) == game::FGridPosition{5, 3})); // never moved
+    const auto& results = fixture.registry.ctx().get<game::FCommandResults>();
+    CHECK(!results.recent.empty());
+    CHECK(results.recent.back().reject == game::ECommandReject::NoAp);
+
+    // A skill on an adjacent hostile still resolves: the lock denies movement only.
+    fixture.registry.get<game::FGridPosition>(imp) = {5, 4};
+    const int impHp = fixture.registry.get<game::FHealth>(imp).current;
+    CHECK(game::SubmitBattleCommand(
+        fixture.registry,
+        game::FBattleCommand{game::FActionRequest{warrior, imp, "skill.strike", token, game::FGridPosition{5, 4}},
+                             game::ECommandSource::Test, 0}));
+    fixture.drain();
+    CHECK(fixture.registry.get<game::FHealth>(imp).current < impHp);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1170,6 +1295,56 @@ void PlanAssumesRefilledMoveAp() {
     CHECK(evaluation.reason.empty());
 }
 
+void LockedEnemyPlansFromStandingCell() {
+    // A move-locked enemy cannot move on its turn (WP-16), so planning — which happens outside its turn —
+    // must not assume the move the lock removes: it reads as standing-only.
+    {
+        FIntentBattle fixture;
+        fixture.arena();
+        const auto warrior = fixture.place(fixture.party("party.warrior"), {5, 3});
+        const auto imp = fixture.place(fixture.enemies()[0], {5, 5});
+        fixture.skills(imp, {"skill.strike"}); // range 1: two cells away needs one step
+        fixture.speed(warrior, 100);
+        fixture.speed(imp, 1);
+        fixture.lockMove(imp);
+
+        fixture.frame(0.1f);
+        const auto* store = fixture.store();
+        CHECK(store != nullptr);
+        // Without the lock this is a strike planned through one move; locked, the standing cell is the only
+        // candidate and it cannot fire from it. No intent at all — the approach fallback is standing-only
+        // too, so it commits nothing rather than a move its own turn could never make.
+        CHECK(!store->intents.contains(imp));
+        CHECK(fixture.stats().committed == 0);
+        CHECK(fixture.stats().moveIntents == 0);
+        CHECK(warrior != entt::null);
+    }
+    {
+        // A locked enemy that did commit a strike (target in range from its standing cell — the firing
+        // cell equals its own) still fails from distance after the target retreats: the evaluation span is
+        // 0, so the reason is plain distance, never a body block it had no route around.
+        FIntentBattle fixture;
+        fixture.arena();
+        const auto warrior = fixture.place(fixture.party("party.warrior"), {5, 4});
+        const auto imp = fixture.place(fixture.enemies()[0], {5, 5});
+        fixture.skills(imp, {"skill.strike"});
+        fixture.speed(warrior, 100);
+        fixture.speed(imp, 1);
+        fixture.lockMove(imp);
+
+        fixture.frame(0.1f);
+        const auto* store = fixture.store();
+        CHECK(store != nullptr);
+        CHECK(store->intents.at(imp).skillId == "skill.strike");
+        CHECK(store->intents.at(imp).target == warrior); // committed from its own cell, in range
+
+        fixture.registry.get<game::FGridPosition>(warrior) = {5, 2};
+        const auto evaluation = game::EvaluateIntent(fixture.registry, imp, fixture.content());
+        CHECK(evaluation.verdict == EIntentVerdict::Whiff);
+        CHECK(evaluation.reason == "out of reach");
+    }
+}
+
 void DeterministicOrder() {
     const auto build = [](FIntentBattle& fixture) {
         fixture.place(fixture.party("party.warrior"), {7, 5});
@@ -1352,6 +1527,8 @@ int main() {
         {"DeterministicOrder", DeterministicOrder},
         {"StatsCountModes", StatsCountModes},
         {"PlanAssumesRefilledMoveAp", PlanAssumesRefilledMoveAp},
+        {"LockedEnemyPlansFromStandingCell", LockedEnemyPlansFromStandingCell},
+        {"LockMoveZeroesMoveAp", LockMoveZeroesMoveAp},
         {"IntentModeParsesAndRejects", IntentModeParsesAndRejects},
         {"AutoBattlesWithIntentsFinish", AutoBattlesWithIntentsFinish},
     });

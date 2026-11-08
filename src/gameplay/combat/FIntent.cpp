@@ -78,12 +78,29 @@ namespace {
     return std::nullopt;
 }
 
+/// True when the unit holds an active move_lock status (WP-16): the tick at the owner's turn start zeroes
+/// its move pool, so from every other frame the unit must read as unable to move. The lock never touches
+/// the skill pool.
+[[nodiscard]] bool HoldsMoveLock(entt::registry& registry, entt::entity unit) {
+    const auto* active = registry.try_get<FActiveStatuses>(unit);
+    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
+    if (active == nullptr || content == nullptr) {
+        return false;
+    }
+    for (const gameplay::FStatusContent* definition : CollectStatuses(*active, *content)) {
+        if (definition != nullptr && definition->kind == gameplay::kStatusKindMoveLock) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /// Is a move command available to `unit` on its own turn? Planning and evaluation also run OUTSIDE the
 /// unit's turn (round-start commits, the per-frame UI query), when the AP pools still hold last turn's
 /// leftover: the pools refill at the unit's own turn start (TurnFlowSystem). The unit's own turn reads
-/// the live pool; any other frame reads moveMax — what the pool will hold when the turn really comes.
-/// This is also where the post-rebase WP-16 move_lock lands: it zeroes move AP at the unit's next turn
-/// start, and a locked unit then fails its committed move/approach like any other no-move-AP case.
+/// the live pool; any other frame reads moveMax — what the pool will hold when the turn really comes —
+/// except under an active move_lock (WP-16), whose tick zeroes the move pool at the owner's turn start:
+/// that unit reads as unable to move from every frame, and planning must not assume a move it cannot make.
 [[nodiscard]] bool MoveAvailableOnOwnTurn(entt::registry& registry, entt::entity unit) {
     const auto* points = registry.try_get<FActionPoints>(unit);
     if (points == nullptr) {
@@ -94,7 +111,10 @@ namespace {
     // turn controller is not available to this gameplay module (layer boundary: gameplay must not reach
     // into the ecs systems).
     if (const auto* combat = registry.ctx().find<FCombatRuntime>(); combat != nullptr && combat->currentActor == unit) {
-        return points->move > 0;
+        return points->move > 0; // the turn-start tick already zeroed a locked unit's pool
+    }
+    if (HoldsMoveLock(registry, unit)) {
+        return false;
     }
     return points->moveMax > 0;
 }
