@@ -13,6 +13,7 @@
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FRunSequence.h"
 #include "gameplay/factory/FEntityDefinitions.h"
 #include "gameplay/grid/FGridQuery.h"
 
@@ -63,13 +64,22 @@ void RefreshCombatSheet(
         }
     }
 
-    // ③ 적 스케일 — 구 ApplyRunParty 공식 그대로(FDungeonRun 경로에서만, 비파티).
+    // ③ 적 스케일 — 구 ApplyRunParty 공식 그대로(FDungeonRun 경로에서만, 비파티). WP-08: depth 성장은
+    //    캡(kMaxEnemyDepthScaling)에서 멈추고 그 위에 회차(cycle) 항이 가산된다(이중 캡 없음).
     if (run != nullptr && !registry.all_of<FPartyMember>(entity)) {
         const int extra = std::min(run->depth - 1, kMaxEnemyDepthScaling);
         health->max += extra * DungeonBalance(registry, "enemy_health_per_depth") + run->room * kEnemyHealthPerRoom;
         stats->attack += extra * DungeonBalance(registry, "enemy_attack_per_depth") + run->room * kEnemyAttackPerRoom;
         stats->magicAttack +=
             extra * DungeonBalance(registry, "enemy_attack_per_depth") + run->room * kEnemyAttackPerRoom;
+        // WP-08: 회차 스케일(D-19) — 규칙은 FRunSequence 한 곳이 갖고 이 블록은 적용만 한다. 회차 0이나
+        // 빈 테이블이면 0이 돌아온다(콘텐츠를 되돌리는 롤백 레버).
+        const FCycleScale cycle = CycleScaleFor(registry);
+        if (cycle.healthPct != 0) health->max += health->max * cycle.healthPct / 100;
+        if (cycle.attackPct != 0) {
+            stats->attack += stats->attack * cycle.attackPct / 100;
+            stats->magicAttack += stats->magicAttack * cycle.attackPct / 100;
+        }
     }
 
     // ④ 상태 speed_pct — 100 = 변화 없음, 곱으로 합성하고 하한 1: speed = max(1, round(base × Π(pct/100))).

@@ -24,6 +24,7 @@
 #include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunFlow.h"
 #include "gameplay/dungeon/FRunLog.h"
+#include "gameplay/dungeon/FRunSequence.h"
 #include "gameplay/dungeon/FSaveSections.h"
 #include "gameplay/dungeon/FRoomGenerator.h"
 #include "gameplay/factory/FEntityDefinitions.h"
@@ -71,6 +72,15 @@ std::expected<FLoadedRun, std::string> ParseSavedRun(entt::registry& registry) {
     }
     auto run = DungeonRunFromJson(*document, *rules);
     if (!run) return std::unexpected(run.error());
+    // WP-08: `room` is the battle ordinal of the dungeon at `depth - 1`; the save's static key range only
+    // bounds it by the slot cap. The dynamic bound comes from the sequence. A v1 save maps identically —
+    // its room is a battle ordinal too, and every dungeon keeps its battle count.
+    if (const auto* sequence = FindRunSequence(registry)) {
+        const auto position = sequence->PositionOf(run->depth - 1);
+        if (run->room >= sequence->BattleCountAt(position)) {
+            return std::unexpected("room does not match the dungeon sequence");
+        }
+    }
     loaded.run = std::move(*run);
     loaded.document = std::move(*document);
     return loaded;
@@ -206,9 +216,9 @@ void FinishBattlefield(nlohmann::json& document, const nlohmann::json& data) {
 }
 
 nlohmann::json BuildRoomDocument(const nlohmann::json& data, const gameplay::FRoomGenConfig& config,
-                                 std::uint32_t seed, int depth, int room) {
+                                 std::uint32_t seed, int depth, int room, bool boss) {
     const auto cells = PartyCells(data.at("party"));
-    const auto generated = gameplay::GenerateRoom(config, {seed, depth, room, room == 2, cells});
+    const auto generated = gameplay::GenerateRoom(config, {seed, depth, room, boss, cells});
     nlohmann::json document;
     document["name"] = generated.name;
     document["terrain"] = generated.terrain;
@@ -313,10 +323,10 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
     if (!asset) return false;
     const auto& data = asset->json();
     try {
-        if (!data.at("schema_version").is_number_integer() || data.at("schema_version") != 1 ||
+        if (!data.at("schema_version").is_number_integer() || data.at("schema_version") != 2 ||
             !data.at("party").is_array() || data.at("party").size() != 4 ||
             !data.at("generation").is_object()) {
-            LOG_ERROR("Dungeon needs schema version 1, four party members and a room generation block.");
+            LOG_ERROR("Dungeon needs schema version 2, four party members and a room generation block.");
             return false;
         }
         for (const char* key : {"move_range", "trap_damage", "room_heal", "event_heal", "event_materials",
@@ -446,21 +456,52 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
             LOG_ERROR("Dungeon generation needs room names, known weighted enemies, a known boss and valid count ranges.");
             return false;
         }
-        // Probe a spread of generated rooms so bad content stops the boot instead of a later battle.
-        for (std::uint32_t seed = 1; seed <= 6; ++seed) {
-            for (int room = 0; room < 3; ++room) {
-                entt::registry probe;
-                FScene scene(probe, "validation");
-                scene.Load();
-                const auto document = BuildRoomDocument(data, *config, seed, 1, room);
-                const auto battlefield = FEntityFactory::CreateBattlefield(scene, document);
-                if (!battlefield) {
-                    LOG_ERROR("Generated dungeon room invalid: {}", battlefield.error().message);
-                    return false;
+        // WP-08: the room sequence (themes -> dungeons -> room slots) is the only source of room count,
+        // boss placement and the cycle table. Parsed and validated here; installed before the probe reads it.
+        std::string sequenceError;
+        auto sequence = FRunSequence::Load(data, sequenceError);
+        if (!sequence) {
+            LOG_ERROR("Dungeon sequence invalid: {}", sequenceError);
+            return false;
+        }
+        registry.ctx().erase<FRunSequence>();
+        registry.ctx().emplace<FRunSequence>(std::move(*sequence));
+        const auto& rooms = registry.ctx().get<FRunSequence>();
+        // Probe one representative of every unique (family, boss) tuple actually authored; the room
+        // generation failure class is decided by (family, boss, pool, seed) — the ordinal only feeds Mix.
+        // Cost is bounded by the tuple count, not the slot count (WP-08 §4).
+        constexpr int kProbeSeeds = 3;
+        FDungeonBootProbe probe;
+        std::vector<std::pair<std::string, std::string>> probedTuples;
+        for (int index = 0; index < rooms.TotalDungeons(); ++index) {
+            const auto position = rooms.PositionOf(index);
+            const int battleCount = rooms.BattleCountAt(position);
+            for (int ordinal = 0; ordinal < battleCount; ++ordinal) {
+                const auto* slot = rooms.BattleSlotAt(position, ordinal);
+                if (slot == nullptr) continue;
+                const std::pair<std::string, std::string> tuple{slot->family, slot->boss};
+                if (std::ranges::find(probedTuples, tuple) != probedTuples.end()) continue;
+                probedTuples.push_back(tuple);
+                for (std::uint32_t seed = 1; seed <= kProbeSeeds; ++seed) {
+                    entt::registry probeRegistry;
+                    FScene scene(probeRegistry, "validation");
+                    scene.Load();
+                    const auto document =
+                        BuildRoomDocument(data, *config, seed, index + 1, ordinal, !slot->boss.empty());
+                    const auto battlefield = FEntityFactory::CreateBattlefield(scene, document);
+                    if (!battlefield) {
+                        LOG_ERROR("Generated dungeon room invalid: {}", battlefield.error().message);
+                        return false;
+                    }
+                    if (!SetupCombatUnits(probeRegistry, *battlefield, content)) return false;
+                    ++probe.iterations;
                 }
-                if (!SetupCombatUnits(probe, *battlefield, content)) return false;
             }
         }
+        probe.tuples = static_cast<int>(probedTuples.size());
+        LOG_INFO("[room] probe tuples={} iterations={}", probe.tuples, probe.iterations);
+        registry.ctx().erase<FDungeonBootProbe>();
+        registry.ctx().emplace<FDungeonBootProbe>(probe);
     } catch (const nlohmann::json::exception& error) {
         LOG_ERROR("Dungeon content invalid: {}", error.what());
         return false;
@@ -528,11 +569,24 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
 }
 
 void InstallDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh) {
+    InstallDungeonRunAt(registry, seed, fresh ? 0 : registry.ctx().get<FDungeonCheckpoint>().cleared);
+}
+
+void InstallDungeonRunAt(entt::registry& registry, std::uint32_t seed, int clearedIndex) {
+    // D-21: a run can start at any dungeon up to the checkpoint; the checkpoint itself never goes down.
+    const auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
+    const int index = std::clamp(clearedIndex, 0, std::max(0, checkpoint.cleared));
     registry.ctx().erase<FDungeonRun>();
     auto& run = registry.ctx().emplace<FDungeonRun>();
     run.seed = seed == 0 ? 1 : seed;
-    run.depth = fresh ? 1 : registry.ctx().get<FDungeonCheckpoint>().cleared + 1;
-    run.cleared = run.depth - 1;
+    run.depth = index + 1;
+    run.cleared = index;
+    // WP-08/D-7: the start-support materials scale with the start index (min(index x per, cap)); a fresh
+    // run (index 0) starts empty. The rune-offer half of the support lives in StartRunAt (it writes the
+    // rewards module after its reset).
+    if (const auto* sequence = FindRunSequence(registry)) {
+        run.materials = sequence->StartMaterials(index);
+    }
     for (const auto& member : DungeonDefinition(registry).at("party")) {
         FRunMember runMember;
         runMember.id = member.at("id").get<std::string>();
@@ -611,6 +665,9 @@ bool ContinueDungeonRun(entt::registry& registry) {
     registry.ctx().emplace<FDungeonRun>(std::move(*run));
     registry.ctx().erase<FRunEventLog>();
     registry.ctx().emplace<FRunEventLog>();
+    // WP-08: a phase=event save whose gap no longer has an event slot advances past it (never replays the
+    // cleared battle) — the rule lives in FRunFlow.cpp, the run phase machine's single writer.
+    NormalizeResumedRunPhase(registry);
     save->error.clear();
     return true;
 }
@@ -622,7 +679,13 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
     // Initialization already proved the block valid; a failure here means content changed underneath us.
     const auto config = ParseRoomGeneration(data, content);
     if (!config) return nlohmann::json::object();
-    auto document = BuildRoomDocument(data, *config, run.seed, run.depth, run.room);
+    // WP-08: the boss flag comes from the sequence slot of the current battle ordinal — never a room index.
+    bool boss = false;
+    if (const auto* sequence = FindRunSequence(registry)) {
+        const auto position = sequence->PositionOf(run.depth - 1);
+        boss = sequence->IsBossBattle(position, run.room);
+    }
+    auto document = BuildRoomDocument(data, *config, run.seed, run.depth, run.room, boss);
     run.roomName = document.at("name").get<std::string>();
     // WP-19a: a saved-phase continue (Reward/Event/Camp/Defeat) also builds the field but must not record a
     // battle that will not happen; only a real Battle phase writes dungeon_enter/room_start.
@@ -657,8 +720,8 @@ void CaptureRunParty(entt::registry& registry) {
 }
 
 // Legacy wrappers (WP-02a): the call sites stay in tests/DungeonTests.cpp, FEmberBattleState and
-// FDungeonOverlay until WP-08 moves them. The bodies live in FRunFlow; these keep the signatures and
-// log the failure the old void functions could not report.
+// FDungeonOverlay; moving them is a later separate WP (WP-08 keeps signature, name and body). The bodies
+// live in FRunFlow; these keep the signatures and log the failure the old void functions could not report.
 void CompleteDungeonBattle(entt::registry& registry, bool victory) {
     if (const auto result = ResolveRoomVictory(registry, victory); !result) {
         LOG_ERROR("Room victory could not be resolved: {}", result.error());

@@ -34,6 +34,7 @@
 #include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRoomGenerator.h"
+#include "gameplay/dungeon/FRunSequence.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/grid/FGridQuery.h"
 #include "gameplay/grid/FCameraMath.h"
@@ -573,7 +574,10 @@ void CompleteRun(std::uint32_t seed) {
         CHECK((fixture.battle.Update(registry, 0) == FStateTransition{EStateChangeKind::Push, std::string(game::kRunModalReward)}));
         auto& run = registry.ctx().get<game::FDungeonRun>();
         CHECK(run.phase == game::EDungeonPhase::Reward);
-        // The room no longer grants a rune: it opens an offer, and the pick is the grant (WP-17).
+        // The room no longer grants a rune: it opens an offer, and the pick is the grant (WP-17). The frozen
+        // fixture authors rune_offer.chance = 1.0, so every monster room opens an offer — the strict count
+        // holds even though dungeon 1 no longer has a boss slot (WP-08; the boss guarantee was never the
+        // reason an offer appeared here).
         CHECK(registry.ctx().get<game::FRewards>().offer.active);
         CHECK(run.runes.size() == static_cast<std::size_t>(room));
         CHECK(game::ResolveRuneOffer(registry, 0));
@@ -639,7 +643,14 @@ void CompleteRun(std::uint32_t seed) {
     game::StartDungeonRun(registry, 999);
     const auto& restarted = registry.ctx().get<game::FDungeonRun>();
     CHECK(restarted.depth == 2 && restarted.room == 0);
-    CHECK(restarted.materials == 0 && restarted.runes.empty());
+    // WP-08/D-7: a checkpoint start grants the start support — materials scale with the cleared index
+    // (computed from the rules, not copied from a table constant).
+    const auto* sequence = game::FindRunSequence(registry);
+    CHECK(sequence != nullptr);
+    const int startIndex = registry.ctx().get<game::FDungeonCheckpoint>().cleared;
+    CHECK(restarted.materials ==
+          std::min(startIndex * sequence->startSupport.materialsPerDungeon, sequence->startSupport.materialsCap));
+    CHECK(restarted.runes.empty());
     CHECK(restarted.party.front().level == 1 && restarted.party.front().passivePoints == 0
           && restarted.party.front().allocatedNodes.empty() && restarted.party.front().bonusAttack == 0);
     std::cout << "  Seed " << seed << ": " << firstRoom << " -> full dungeon + checkpoint + next depth\n";
