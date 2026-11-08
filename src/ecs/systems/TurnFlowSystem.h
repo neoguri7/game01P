@@ -21,6 +21,7 @@
 #include "gameplay/combat/FCombatSheet.h"
 #include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/combat/FEffectHooks.h"
+#include "gameplay/combat/FIntent.h"
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonRun.h"
@@ -37,6 +38,11 @@ inline constexpr float kAiThinkDelaySeconds = 0.45f;
 /// the HUD to queue an action.
 struct TurnFlowSystem {
     void update(entt::registry& registry, float deltaTime) {
+        // WP-11: measure the previous intent shot before anything else — including the guard below, because
+        // a battle-ending hit must still reach lastExecuted. The session id is the store's staleness guard.
+        const auto* settleRuntime = registry.ctx().find<FTurnRuntime>();
+        SettleIntentExecution(registry, settleRuntime != nullptr ? settleRuntime->controller.snapshot().sessionId : 0);
+
         auto* runtime = registry.ctx().find<FTurnRuntime>();
         auto* combat = registry.ctx().find<FCombatRuntime>();
         auto* outcome = registry.ctx().find<FBattleOutcome>();
@@ -44,6 +50,23 @@ struct TurnFlowSystem {
         if (!runtime || !combat || !outcome || !content || outcome->resolved) {
             return;
         }
+
+        // WP-11: mirror the current actor into the gameplay-visible battle runtime. Gameplay-side intent
+        // code cannot read the turn controller itself (layer boundary), and the mirror must be written
+        // before the commit below: a new round can begin while the presentation is busy, and that commit
+        // still has to know whose AP pools are live right now.
+        {
+            const FTurnSnapshot snapshot = runtime->controller.snapshot();
+            combat->currentActor = snapshot.currentTurn.has_value() ? snapshot.currentTurn->actor : entt::null;
+        }
+
+        // WP-11: consume this frame's FRoundStarted and commit every enemy's intent. This runs BEFORE the
+        // presentation settle guard on purpose: TurnController::synchronize can begin a new round while the
+        // presentation is busy (an actor removed mid-animation), and this update returns at the settle guard
+        // in that frame — the frame-scoped FRoundStarted would be lost if the commit sat below it. Committing
+        // is pure bookkeeping (no action, nothing shown), so it is safe while unsettled; a repeated commit
+        // of the same (sessionId, round) is a no-op.
+        CommitEnemyIntents(registry, *content);
 
         // WP-05b driver guard: the turn flow waits for the presentation to settle, exactly like TurnSystem
         // defers FEndTurn. Everything below is held while the gate is busy: the AP refill, the status tick,
@@ -177,6 +200,27 @@ struct TurnFlowSystem {
         if (combat->autoActionsThisTurn >= kMaxAutoActionsPerTurn) {
             LOG_WARN("[turn] {} hit the auto-action cap - ending turn.", UnitDisplayName(registry, actor));
             runtime->requests.push_back(FEndTurn{token});
+            return;
+        }
+
+        // WP-11: a committed intent leads the enemy's turn — its commands run first, and the declared
+        // skill is consumed once its submit was accepted; the rest of the turn falls back to the tree.
+        // A refused submit must cost nothing (same contract as the auto action below): no cap, no
+        // consumption, thinkDelay 0 so the step retries next frame. Whiff and invalidation kept separate:
+        // a whiff ends the turn (dodging must cost the enemy its turn), an invalidation falls through to
+        // the tree, which recomputes from the live world.
+        const FIntentStep intentStep = TakeCommittedIntent(registry, token, *content);
+        if (intentStep.kind == EIntentStepKind::EndTurn) {
+            runtime->requests.push_back(FEndTurn{token});
+            return;
+        }
+        if (intentStep.kind == EIntentStepKind::Command) {
+            if (!SubmitBattleCommand(registry, FBattleCommand{*intentStep.action, ECommandSource::Ai, 0})) {
+                combat->thinkDelay = 0.f;
+                return;
+            }
+            ++combat->autoActionsThisTurn;
+            AcknowledgeIntentStep(registry, actor, intentStep, *content);
             return;
         }
 

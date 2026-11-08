@@ -201,7 +201,7 @@ std::optional<FAiLibrary> FAiLibrary::fromDocument(
             return fail("data/ai: every profile needs an 'id' and a 'tree'");
         }
         const std::string id = profile["id"].get<std::string>();
-        if (const auto problem = CheckKeys(profile, {"_comment", "id", "tuning", "tree"}, "data/ai profile " + id)) {
+        if (const auto problem = CheckKeys(profile, {"_comment", "id", "tuning", "tree", "intent_mode"}, "data/ai profile " + id)) {
             return fail(*problem);
         }
         if (library.find(id) != nullptr) {
@@ -213,12 +213,31 @@ std::optional<FAiLibrary> FAiLibrary::fromDocument(
                 return fail(*problem);
             }
         }
+        // WP-11: an authored intent-mode override. "hybrid" is the explicit spelling of the default rule
+        // (absent = same); anything else is a content bug and must stop the boot, like every other key.
+        std::optional<EIntentMode> intentMode;
+        if (const auto it = profile.find("intent_mode"); it != profile.end()) {
+            if (!it->is_string()) {
+                return fail("data/ai profile " + id + ": intent_mode must be a string");
+            }
+            const std::string mode = it->get<std::string>();
+            if (mode == "hybrid") {
+                intentMode = std::nullopt;
+            } else if (mode == "unit") {
+                intentMode = EIntentMode::Unit;
+            } else if (mode == "tile") {
+                intentMode = EIntentMode::Tile;
+            } else {
+                return fail("data/ai profile " + id + ": intent_mode must be one of hybrid, unit, tile (got '" +
+                            mode + "')");
+            }
+        }
         FNodeBuild root = builder.build(profile["tree"], "profile " + id);
         if (!root) {
             return fail("data/ai: " + root.error());
         }
         library.profiles_.push_back(FAiProfile{
-            id, std::make_shared<const FBehaviorTree>(std::move(*root)), tuning});
+            id, std::make_shared<const FBehaviorTree>(std::move(*root)), tuning, intentMode});
     }
 
     // ai.default is what every unit without an `ai` field runs; keep it first so fallback() is trivial.

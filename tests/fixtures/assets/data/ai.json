@@ -62,7 +62,8 @@
     },
     {
       "id": "ai.boss",
-      "_comment": "Boss: the default behavior plus phase rules. Skills added to a boss are picked up by role; a phase rule needs only a skill of the right role in its loadout.",
+      "_comment": "Boss: the default behavior plus phase rules. Skills added to a boss are picked up by role; a phase rule needs only a skill of the right role in its loadout. intent_mode overrides the hybrid intent rule (hybrid = the default rule; tile/unit force it for debugging).",
+      "intent_mode": "hybrid",
       "tree": {
         "type": "ActiveSelector",
         "children": [

@@ -12,6 +12,7 @@
 #include "gameplay/ai/FAiNodeRegistry.h"
 #include "gameplay/ai/FAiTuning.h"
 #include "gameplay/ai/FBehaviorTree.h"
+#include "gameplay/combat/FIntent.h"
 #include "gameplay/data/FContentRegistry.h"
 
 namespace game::ai {
@@ -23,6 +24,9 @@ struct FAiProfile {
     std::string id;
     std::shared_ptr<const FBehaviorTree> tree;
     FAiTuning tuning;
+    /// WP-11: the profile's intent-mode override (`ai.json` "intent_mode"). Nullopt = the hybrid rule
+    /// decides per resolved skill (target/shape); "unit"/"tile" force the mode for debugging and tests.
+    std::optional<EIntentMode> intentMode;
 };
 
 /// Every AI profile of the game, built once at boot from `assets/data/ai.json` (R22/R23). Lives in the

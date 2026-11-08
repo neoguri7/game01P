@@ -97,6 +97,10 @@ inline constexpr std::uint64_t kMaxBattleRounds = 60;
 
 struct FCombatRuntime {
     std::uint64_t scheduledTurnSerial{0};
+    /// The current turn's actor, mirrored by TurnFlowSystem on every update (null between turns/battles).
+    /// Gameplay-side readers (FIntent) use it to tell a unit's own turn — live AP pools — from any other
+    /// frame, where the pools still hold that unit's leftover from its last turn.
+    entt::entity currentActor{entt::null};
     int autoActionsThisTurn{0};
     bool autoPlay{false};
     FBattleRng rng;
