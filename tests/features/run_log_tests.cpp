@@ -33,6 +33,7 @@
 #include "ecs/systems/CombatOutcomeSystem.h"
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/combat/FBattleCommand.h"
+#include "gameplay/combat/FIntent.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/dungeon/FRewards.h"
@@ -633,6 +634,21 @@ void WipeWritesDefeatRoomEnd() {
     stats.hpMin["party.warrior"] = 0;
     stats.skillsUsed["skill.strike"] = 2;
 
+    // WP-11: the battle's intent telemetry rides on the same session id.
+    auto& intents = registry.ctx().emplace<game::FIntentStore>();
+    intents.sessionId = 1;
+    intents.stats.committed = 3;
+    intents.stats.tileCommitted = 1;
+    intents.stats.unitCommitted = 2;
+    intents.stats.moveIntents = 1;
+    intents.stats.whiffed = 1;
+    intents.stats.invalidated = 0;
+    intents.stats.lastExecuted.skillId = "skill.maul";
+    intents.stats.lastExecuted.expectedAtCommit = 8;
+    intents.stats.lastExecuted.expectedAtExecution = 6;
+    intents.stats.lastExecuted.actualDamage = 6;
+    intents.stats.lastExecuted.hit = true;
+
     CHECK(game::ResolveRoomVictory(registry, false).has_value());
 
     const auto rooms = EventsOfType(boot.log(), "room_end");
@@ -642,6 +658,15 @@ void WipeWritesDefeatRoomEnd() {
     CHECK(rooms[0]["ko"] == true);
     CHECK(rooms[0]["hp_loss"][0]["id"] == "party.warrior");
     CHECK(rooms[0]["hp_loss"][0]["loss"] == 30);
+    const auto& roomIntents = rooms[0]["intents"];
+    CHECK(roomIntents["committed"] == 3);
+    CHECK(roomIntents["tileCommitted"] == 1);
+    CHECK(roomIntents["unitCommitted"] == 2);
+    CHECK(roomIntents["moveIntents"] == 1);
+    CHECK(roomIntents["whiffed"] == 1);
+    CHECK(roomIntents["invalidated"] == 0);
+    CHECK(roomIntents["committed"].get<int>() ==
+          roomIntents["tileCommitted"].get<int>() + roomIntents["unitCommitted"].get<int>());
 
     const auto ends = EventsOfType(boot.log(), "run_end");
     CHECK(ends.size() == 1u);
@@ -649,6 +674,44 @@ void WipeWritesDefeatRoomEnd() {
     CHECK(ends[0]["reason"] == "wipe");
     CHECK(ends[0]["report"]["rooms"] == 1);
     CHECK(ends[0]["report"]["ko_rooms"] == 1);
+    CHECK(ends[0]["fatal_intent"]["skill"] == "skill.maul");
+    CHECK(ends[0]["fatal_intent"]["expected_at_execution"] == 6);
+    CHECK(ends[0]["fatal_intent"]["actual_damage"] == 6);
+}
+
+void IntentStatsFromAnotherBattleIgnored() {
+    FBoot boot(UniqueDir("run-log-intents-other-battle"));
+    game::StartRun(boot.registry, kSeed, true);
+    auto& registry = boot.registry;
+    auto& stats = registry.ctx().emplace<game::FRoomBattleStats>();
+    stats.sessionId = 2;
+    stats.active = true;
+    // The store still holds the previous battle's numbers (nothing committed in this one).
+    auto& intents = registry.ctx().emplace<game::FIntentStore>();
+    intents.sessionId = 1;
+    intents.stats.committed = 3;
+    intents.stats.tileCommitted = 1;
+    intents.stats.unitCommitted = 2;
+    intents.stats.moveIntents = 4;
+    intents.stats.whiffed = 1;
+    intents.stats.lastExecuted.skillId = "skill.maul";
+    intents.stats.lastExecuted.expectedAtExecution = 6;
+
+    CHECK(game::ResolveRoomVictory(registry, false).has_value());
+
+    const auto rooms = EventsOfType(boot.log(), "room_end");
+    CHECK(rooms.size() == 1u);
+    const auto& roomIntents = rooms[0]["intents"];
+    CHECK(roomIntents["committed"] == 0);
+    CHECK(roomIntents["tileCommitted"] == 0);
+    CHECK(roomIntents["unitCommitted"] == 0);
+    CHECK(roomIntents["whiffed"] == 0);
+    CHECK(roomIntents["invalidated"] == 0);
+    CHECK(roomIntents["moveIntents"] == 0);
+    const auto ends = EventsOfType(boot.log(), "run_end");
+    CHECK(ends.size() == 1u);
+    CHECK(ends[0]["result"] == "defeat");
+    CHECK(!ends[0].contains("fatal_intent"));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -684,8 +747,29 @@ void MinimalSummaryShows() {
     CHECK(text.find("Depth 1 room 0") != std::string::npos);
     CHECK(text.find("picked rune.fire") != std::string::npos);
     CHECK(text.find("camp spent 4") != std::string::npos);
-    // ③ the empty fatal intent statement (pre-rebase: no FIntentStats yet)
+    // ③ the empty fatal intent statement (a log that never recorded one still says so)
     CHECK(text.find("No enemy intent was recorded.") != std::string::npos);
+
+    // The real path: a wipe copies the battle's last executed enemy intent into run_end, so the screen
+    // shows the same facts the synthetic text above pins.
+    FBoot wiped(UniqueDir("run-log-summary-fatal"));
+    game::StartRun(wiped.registry, kSeed, true);
+    auto& stats = wiped.registry.ctx().emplace<game::FRoomBattleStats>();
+    stats.sessionId = 1;
+    stats.active = true;
+    auto& intents = wiped.registry.ctx().emplace<game::FIntentStore>();
+    intents.sessionId = 1;
+    intents.stats.lastExecuted.skillId = "skill.maul";
+    intents.stats.lastExecuted.expectedAtCommit = 8;
+    intents.stats.lastExecuted.expectedAtExecution = 6;
+    intents.stats.lastExecuted.actualDamage = 6;
+    intents.stats.lastExecuted.hit = true;
+    CHECK(game::ResolveRoomVictory(wiped.registry, false).has_value());
+    const std::string fatal = Joined(BuildRunEndSummaryLines(*wiped.registry.ctx().find<game::FRunLog>()));
+    CHECK(fatal.find("skill.maul") != std::string::npos);
+    CHECK(fatal.find("declared 8 at commit") != std::string::npos);
+    CHECK(fatal.find("6 at execution") != std::string::npos);
+    CHECK(fatal.find("6 damage") != std::string::npos);
 }
 
 void FatalIntentIsFactual() {
@@ -821,6 +905,7 @@ int main() {
         {"EngineIgnitionAndCampWithoutMemberAccepted", EngineIgnitionAndCampWithoutMemberAccepted},
         {"LogRunEventWithoutRunLogIsNoOp", LogRunEventWithoutRunLogIsNoOp},
         {"WipeWritesDefeatRoomEnd", WipeWritesDefeatRoomEnd},
+        {"IntentStatsFromAnotherBattleIgnored", IntentStatsFromAnotherBattleIgnored},
         {"TestsNeverTouchRealSave", TestsNeverTouchRealSave},
     });
 }

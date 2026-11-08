@@ -16,6 +16,7 @@
 #include "core/AssetManager.h"
 #include "core/EngineState.h"
 #include "core/Logger.h"
+#include "gameplay/combat/FIntent.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonSave.h"
@@ -235,7 +236,11 @@ nlohmann::json BuildRoomEnd(entt::registry& registry, const FRunEvent& event, co
     nlohmann::json skillsUsed = nlohmann::json::object();
     int rounds = 0;
     bool ko = false;
+    // The battle identity, captured before the stats are consumed: the intent telemetry is battle-scoped,
+    // so a room must never borrow the previous battle's numbers.
+    std::uint64_t battleSession = 0;
     if (auto* stats = registry.ctx().find<FRoomBattleStats>()) {
+        battleSession = stats->sessionId;
         rounds = stats->rounds;
         ko = stats->ko;
         for (const auto& [id, start] : stats->hpStart) {
@@ -255,10 +260,32 @@ nlohmann::json BuildRoomEnd(entt::registry& registry, const FRunEvent& event, co
     line["rounds"] = rounds;
     line["hp_loss"] = std::move(hpLoss);
     line["skills_used"] = std::move(skillsUsed);
-    line["intents"] = nlohmann::json{{"committed", 0}, {"tileCommitted", 0}, {"unitCommitted", 0},
-                                     {"whiffed", 0}, {"invalidated", 0}};
+    nlohmann::json intents{{"committed", 0}, {"tileCommitted", 0}, {"unitCommitted", 0},
+                           {"whiffed", 0}, {"invalidated", 0}, {"moveIntents", 0}};
+    // WP-11: the enemy-intent telemetry is battle-scoped like FRoomBattleStats. Both ids are turn sessions;
+    // when both sides know one, they must agree. A battle that never committed leaves the store on the
+    // previous session, which this rejects, so its room_end stays all zeros.
+    const FIntentStats* intentStats = FindIntentStats(registry);
+    const auto* intentStore = registry.ctx().find<FIntentStore>();
+    const bool otherBattle = intentStore != nullptr && battleSession != 0 && intentStore->sessionId != 0 &&
+                             intentStore->sessionId != battleSession;
+    if (intentStats != nullptr && !otherBattle) {
+        intents["committed"] = intentStats->committed;
+        intents["tileCommitted"] = intentStats->tileCommitted;
+        intents["unitCommitted"] = intentStats->unitCommitted;
+        intents["whiffed"] = intentStats->whiffed;
+        intents["invalidated"] = intentStats->invalidated;
+        intents["moveIntents"] = intentStats->moveIntents;
+        if (std::string_view(result) == "defeat" && !intentStats->lastExecuted.skillId.empty()) {
+            if (auto* log = registry.ctx().find<FRunLog>()) {
+                const auto& last = intentStats->lastExecuted;
+                log->fatalIntent = FRunFatalIntent{true, last.skillId, last.expectedAtCommit,
+                                                   last.expectedAtExecution, last.actualDamage, last.hit};
+            }
+        }
+    }
+    line["intents"] = std::move(intents);
     line["ko"] = ko;
-    // [WP-11 rebase] fill intents + fatal intent from FIntentStats
     return line;
 }
 
