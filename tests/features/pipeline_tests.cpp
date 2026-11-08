@@ -340,9 +340,10 @@ void ReadersSeeRefreshedValues()
     auto& health = registry.get<game::FHealth>(warrior);
     CHECK(health.max == base.maxHealth + 11);
 
-    // (c) 회복 상한(CaptureRunParty, max/3): 갱신된 max 기준으로 바닥이 올라간다.
-    const int legacyFloor = base.maxHealth / 3;
-    const int refreshedFloor = health.max / 3;
+    // (c) 회복 상한(CaptureRunParty): KO 바닥 = max(1, floor(max × ko_recover_fraction)) — 갱신된 max 기준.
+    const double fraction = game::DungeonRecovery(registry).koRecoverFraction;
+    const int legacyFloor = game::KoRecoverFloor(base.maxHealth, fraction);
+    const int refreshedFloor = game::KoRecoverFloor(health.max, fraction);
     CHECK(refreshedFloor != legacyFloor);  // 두 값이 같으면 이 테스트는 아무것도 증명하지 못한다
     health.current = 10;
     game::CaptureRunParty(registry);

@@ -6,6 +6,7 @@
 #include "gameplay/combat/FEffectHooks.h"
 #include "gameplay/combat/FSkillApCap.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FRewardSection.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunLog.h"
@@ -49,6 +50,7 @@ bool FGameplayServices::Initialize(entt::registry& registry) {
     // only here (the composition root), never through static self-registration.
     // [WP-07] save sections
     RegisterCoreSaveSections(registry);
+    RegisterSaveSection(registry, CampSaveSection());
     // [WP-02]
     // [WP-04]
     RegisterCoreEffects(registry);

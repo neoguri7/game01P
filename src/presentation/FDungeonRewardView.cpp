@@ -87,20 +87,6 @@ bool DrawRuneOfferCard(
     return resolved;
 }
 
-/// The cards plus the skip button. A pick or a skip resolves the offer in place (no run transition); the
-/// phase only moves on through ContinueReward. The candidate list is copied: resolving it clears the live one.
-void DrawRuneOffers(entt::registry& registry, FRewards& rewards, const gameplay::FContentRegistry* content) {
-    const std::vector<std::string> candidates = rewards.offer.candidates;
-    ImGui::SeparatorText("CHOOSE A RUNE");
-    for (std::size_t index = 0; index < candidates.size(); ++index) {
-        if (DrawRuneOfferCard(registry, rewards, content, index, candidates[index])) return;
-    }
-    const std::string skipLabel = rewards.tables.skipRefundMaterials > 0
-        ? "Skip (+" + std::to_string(rewards.tables.skipRefundMaterials) + " materials)"
-        : std::string("Skip");
-    if (ui::Button(skipLabel.c_str(), {-1, 32})) (void)ResolveRuneOffer(registry, -1);
-}
-
 } // namespace
 
 const std::string& MemberName(const FRunMember& member) {
@@ -132,6 +118,21 @@ void DrawGrowthPanel(
 void DrawRuneOfferForecast(entt::registry& registry) {
     if (registry.ctx().find<FRewards>() == nullptr || registry.ctx().find<FDungeonRun>() == nullptr) return;
     DrawRuneOfferForecastLine(RuneOfferForecastOf(registry));
+}
+
+/// The offer cards plus the skip button (WP-17; shared with the camp screen since WP-10). A pick or a skip
+/// resolves the offer in place (no run transition); the phase only moves on through ContinueReward or
+/// LeaveCamp. The candidate list is copied: resolving it clears the live one.
+void DrawRuneOffers(entt::registry& registry, FRewards& rewards, const gameplay::FContentRegistry* content) {
+    const std::vector<std::string> candidates = rewards.offer.candidates;
+    ImGui::SeparatorText("CHOOSE A RUNE");
+    for (std::size_t index = 0; index < candidates.size(); ++index) {
+        if (DrawRuneOfferCard(registry, rewards, content, index, candidates[index])) return;
+    }
+    const std::string skipLabel = rewards.tables.skipRefundMaterials > 0
+        ? "Skip (+" + std::to_string(rewards.tables.skipRefundMaterials) + " materials)"
+        : std::string("Skip");
+    if (ui::Button(skipLabel.c_str(), {-1, 32})) (void)ResolveRuneOffer(registry, -1);
 }
 
 /// The room-secured screen: the rune offer (3 cards + skip), the forecast, then the growth panel. The only

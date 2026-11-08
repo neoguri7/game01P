@@ -29,6 +29,7 @@
 #include "gameplay/combat/FAutoAction.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FDungeonCamp.h"
 #include "core/AnimationLibrary.h"
 #include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/dungeon/FRewards.h"
@@ -47,6 +48,7 @@
 #include "states/FEmberTitleState.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FDungeonArt.h"
+#include "presentation/FDungeonViews.h"
 #include "presentation/FModalViewRegistry.h"
 #include "gameplay/dungeon/FRunFlow.h"
 #include "core/InputState.h"
@@ -485,10 +487,11 @@ void BalanceDrivenChoiceUi() {
     std::ifstream source(FixtureDataPath("dungeon.json"));
     auto data = nlohmann::json::parse(source);
     for (const auto& [key, value] : std::vector<std::pair<const char*, int>>{
-             {"event_heal", 42}, {"event_materials", 6}, {"camp_heal", 61}}) {
+             {"event_heal", 42}, {"event_materials", 6}}) {
         data["balance"][key] = value;
     }
-    data["stat_upgrades"][0]["cost"] = 5;  // 재강화 라벨이 데이터를 따라가는지 확인
+    data["recovery"]["camp_auto_heal"] = 61;     // 캠프 도착 회복 문구가 데이터를 따라가는지 확인
+    data["camp"]["upgrade_cost_steps"] = nlohmann::json::array({5, 7, 9, 11, 13});  // 첫 구매 5 (곡선은 비내림차순)
     FTestContent content(data);
     registry.ctx().erase<game::FAssetManager>();
     registry.ctx().emplace<game::FAssetManager>(std::vector<std::string>{content.root.string(), kTestFixtureRoot, kShipAssetRoot});
@@ -523,12 +526,27 @@ void BalanceDrivenChoiceUi() {
         CHECK(capture.good());
         log.append(std::istreambuf_iterator<char>(capture), std::istreambuf_iterator<char>());
     }
+    const int chestLoss0 = game::ChestHpLossFor(registry, run.party[0]);
+    CHECK(chestLoss0 > 0);  // 만피 파티도 상자 대가는 실 HP로 지불한다(사전 표시 = 실제 손실)
+    const auto session = game::BuildCampSession(registry);
+    const std::string healLabel = "Heal party  /  " + std::to_string(session.paidHealCost) +
+        " materials  /  +" + std::to_string(session.paidHealPercent) + "% max HP each";
+    const std::string respecLabel =
+        "Reallocate passive nodes  /  " + std::to_string(session.respecCost) + " materials";
+    std::string offerLabel = "Buy rune offer  /  " + std::to_string(session.runeOfferCost) + " materials";
+    if (session.runeOfferDiscounted) offerLabel += " (special)";
     for (const char* label : {"ROOM SECURED", "Level 1   EXP 0 / 25   Node points 0",
-             "Rest at the shrine  /  heal 42 HP", "Open the cache  /  gain 6 materials",
-             "Healed up to 61 HP. Allocate nodes, reinforce stats and fit runes for free before descending.",
-             "Attack +1  (5 materials, 0/6)"}) {
+             "Rest at the shrine  /  heal 42 HP", "Open the cache  /  gain 6 materials"}) {
         CHECK(log.find(label) != std::string::npos);
     }
+    CHECK(log.find("Healed up to 61 HP") != std::string::npos);
+    CHECK(log.find("costs party HP") != std::string::npos);
+    CHECK(log.find("HP cost: " + game::MemberName(run.party[0]) + " " + std::to_string(chestLoss0)) !=
+          std::string::npos);
+    CHECK(log.find("Attack +1  (5 materials, 0/6)") != std::string::npos);
+    CHECK(log.find(healLabel) != std::string::npos);
+    CHECK(log.find(respecLabel) != std::string::npos);
+    CHECK(log.find(offerLabel) != std::string::npos);
     run.phase = game::EDungeonPhase::Reward;
     CHECK(game::UpgradeDungeonStat(registry, 0, 0).has_value());  // 강화는 캠프 전용
     game::ContinueDungeonReward(registry);
@@ -579,7 +597,8 @@ void CompleteRun(std::uint32_t seed) {
         if (room == 0) {
             CHECK(run.phase == game::EDungeonPhase::Event);
             game::ChooseDungeonEvent(registry, false);
-            CHECK(run.materials == 4);
+            CHECK(run.materials == game::DungeonBalance(registry, "room_materials") +
+                                       game::DungeonBalance(registry, "event_materials"));
         }
         if (room < 2) fixture.nextRoom();
     }
@@ -601,8 +620,10 @@ void CompleteRun(std::uint32_t seed) {
     const auto upgrade = std::ranges::find(growth.statUpgrades, "upgrade.attack", &game::FStatUpgrade::id);
     CHECK(upgrade != growth.statUpgrades.end());
     const int materials = run.materials;
+    const int upgradeCost = game::UpgradeCostOf(registry.ctx().get<game::FCampTables>(),
+                                                registry.ctx().get<game::FCampProgress>());
     CHECK(!game::UpgradeDungeonStat(registry, 0, static_cast<std::size_t>(upgrade - growth.statUpgrades.begin())).has_value());
-    CHECK(run.materials == materials - upgrade->cost && run.party.front().bonusAttack == 1);
+    CHECK(run.materials == materials - upgradeCost && run.party.front().bonusAttack == 1);
     game::LeaveDungeonCamp(registry);
     CHECK(run.depth == 2 && run.room == 0);
     fixture.nextRoom();
@@ -680,20 +701,25 @@ void PerCharacterRunGrowth() {
     };
     const std::size_t attackUpgrade = upgradeIndex("upgrade.attack");
     const std::size_t speedUpgrade = upgradeIndex("upgrade.speed");
+    auto& campProgress = registry.ctx().get<game::FCampProgress>();
+    const auto& campTables = registry.ctx().get<game::FCampTables>();
     run.materials = 5;
     CHECK(game::ValidateDungeonStatUpgrade(registry, 0, attackUpgrade).has_value());  // 캠프 전용
     run.phase = game::EDungeonPhase::Camp;
+    const int firstCost = game::UpgradeCostOf(campTables, campProgress);
     CHECK(!game::UpgradeDungeonStat(registry, 0, attackUpgrade).has_value());
-    CHECK(run.party[0].bonusAttack == 1 && run.materials == 3);
-    run.materials = 1;
+    CHECK(run.party[0].bonusAttack == 1 && run.materials == 5 - firstCost);
+    const int nextCost = game::UpgradeCostOf(campTables, campProgress);
+    run.materials = nextCost - 1;
     CHECK(game::UpgradeDungeonStat(registry, 0, attackUpgrade).has_value());  // 비용 부족
-    CHECK(run.party[0].bonusAttack == 1 && run.materials == 1);
+    CHECK(run.party[0].bonusAttack == 1 && run.materials == nextCost - 1);
     run.materials = 100;
     run.party[0].bonusAttack = growth.statUpgrades[attackUpgrade].cap;
     CHECK(game::UpgradeDungeonStat(registry, 0, attackUpgrade).has_value());  // 상한
     CHECK(run.party[0].bonusAttack == growth.statUpgrades[attackUpgrade].cap && run.materials == 100);
+    const int speedCost = game::UpgradeCostOf(campTables, campProgress);
     CHECK(!game::UpgradeDungeonStat(registry, 0, speedUpgrade).has_value());
-    CHECK(run.party[0].bonusSpeed == 1 && run.materials == 96);
+    CHECK(run.party[0].bonusSpeed == 1 && run.materials == 100 - speedCost);
 
     // 다음 런은 0부터: 성장은 런 스코프다.
     game::StartDungeonRun(registry, 77);

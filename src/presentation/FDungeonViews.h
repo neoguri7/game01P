@@ -28,6 +28,13 @@ void DrawAbandonConfirm(entt::registry& registry, bool allowLeave, bool viaInten
 /// definition lives in FDungeonRewardView.cpp so the reward and camp screens show the same sentence.
 void DrawRuneOfferForecast(entt::registry& registry);
 
+/// WP-17/WP-10: the offer cards plus the skip button (the definition lives in FDungeonRewardView.cpp). The
+/// camp reuses it when a camp-purchased offer is open — one decision UI, not two. `content` may be null
+/// (the card then shows the raw ids); a pick or a skip resolves the offer in place.
+struct FRewards;
+namespace gameplay { struct FContentRegistry; }
+void DrawRuneOffers(entt::registry& registry, FRewards& rewards, const gameplay::FContentRegistry* content);
+
 void RenderDungeonRewardView(entt::registry& registry);
 void RenderDungeonEventView(entt::registry& registry);
 void RenderDungeonCampView(entt::registry& registry);

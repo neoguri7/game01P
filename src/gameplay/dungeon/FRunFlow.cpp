@@ -12,6 +12,7 @@
 #include <nlohmann/json.hpp>
 
 #include "core/Logger.h"
+#include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunEventLog.h"
 
@@ -47,7 +48,13 @@ bool SaveCheckpoint(entt::registry& registry) {
 void RestoreParty(entt::registry& registry, int amount) {
     auto& run = registry.ctx().get<FDungeonRun>();
     for (auto& member : run.party) {
-        member.health += amount;
+        // -1 = unclaimed = already full: a heal never materialises the sentinel. Otherwise the run HP is
+        // clamped to the member's derived max (WP-10 ★4) — the old add-only version could exceed it and
+        // made the chest's "displayed loss = applied loss" contract unprovable.
+        if (member.health < 0) continue;
+        const int maxHealth = DungeonMemberMaxHealth(registry, member);
+        // Unknown maximum (<= 0, logged by the helper): add without clamping — never clamp toward 0.
+        member.health = maxHealth > 0 ? std::min(member.health + amount, maxHealth) : member.health + amount;
     }
 }
 
@@ -99,8 +106,10 @@ std::expected<FRunResult, std::string> ContinueReward(entt::registry& registry) 
         auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
         checkpoint.cleared = std::max(checkpoint.cleared, std::min(run->cleared, 999));
         (void)SaveCheckpoint(registry);
-        RestoreParty(registry, DungeonBalance(registry, "camp_heal"));
+        RestoreParty(registry, DungeonRecovery(registry).campAutoHeal);
         run->message = "Dungeon cleared. Checkpoint reached. Rest, fit runes, reinforce stats, then descend.";
+        // WP-10: the entry report (hoard_ratio = materials / cheapest-two) — a tuning metric, not a gate.
+        LogCampEntryReport(registry);
         // The checkpoint/cleared update is complete; the event is appended before the save.
         AppendRunEvent(registry, ERunEventKind::DungeonCleared);
         return SaveAfterTransition(registry, FRunResult{ERunExit::ShowModal, RunModalIdForPhase(EDungeonPhase::Camp)});
@@ -114,8 +123,19 @@ std::expected<FRunResult, std::string> ChooseEvent(entt::registry& registry, boo
     auto* run = registry.ctx().find<FDungeonRun>();
     if (run == nullptr) return NoRun();
     if (run->phase != EDungeonPhase::Event) return WrongPhase(run->phase);
-    if (rest) RestoreParty(registry, DungeonBalance(registry, "event_heal"));
-    else run->materials += DungeonBalance(registry, "event_materials");
+    if (rest) {
+        RestoreParty(registry, DungeonBalance(registry, "event_heal"));
+    } else {
+        // WP-10 E2: the cache is the risk-for-materials trade. The cost is applied against each member's
+        // effective HP (never below 1): the preview in the event view and this application call the same
+        // helpers, so what the choice showed is what the choice pays (손실 0도 0으로 표시).
+        const int materials = DungeonBalance(registry, "event_materials");
+        run->materials += materials;
+        const int hpCost = ApplyChestHpCost(registry);
+        run->message = "The sealed cache yields " + std::to_string(materials) + " materials (party HP -" +
+            std::to_string(hpCost) + ").";
+        LOG_INFO("Sealed cache opened: +{} materials, {} HP paid by the party.", materials, hpCost);
+    }
     // WP-19a: the choice is recorded before the room advances, so the line names the event room.
     AppendRunEvent(registry, ERunEventKind::EventChosen, kQuietShrineEventId, rest ? 0 : 1);
     ++run->room;
@@ -127,6 +147,14 @@ std::expected<FRunResult, std::string> LeaveCamp(entt::registry& registry) {
     auto* run = registry.ctx().find<FDungeonRun>();
     if (run == nullptr) return NoRun();
     if (run->phase != EDungeonPhase::Camp) return WrongPhase(run->phase);
+    // WP-10: the camp's rune-offer purchase opens an offer the same way a room reward does — descending
+    // with it unresolved is refused, exactly like ContinueReward (the pick/skip owns the decision).
+    EnsureRewardsForRun(registry);
+    if (const auto* rewards = registry.ctx().find<FRewards>();
+        rewards != nullptr && rewards->offer.active) {
+        LOG_WARN("The rune offer is still open; pick or skip it before leaving camp.");
+        return std::unexpected(std::string("Resolve the rune offer before leaving camp."));
+    }
     run->depth = std::min(run->depth + 1, 1000);
     run->room = 0;
     Advance(registry);
