@@ -27,6 +27,8 @@ struct FStatusTickResult {
 /// What a status is worth once applied: the definition plus the rune deltas, clamped the way ApplyStatus
 /// stores it. One definition shared by ApplyStatus and by anything that wants to predict an application
 /// (the enemy AI values a status by what it will really do, not by what the data row says).
+/// Sign rule (WP-28 A1): magnitude >= 0 clamps at 0 (`max(0, m + delta)`); a negative (weakening)
+/// magnitude keeps its sign — `min(0, m - delta)`, so a positive rune delta grows |m| and never flips.
 [[nodiscard]] int EffectiveStatusDuration(const gameplay::FStatusContent& status, int durationDelta = 0);
 [[nodiscard]] int EffectiveStatusMagnitude(const gameplay::FStatusContent& status, int magnitudeDelta = 0);
 

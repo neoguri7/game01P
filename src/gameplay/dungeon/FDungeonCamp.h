@@ -86,8 +86,15 @@ struct FCampPrices {
 [[nodiscard]] int CampBasketTotal(const FCampPrices& prices);
 [[nodiscard]] int CampCheapestTwo(const FCampPrices& prices);
 
-/// Camp entry report (WP-10 E1b): one LOG_INFO line with hoard_ratio = materials / cheapest-two. A report
-/// metric only — never a pass/fail condition.
+/// WP-28 (M1): the camp entry metric's denominator — the sum of the two cheapest prices among the services
+/// the party can actually buy now (affordability deliberately ignored: the `Validate*` functions run with
+/// the run's materials temporarily raised, so a poor party still counts what it could buy). Fewer than two
+/// purchasable services: the sum of what exists; none: 0. `purchasableCount` (optional) receives the
+/// number of purchasable services.
+[[nodiscard]] int CampCheapestTwoPurchasable(entt::registry& registry, int* purchasableCount = nullptr);
+
+/// Camp entry report (WP-10 E1b, M1 denominator via WP-28): one LOG_INFO line with hoard_ratio = materials
+/// / the purchasable two (0 when nothing is buyable). A report metric only — never a pass/fail condition.
 void LogCampEntryReport(entt::registry& registry);
 
 /// The `camp` save section (id "camp", version 1): upgrades_total / rune_draws_total / camp_depth /

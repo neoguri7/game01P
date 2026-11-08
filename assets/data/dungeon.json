@@ -154,7 +154,7 @@
     "enemies": [
       {"unit":"enemy.imp","display_name":"Imp","weight":4},
       {"unit":"enemy.imp_archer","display_name":"Imp archer","weight":3},
-      {"unit":"enemy.imp_shaman","display_name":"Imp shaman","weight":2}
+      {"unit":"enemy.imp_shaman","display_name":"Imp shaman","weight":4}
     ],
     "boss_unit": "enemy.guardian",
     "boss_name": "Stone guardian",

@@ -1201,7 +1201,10 @@ void StatusesAreValuedByWhatTheyDo() {
     const auto value = [&](const char* status, entt::entity target, bool ally) {
         return game::ai::ValueOfStatus(ctx, {status, 0, 0}, *world.find(target), ally);
     };
-    CHECK(value("status.debuff", imp, false) == 0); // the rules clamp a negative magnitude to nothing
+    // WP-28 A1: a weakening status is worth |magnitude| to the caster (goodForTarget = false), so an
+    // enemy debuff is positive; it read 0 while the rules clamped the negative magnitude away.
+    CHECK(value("status.debuff", imp, false) > 0);
+    CHECK(value("status.debuff", imp, true) < 0); // casting it on a friend is a mistake
     CHECK(value("status.burn", imp, false) > 0);
     CHECK(value("status.freeze", imp, false) > 0);
     CHECK(value("status.buff", warrior, true) > 0);

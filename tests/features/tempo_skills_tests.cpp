@@ -1153,8 +1153,11 @@ void AiUsesTempoSkills() {
     CHECK(matrix.finished == matrix.battles); // harness sanity only; the effect counts are the report
 }
 
-/// RoundCountDeltaReported: the same 3 seeds x depth 3 with and without the four WP-16 placements (a temp
-/// root shadows units.json) — rounds and wins before vs after, reported as numbers.
+/// RoundCountDeltaReported: the same six seeds x depth 3 with and without the four WP-16 placements (a temp
+/// root shadows units.json) — rounds and wins before vs after, reported as numbers. Six seeds (the
+/// AiUsesTempoSkills set): after WP-28 T2 raised the shaman's room weight the original three-sample set
+/// (seeds 1-3) stopped producing a firebomb, because the weighted composition consumes the RNG stream
+/// differently and those three rooms fielded no shaman that cast.
 void RoundCountDeltaReported() {
     FTempRoot temp{"before-units"};
     nlohmann::json units = ReadJsonFile("assets/data/units.json");
@@ -1180,9 +1183,12 @@ void RoundCountDeltaReported() {
     WriteJsonFile(temp.root / "data" / "units.json", units);
 
     const std::vector<std::string> beforeRoots{temp.root.string(), kShipAssetRoot};
-    const FTempoMatrix before = RunTempoMatrix(beforeRoots, {1u, 2u, 3u}, 3);
-    const FTempoMatrix after = RunTempoMatrix(ShipAssetRoots(), {1u, 2u, 3u}, 3);
-    std::cout << "[report] RoundCountDeltaReported (3 seeds x depth 3): before (no 1-AP tempo skills): wins "
+    // WP-28 T2 follow-up (see the test comment): the matrix's six seeds, so the after run provably fires
+    // at least one real firebomb (it is the same deterministic battle set the report above just measured).
+    const std::vector<std::uint32_t> seeds{1u, 2u, 3u, 4u, 5u, 6u};
+    const FTempoMatrix before = RunTempoMatrix(beforeRoots, seeds, 3);
+    const FTempoMatrix after = RunTempoMatrix(ShipAssetRoots(), seeds, 3);
+    std::cout << "[report] RoundCountDeltaReported (6 seeds x depth 3): before (no 1-AP tempo skills): wins "
               << before.wins << "/" << before.battles << " rounds " << before.totalRounds
               << " firebombs " << before.firebombs
               << " | after: wins " << after.wins << "/" << after.battles << " rounds " << after.totalRounds
