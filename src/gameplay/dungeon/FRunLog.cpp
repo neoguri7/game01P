@@ -8,6 +8,9 @@
 #include <fstream>
 #include <format>
 #include <initializer_list>
+#include <limits>
+#include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -20,8 +23,10 @@
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonSave.h"
+#include "gameplay/dungeon/FEncounterContent.h"
 #include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunLogSection.h"
+#include "gameplay/dungeon/FRunSequence.h"
 
 namespace game {
 namespace {
@@ -286,6 +291,14 @@ nlohmann::json BuildRoomEnd(entt::registry& registry, const FRunEvent& event, co
     }
     line["intents"] = std::move(intents);
     line["ko"] = ko;
+    // [WP-19b] The optional debrief keys (WP-14a's room plan, never saved): a legacy room (no plan, or a
+    // plan without an encounter) carries none. Optional keys need no schema change (FRunEventSchemaValid
+    // stays untouched).
+    if (const FRoomPlan* plan = FindRoomPlan(registry); plan != nullptr && !plan->encounterId.empty()) {
+        line["encounter"] = plan->encounterId;
+        line["family"] = plan->family;
+        line["elite"] = plan->elite;
+    }
     return line;
 }
 
@@ -306,6 +319,11 @@ void HandleRunEnded(entt::registry& registry, FRunLog& log, const FRunEvent& eve
                         {"frames_to_first_battle", report.framesToFirstBattle},
                         {"ms_to_first_battle", report.msToFirstBattle},
                         {"report", FRunReportToJson(report)}};
+    // [WP-19b] Optional `cycle` (absent without a sequence or a run): the debrief's cycle line reads it.
+    // RunCycle is 0 while the run is still inside the first loop, and clamps rather than divides by zero.
+    if (const FRunSequence* sequence = FindRunSequence(registry); sequence != nullptr && run != nullptr) {
+        line["cycle"] = sequence->RunCycle(run->cleared);
+    }
     if (log.fatalIntent.present) {
         line["fatal_intent"] = {{"skill", log.fatalIntent.skillId},
                                 {"declared_at_commit", log.fatalIntent.expectedAtCommit},
@@ -363,6 +381,215 @@ void HandleRunEvent(entt::registry& registry, const FRunEvent& event) {
         break;
     case ERunEventKind::BossDefeated:
         break;  // no v1 line: the boss room is a room_end like any other
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// [WP-19b] Debrief scenes: the three room rules, facts only, read straight from the log lines
+// ---------------------------------------------------------------------------------------------
+
+constexpr std::string_view kSceneTitleLargestLoss = "Heaviest losses";
+constexpr std::string_view kSceneTitleFirstKo = "First knockout";
+constexpr std::string_view kSceneTitleFatalIntent = "The final blow";
+
+constexpr std::string_view kSceneFactRoom = "Room";
+constexpr std::string_view kSceneFactResult = "Result";
+constexpr std::string_view kSceneFactRounds = "Rounds";
+constexpr std::string_view kSceneFactHpLost = "HP lost";
+constexpr std::string_view kSceneFactKnockout = "Knockout";
+// room_end.skills_used counts every accepted command, enemies included (CombatOutcomeSystem); the label
+// says so instead of letting the party scene attribute enemy skills to the player. The ally/enemy split is
+// the 19a schema follow-up, not a 19b change.
+constexpr std::string_view kSceneFactSkillsUsed = "Skills used (all units)";
+constexpr std::string_view kSceneFactEncounter = "Encounter";
+constexpr std::string_view kSceneFactFamily = "Family";
+constexpr std::string_view kSceneFactElite = "Elite";
+constexpr std::string_view kSceneFactOffer = "Offer";
+constexpr std::string_view kSceneFactFatalIntent = "Fatal intent";
+constexpr std::string_view kSceneFactDeclaredAtCommit = "Declared at commit";
+constexpr std::string_view kSceneFactExpectedAtExecution = "Expected at execution";
+constexpr std::string_view kSceneFactActualDamage = "Actual damage";
+constexpr std::string_view kSceneFactOutcome = "Outcome";
+constexpr std::string_view kSceneFactPreviewChange = "Preview change";
+
+constexpr std::string_view kSceneValueYes = "yes";
+constexpr std::string_view kSceneValueHit = "hit";
+constexpr std::string_view kSceneValueMissed = "missed";
+constexpr std::string_view kSceneValueSkipped = "skipped";
+constexpr std::string_view kSceneResultDefeat = "defeat";
+
+/// The int-shaped value of a JSON number; nullopt when it is not an integer or does not fit an int. A
+/// mistyped (or absurd) value only drops the fact that reads it — it never becomes a default 0.
+std::optional<int> IntValue(const nlohmann::json& value) {
+    if (!value.is_number_integer()) return std::nullopt;
+    if (value.is_number_unsigned()) {
+        const auto number = value.get<std::uint64_t>();
+        if (number > static_cast<std::uint64_t>(std::numeric_limits<int>::max())) return std::nullopt;
+        return static_cast<int>(number);
+    }
+    const auto number = value.get<std::int64_t>();
+    if (number < std::numeric_limits<int>::min() || number > std::numeric_limits<int>::max()) return std::nullopt;
+    return static_cast<int>(number);
+}
+
+std::optional<int> IntMember(const nlohmann::json& object, const char* key) {
+    const auto member = object.find(key);
+    if (member == object.end()) return std::nullopt;
+    return IntValue(*member);
+}
+
+std::optional<std::string> StringMember(const nlohmann::json& object, const char* key) {
+    const auto member = object.find(key);
+    if (member == object.end() || !member->is_string()) return std::nullopt;
+    return member->get<std::string>();
+}
+
+std::optional<bool> BoolMember(const nlohmann::json& object, const char* key) {
+    const auto member = object.find(key);
+    if (member == object.end() || !member->is_boolean()) return std::nullopt;
+    return member->get<bool>();
+}
+
+bool HasStringMember(const nlohmann::json& object, const char* key, std::string_view expected) {
+    const auto value = StringMember(object, key);
+    return value.has_value() && std::string_view(*value) == expected;
+}
+
+/// The sum of one room_end's hp_loss entries (integer `loss` values only); 0 without the array.
+int RoomHpLossSum(const nlohmann::json& line) {
+    const auto hpLoss = line.find("hp_loss");
+    if (hpLoss == line.end() || !hpLoss->is_array()) return 0;
+    int total = 0;
+    for (const auto& entry : *hpLoss) {
+        if (!entry.is_object()) continue;
+        if (const auto loss = IntMember(entry, "loss")) total += *loss;
+    }
+    return total;
+}
+
+/// One room_end line with an integer depth and room: the only lines the scene rules consider.
+struct FSceneRoomEnd {
+    std::size_t position{0};  ///< index in log.events — the scene's chronological position
+    int depth{0};
+    int room{0};
+    const nlohmann::json* line{nullptr};
+    int hpLossSum{0};
+    bool knockout{false};
+    bool defeat{false};
+};
+
+/// A scene under construction: the facts so far plus the room_end position that orders it.
+struct FSceneDraft {
+    FRunScene scene;
+    std::size_t position{0};
+};
+
+std::string_view SceneTitle(ERunSceneRule rule) {
+    switch (rule) {
+    case ERunSceneRule::LargestLoss:
+        return kSceneTitleLargestLoss;
+    case ERunSceneRule::FirstKo:
+        return kSceneTitleFirstKo;
+    case ERunSceneRule::FatalIntent:
+        return kSceneTitleFatalIntent;
+    }
+    return {};
+}
+
+/// Appends a fact unless the same (label, value) pair is already in the scene; insertion order kept.
+void AppendFact(FRunScene& scene, std::string_view label, std::string_view value) {
+    const bool exists = std::ranges::any_of(scene.facts, [label, value](const FRunSceneFact& fact) {
+        return std::string_view(fact.label) == label && std::string_view(fact.value) == value;
+    });
+    if (!exists) scene.facts.push_back(FRunSceneFact{std::string(label), std::string(value)});
+}
+
+/// The rules stay ascending with no duplicates (they are added in rule order, but the contract is kept
+/// locally so a later caller cannot break it).
+void AddSceneRule(FRunScene& scene, ERunSceneRule rule) {
+    if (std::ranges::find(scene.rules, rule) != scene.rules.end()) return;
+    scene.rules.push_back(rule);
+    std::ranges::sort(scene.rules);
+}
+
+/// The scene of (depth, room), created on first use; merging keeps the earliest room_end position.
+FSceneDraft& SceneForRoom(std::vector<FSceneDraft>& scenes, const FSceneRoomEnd& record) {
+    for (FSceneDraft& draft : scenes) {
+        if (draft.scene.depth != record.depth || draft.scene.room != record.room) continue;
+        draft.position = std::min(draft.position, record.position);
+        return draft;
+    }
+    FSceneDraft draft;
+    draft.scene.depth = record.depth;
+    draft.scene.room = record.room;
+    draft.position = record.position;
+    scenes.push_back(std::move(draft));
+    return scenes.back();
+}
+
+/// The room_end facts (rules 1 and 2, and rule 3's room too), then the room's first offer fact from its own
+/// position window (`firstOffers` is keyed by the room_end's log position; see the scan in BuildRunScenes).
+void AppendRoomFacts(FRunScene& scene, const FSceneRoomEnd& record,
+                     const std::map<std::size_t, const nlohmann::json*>& firstOffers) {
+    const nlohmann::json& line = *record.line;
+    AppendFact(scene, kSceneFactRoom, std::format("Depth {} room {}", record.depth, record.room));
+    if (const auto result = StringMember(line, "result")) AppendFact(scene, kSceneFactResult, *result);
+    if (const auto rounds = IntMember(line, "rounds")) AppendFact(scene, kSceneFactRounds, std::to_string(*rounds));
+    const auto hpLoss = line.find("hp_loss");
+    if (hpLoss != line.end() && hpLoss->is_array()) {
+        AppendFact(scene, kSceneFactHpLost, std::to_string(record.hpLossSum));
+        for (const auto& entry : *hpLoss) {
+            if (!entry.is_object()) continue;
+            const auto loss = IntMember(entry, "loss");
+            if (!loss || *loss <= 0) continue;
+            const auto id = StringMember(entry, "id");
+            if (!id) continue;
+            AppendFact(scene, std::format("{} ({})", kSceneFactHpLost, *id), std::to_string(*loss));
+        }
+    }
+    if (const auto ko = BoolMember(line, "ko"); ko && *ko) AppendFact(scene, kSceneFactKnockout, kSceneValueYes);
+    const auto skills = line.find("skills_used");
+    if (skills != line.end() && skills->is_object() && !skills->empty()) {
+        // A JSON object iterates in key order (std::map), which is the contract's order.
+        std::string text;
+        for (auto entry = skills->begin(); entry != skills->end(); ++entry) {
+            const auto count = IntValue(entry.value());
+            if (!count) continue;
+            if (!text.empty()) text += ", ";
+            text += std::format("{} x{}", entry.key(), *count);
+        }
+        if (!text.empty()) AppendFact(scene, kSceneFactSkillsUsed, text);
+    }
+    if (const auto encounter = StringMember(line, "encounter")) AppendFact(scene, kSceneFactEncounter, *encounter);
+    if (const auto family = StringMember(line, "family")) AppendFact(scene, kSceneFactFamily, *family);
+    if (const auto elite = BoolMember(line, "elite"); elite && *elite) {
+        AppendFact(scene, kSceneFactElite, kSceneValueYes);
+    }
+    const auto offer = firstOffers.find(record.position);
+    if (offer == firstOffers.end()) return;
+    if (const auto skipped = BoolMember(*offer->second, "skipped"); skipped && *skipped) {
+        AppendFact(scene, kSceneFactOffer, kSceneValueSkipped);
+    } else if (const auto picked = StringMember(*offer->second, "picked")) {
+        AppendFact(scene, kSceneFactOffer, *picked);
+    }
+}
+
+/// Rule 3's facts: the one fatal enemy intent, exactly as the log settled it (no displayed/marked claim).
+void AppendFatalIntentFacts(FRunScene& scene, const nlohmann::json& fatal) {
+    if (const auto skill = StringMember(fatal, "skill")) AppendFact(scene, kSceneFactFatalIntent, *skill);
+    const auto declaredAtCommit = IntMember(fatal, "declared_at_commit");
+    const auto expectedAtExecution = IntMember(fatal, "expected_at_execution");
+    if (declaredAtCommit) AppendFact(scene, kSceneFactDeclaredAtCommit, std::to_string(*declaredAtCommit));
+    if (expectedAtExecution) AppendFact(scene, kSceneFactExpectedAtExecution, std::to_string(*expectedAtExecution));
+    if (const auto damage = IntMember(fatal, "actual_damage")) {
+        AppendFact(scene, kSceneFactActualDamage, std::to_string(*damage));
+    }
+    if (const auto hit = BoolMember(fatal, "hit")) {
+        AppendFact(scene, kSceneFactOutcome, *hit ? kSceneValueHit : kSceneValueMissed);
+    }
+    // The ONLY comparison: the two previews are both logged integers and differ. No counterfactual.
+    if (declaredAtCommit && expectedAtExecution && *declaredAtCommit != *expectedAtExecution) {
+        AppendFact(scene, kSceneFactPreviewChange, std::format("{} -> {}", *declaredAtCommit, *expectedAtExecution));
     }
 }
 
@@ -552,6 +779,123 @@ nlohmann::json FRunReportToJson(const FRunReport& report) {
             {"ko_rooms", report.koRooms},
             {"intent_whiff_rate", report.whiffRate},
             {"decisions_per_dungeon", report.decisionsPerDungeon}};
+}
+
+std::vector<FRunScene> BuildRunScenes(const FRunLog& log) {
+    // One defensive scan: the eligible room_end lines (integer depth and room), the first offer of each
+    // room's position window, and the LAST run_end that carries a fatal_intent object. A missing or
+    // mistyped key drops only the fact (or line) that reads it.
+    //
+    // The offer window is what keeps C10 (no false attribution) honest: camp rune purchases are logged as
+    // `offer` lines carrying the dungeon's last battle room as (depth, room), so keying offers by (depth,
+    // room) would show a camp purchase as that room's reward. An offer belongs to the room_end that most
+    // recently precedes it, and only while no room_start, room_end, dungeon_clear or camp line lies between
+    // that room_end and the offer; the offer's (depth, room) must also equal the room_end's (both guards).
+    // The window keeps the first offer only, and the result is keyed by the room_end's log position.
+    std::vector<FSceneRoomEnd> rooms;
+    std::optional<std::size_t> openWindow;                      // index into `rooms`, or no open window
+    std::map<std::size_t, const nlohmann::json*> firstOffers;  // key: the room_end's log position
+    const nlohmann::json* fatalIntent = nullptr;
+    for (std::size_t index = 0; index < log.events.size(); ++index) {
+        const nlohmann::json& event = log.events[index];
+        if (!event.is_object()) continue;
+        const auto type = event.find("t");
+        if (type == event.end() || !type->is_string()) continue;
+        const std::string& name = type->get_ref<const std::string&>();
+        if (name == "room_end") {
+            // Any room_end line ends the previous window, even a malformed one that opens none itself.
+            openWindow.reset();
+            const auto depth = IntMember(event, "depth");
+            const auto room = IntMember(event, "room");
+            if (!depth || !room) continue;
+            FSceneRoomEnd record;
+            record.position = index;
+            record.depth = *depth;
+            record.room = *room;
+            record.line = &event;
+            record.hpLossSum = RoomHpLossSum(event);
+            record.knockout = BoolMember(event, "ko").value_or(false);
+            record.defeat = HasStringMember(event, "result", kSceneResultDefeat);
+            rooms.push_back(record);
+            // A new room_end both closes the previous window and opens its own.
+            openWindow = rooms.size() - 1;
+        } else if (name == "room_start" || name == "dungeon_clear" || name == "camp") {
+            openWindow.reset();
+        } else if (name == "run_end") {
+            if (const auto fatal = event.find("fatal_intent"); fatal != event.end() && fatal->is_object()) {
+                fatalIntent = &*fatal;
+            }
+        } else if (name == "offer") {
+            if (!openWindow) continue;
+            const FSceneRoomEnd& owner = rooms[*openWindow];
+            const auto depth = IntMember(event, "depth");
+            const auto room = IntMember(event, "room");
+            if (!depth || !room || *depth != owner.depth || *room != owner.room) continue;
+            firstOffers.try_emplace(owner.position, &event);
+        }
+    }
+
+    // Rule 1: the largest HP-loss sum (strict > keeps the earliest room on a tie); a run without any loss
+    // has no rule-1 scene. Rule 2: the first room_end with ko == true. Rule 3: the last run_end carrying a
+    // fatal_intent object, placed at the last defeat room.
+    const FSceneRoomEnd* largestLoss = nullptr;
+    int largestLossTotal = 0;
+    for (const FSceneRoomEnd& record : rooms) {
+        if (record.hpLossSum > largestLossTotal) {
+            largestLossTotal = record.hpLossSum;
+            largestLoss = &record;
+        }
+    }
+    const FSceneRoomEnd* firstKnockout = nullptr;
+    for (const FSceneRoomEnd& record : rooms) {
+        if (!record.knockout) continue;
+        firstKnockout = &record;
+        break;
+    }
+    const FSceneRoomEnd* lastDefeat = nullptr;
+    for (const FSceneRoomEnd& record : rooms) {
+        if (record.defeat) lastDefeat = &record;
+    }
+
+    std::vector<FSceneDraft> scenes;
+    scenes.reserve(kRunSceneLimit);
+    if (largestLoss != nullptr) {
+        FSceneDraft& draft = SceneForRoom(scenes, *largestLoss);
+        AddSceneRule(draft.scene, ERunSceneRule::LargestLoss);
+        AppendRoomFacts(draft.scene, *largestLoss, firstOffers);
+    }
+    if (firstKnockout != nullptr) {
+        FSceneDraft& draft = SceneForRoom(scenes, *firstKnockout);
+        AddSceneRule(draft.scene, ERunSceneRule::FirstKo);
+        AppendRoomFacts(draft.scene, *firstKnockout, firstOffers);
+    }
+    if (fatalIntent != nullptr && lastDefeat != nullptr) {
+        FSceneDraft& draft = SceneForRoom(scenes, *lastDefeat);
+        AddSceneRule(draft.scene, ERunSceneRule::FatalIntent);
+        AppendRoomFacts(draft.scene, *lastDefeat, firstOffers);
+        AppendFatalIntentFacts(draft.scene, *fatalIntent);
+    }
+
+    // Titles join the merged rules in ascending rule order; the returned order is the room_end's log order.
+    for (FSceneDraft& draft : scenes) {
+        std::string title;
+        for (ERunSceneRule rule : draft.scene.rules) {
+            if (!title.empty()) title += " / ";
+            title.append(SceneTitle(rule));
+        }
+        draft.scene.title = std::move(title);
+    }
+    std::ranges::sort(scenes, [](const FSceneDraft& left, const FSceneDraft& right) {
+        return left.position < right.position;
+    });
+
+    std::vector<FRunScene> result;
+    result.reserve(std::min(scenes.size(), kRunSceneLimit));
+    for (FSceneDraft& draft : scenes) {
+        if (result.size() >= kRunSceneLimit) break;
+        result.push_back(std::move(draft.scene));
+    }
+    return result;
 }
 
 void AttachRunLogToFile(entt::registry& registry, FRunLog log) {

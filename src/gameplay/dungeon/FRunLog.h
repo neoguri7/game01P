@@ -88,6 +88,35 @@ struct FRunReport {
     std::int64_t msToFirstBattle{0};
 };
 
+/// ---------------------------------------------------------------------------------------------
+/// [WP-19b] Run debrief scenes (WP-19 §"방 단위 장면"): facts only, read from the log itself
+/// ---------------------------------------------------------------------------------------------
+
+/// [WP-19b] One fact of a debrief scene: an English label and a value taken from the log (never invented).
+struct FRunSceneFact {
+    std::string label;
+    std::string value;
+};
+
+/// [WP-19b] Which scene rule picked a room. A merged scene carries several.
+enum class ERunSceneRule : std::uint8_t { LargestLoss = 1, FirstKo = 2, FatalIntent = 3 };
+
+/// [WP-19b] One decisive scene: a room (depth, room) and the log facts about it.
+struct FRunScene {
+    int depth{0};
+    int room{0};
+    std::string title;                 // English: the rule titles joined with " / ", in rule order
+    std::vector<ERunSceneRule> rules;  // ascending, no duplicates
+    std::vector<FRunSceneFact> facts;  // deduplicated by (label, value), insertion order kept
+};
+
+/// [WP-19b] The scene cap (after merging).
+inline constexpr std::size_t kRunSceneLimit = 3;
+
+/// [WP-19b] The decisive scenes (<= kRunSceneLimit), built ONLY from room_end / offer / run_end lines in
+/// `log.events` (no registry, no new listeners, no new ctx). Pure.
+[[nodiscard]] std::vector<FRunScene> BuildRunScenes(const FRunLog& log);
+
 /// Registers the recorder's run-event listeners and the `log` save section, and (when `directory` is not
 /// empty) points the module at an explicit log directory — the test hook. Safe to call twice on one
 /// registry: listeners and the section are registered once, a new directory re-resolves and re-prunes.

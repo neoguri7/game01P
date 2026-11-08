@@ -68,6 +68,17 @@ void GrantMetaUnlock(entt::registry& registry, std::string_view unlockId);
 /// The resolved meta_save.json path; empty when meta is off or not initialized.
 [[nodiscard]] std::filesystem::path MetaSavePath(const entt::registry& registry);
 
+/// ---------------------------------------------------------------------------------------------
+/// [WP-19b] Run debrief accessors (D-20 ladder checkpoint / D-22 grand breakthroughs)
+/// ---------------------------------------------------------------------------------------------
+
+/// [WP-19b] D-20: ladder rank `rank`'s checkpoint (cleared dungeons). 0 when meta is off/absent, rank < 1 or the
+/// rank has no row.
+[[nodiscard]] int MetaLadderCheckpoint(entt::registry& registry, int rank = 1);
+/// [WP-19b] D-22 achievements: the lifetime grand (final-boss) breakthrough count, FMetaStats::grand (repeats and
+/// cycles included). 0 when meta is off/absent.
+[[nodiscard]] int MetaGrandCount(entt::registry& registry);
+
 /// Pure path resolver (the save-dir isolation contract, same shape as ResolveSettingsPath):
 /// ① overrideDir set -> create it and use `<override>/meta_save.json`; a creation failure returns nullopt
 ///    and NEVER tries the preference directory (that is the user's real save location);
