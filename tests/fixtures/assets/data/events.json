@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "events": [
+    {
+      "id": "event.test_sealed_cache",
+      "title": "Sealed Cache",
+      "body": "A rusted lock holds the lid shut.",
+      "tags": ["test"],
+      "choices": [
+        {
+          "text": "Force it open",
+          "check": {"stat": "attack", "difficulty": 9},
+          "effects": [{"kind": "gain_node_points", "amount": 1}],
+          "result_text": "The lid gives way."
+        },
+        {
+          "text": "Leave it",
+          "effects": [],
+          "result_text": "You leave the cache as it is."
+        }
+      ]
+    },
+    {
+      "id": "event.test_spring",
+      "title": "Bitter Spring",
+      "body": "A cold spring bubbles between the stones.",
+      "tags": ["test"],
+      "choices": [
+        {
+          "text": "Drink deeply",
+          "effects": [{"kind": "restore_party_hp", "amount": 10}],
+          "result_text": "The water steadies the party."
+        },
+        {
+          "text": "Fill the flasks",
+          "effects": [{"kind": "damage_party", "amount": 5}, {"kind": "gain_materials", "amount": 2}],
+          "result_text": "The cold bites, but the flasks sell well."
+        }
+      ]
+    },
+    {
+      "id": "event.test_altar",
+      "title": "Cracked Altar",
+      "body": "Something still hums inside the altar.",
+      "tags": ["test"],
+      "choices": [
+        {
+          "text": "Take the rune",
+          "effects": [{"kind": "gain_rune_random"}],
+          "result_text": "A rune slips free."
+        },
+        {
+          "text": "Take the shards",
+          "effects": [{"kind": "gain_materials", "amount": 1}],
+          "result_text": "You pocket the shards."
+        }
+      ]
+    }
+  ]
+}
