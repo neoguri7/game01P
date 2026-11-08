@@ -196,6 +196,29 @@ const json* AuthoredRow(const json& authored, std::string_view memberId) {
     return nullptr;
 }
 
+/// The skill-gate target, derived from the catalogs (critic F2 — no shipped id in this file): the first
+/// kind=skill unlock row that some NON-locked roster member authors in its unit pool BEYOND its default
+/// loadout (index >= the member's active slots). None in the catalog -> CHECK failure: the cases below
+/// need it, so a silent skip is forbidden.
+std::pair<std::string, std::string> GatedPoolSkill(entt::registry& registry) {
+    for (const game::FMetaUnlockRow& row : game::MetaUnlockCatalog(registry)) {
+        if (row.kind != "skill") continue;
+        for (const game::FMetaRosterRow& member : game::MetaRosterCatalog(registry)) {
+            if (member.locked) continue;
+            const game::gameplay::FUnitContent* unit = game::ResolveRunMemberUnit(registry, member.id);
+            if (unit == nullptr) continue;
+            const auto found = std::ranges::find(unit->skillIds, row.id);
+            if (found == unit->skillIds.end()) continue;
+            if (static_cast<int>(found - unit->skillIds.begin()) >=
+                game::MemberActiveSkillSlots(registry, member.id)) {
+                return {member.id, row.id};
+            }
+        }
+    }
+    CHECK(false);
+    return {};
+}
+
 // ---------------------------------------------------------------------------------------------
 // Roster selection and the roster -> battlefield pipeline
 // ---------------------------------------------------------------------------------------------
@@ -207,7 +230,7 @@ void RosterSelection() {
         {"id": "party.healer", "name": "Lumen", "enabled": true},
         {"id": "party.scout", "name": "Nyx", "trait": "Quick", "enabled": true, "unit": "char.archer"},
         {"id": "party.warrior", "name": "Alden", "enabled": true},
-        {"id": "party.rogue_stub", "name": "???", "locked": true},
+        {"id": "party.test_stub", "name": "???", "locked": true},
         {"id": "party.mage", "name": "Mira", "enabled": true},
         {"id": "party.archer", "name": "Rowan", "enabled": true}
     ]})";
@@ -250,10 +273,10 @@ void RosterSelection() {
     CHECK(draft.setup.party.size() == game::kRunPartySize);
     // A locked stub is refused even with room; the selectable scout is not.
     CHECK(game::ToggleDraftMember(registry, draft, "party.warrior"));  // make room
-    CHECK(!game::ToggleDraftMember(registry, draft, "party.rogue_stub"));
+    CHECK(!game::ToggleDraftMember(registry, draft, "party.test_stub"));
     CHECK(draft.setup.party.size() == game::kRunPartySize - 1);
     CHECK(game::IsRosterMemberSelectable(registry, "party.scout"));
-    CHECK(!game::IsRosterMemberSelectable(registry, "party.rogue_stub"));
+    CHECK(!game::IsRosterMemberSelectable(registry, "party.test_stub"));
     CHECK(game::ToggleDraftMember(registry, draft, "party.scout"));
     CHECK(draft.setup.party.back() == "party.scout");
     CHECK(draft.setup.skills.back() == game::DefaultMemberLoadout(registry, "party.scout"));
@@ -267,7 +290,7 @@ void RosterSelection() {
     CHECK(scout != nullptr);
     CHECK(scout->availability == game::ERosterAvailability::Selectable);
     CHECK(scout->unitId == "char.archer");
-    const game::FRosterChoice* stub = FindChoice(choices, "party.rogue_stub");
+    const game::FRosterChoice* stub = FindChoice(choices, "party.test_stub");
     CHECK(stub != nullptr);
     CHECK(stub->availability == game::ERosterAvailability::LockedStub);
     CHECK(!stub->reason.empty());
@@ -429,7 +452,7 @@ void LockedStubNeedsNoUnit() {
         {"id": "party.archer", "name": "Rowan", "enabled": true},
         {"id": "party.mage", "name": "Mira", "enabled": true},
         {"id": "party.healer", "name": "Lumen", "enabled": true},
-        {"id": "party.rogue_stub", "name": "???", "locked": true},
+        {"id": "party.test_stub", "name": "???", "locked": true},
         {"id": "party.warden_stub", "name": "???", "locked": true}
     ]})";
     FPrepBoot boot("prep-locked-stub", [&](const std::filesystem::path& data) {
@@ -440,10 +463,10 @@ void LockedStubNeedsNoUnit() {
     // The stubs carry no unit and no pool, yet the boot validation passes (they are skipped by design)...
     CHECK(!game::ValidateRosterContent(registry).has_value());
     // ...and they can never be resolved or fielded.
-    CHECK(game::ResolveRunMemberUnit(registry, "party.rogue_stub") == nullptr);
-    CHECK(!game::IsRosterMemberSelectable(registry, "party.rogue_stub"));
+    CHECK(game::ResolveRunMemberUnit(registry, "party.test_stub") == nullptr);
+    CHECK(!game::IsRosterMemberSelectable(registry, "party.test_stub"));
     const std::vector<game::FRosterChoice> choices = game::BuildRosterChoices(registry);
-    const game::FRosterChoice* stub = FindChoice(choices, "party.rogue_stub");
+    const game::FRosterChoice* stub = FindChoice(choices, "party.test_stub");
     CHECK(stub != nullptr);
     CHECK(stub->availability == game::ERosterAvailability::LockedStub);
     CHECK(stub->unitId.empty());
@@ -456,7 +479,7 @@ void LockedStubNeedsNoUnit() {
     game::FPreparationDraft draft = game::MakeDefaultDraft(registry, game::FRunStartRequest{true, -1});
     CHECK(draft.setup.party.size() == game::kRunPartySize);
     CHECK(game::ToggleDraftMember(registry, draft, "party.mage"));
-    CHECK(!game::ToggleDraftMember(registry, draft, "party.rogue_stub"));
+    CHECK(!game::ToggleDraftMember(registry, draft, "party.test_stub"));
     CHECK(draft.setup.party.size() == game::kRunPartySize - 1);
 }
 
@@ -656,6 +679,105 @@ void ShippedRosterContentValid() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Unlock targets (critic F4): every kind=skill/rune catalog row must reach a real consumer, or the shop
+// would sell a no-op. Boot-grade rule, so the world is the shipped content — the frozen fixture's unlock
+// rows are deliberately consumer-less, and no test boots through main.cpp (they call the validator).
+// ---------------------------------------------------------------------------------------------
+
+void ShippedUnlockTargetsValid() {
+    entt::registry registry;
+    game::FAssetManager::Initialize(registry, ShipAssetRoots());
+    CHECK(game::gameplay::FGameplayServices::Initialize(registry));
+    // Not vacuous: both checked kinds ship rows, so the validator's two branches really run.
+    const std::vector<game::FMetaUnlockRow> catalog = game::MetaUnlockCatalog(registry);
+    int skills = 0;
+    int runes = 0;
+    for (const game::FMetaUnlockRow& row : catalog) {
+        if (row.kind == "skill") ++skills;
+        if (row.kind == "rune") ++runes;
+    }
+    CHECK(skills > 0 && runes > 0);
+    CHECK(!game::ValidateUnlockTargets(registry).has_value());
+}
+
+void UnlockSkillWithoutConsumerRefused() {
+    // The shipped catalog plus one orphan skill row no roster member authors. The catalog alone is the
+    // positive control (ShippedUnlockTargetsValid): the same document minus this row passes.
+    const char* kOrphanSkill = "skill.test_orphan";
+    FPrepBoot boot("prep-unlock-orphan-skill", [&](const std::filesystem::path& data) {
+        json unlocks = ReadJsonFile("assets/data/unlocks.json");
+        unlocks["unlocks"].push_back({{"id", kOrphanSkill}, {"kind", "skill"}, {"cost", 1}, {"seal_gate", 0}});
+        WriteJsonFile(data / "unlocks.json", unlocks);
+    });
+    const std::optional<std::string> problem = game::ValidateUnlockTargets(boot.registry);
+    CHECK(problem.has_value());
+    CHECK(problem->find(kOrphanSkill) != std::string::npos);
+}
+
+void UnlockRuneWithoutConsumerRefused() {
+    // The shipped catalog plus one row for a rune the rune table does not carry.
+    const char* kOrphanRune = "rune.test_orphan";
+    FPrepBoot boot("prep-unlock-orphan-rune", [&](const std::filesystem::path& data) {
+        json unlocks = ReadJsonFile("assets/data/unlocks.json");
+        unlocks["unlocks"].push_back({{"id", kOrphanRune}, {"kind", "rune"}, {"cost", 1}, {"seal_gate", 0}});
+        WriteJsonFile(data / "unlocks.json", unlocks);
+    });
+    const std::optional<std::string> problem = game::ValidateUnlockTargets(boot.registry);
+    CHECK(problem.has_value());
+    CHECK(problem->find(kOrphanRune) != std::string::npos);
+}
+
+void UnlockSkillOfLockedOnlyMemberRefused() {
+    // The probe (shipped world) derives the first gated skill of a fieldable member; the case then writes
+    // a roster whose ONLY row is that member — once as a locked stub carrying its unit, once fieldable.
+    // In the locked world the skill keeps its authored pool but no fieldable row reaches it: only the
+    // !locked condition can refuse this row, which is exactly what this case pins.
+    FPrepBoot probe("prep-unlock-locked-probe");
+    const auto [memberId, skillId] = GatedPoolSkill(probe.registry);
+    const game::gameplay::FUnitContent* unit = game::ResolveRunMemberUnit(probe.registry, memberId);
+    CHECK(unit != nullptr);
+    std::string memberName;
+    for (const game::FMetaRosterRow& row : game::MetaRosterCatalog(probe.registry)) {
+        if (row.id == memberId) memberName = row.name;
+    }
+    CHECK(!memberName.empty());
+
+    const auto writeWorld = [&](const std::filesystem::path& data, bool locked) {
+        json roster = json::object();
+        roster["schema_version"] = 1;
+        roster["roster"] = json::array();
+        json member = json::object();
+        member["id"] = memberId;
+        if (locked) {
+            member["name"] = "???";
+            member["locked"] = true;
+        } else {
+            member["name"] = memberName;
+            member["enabled"] = true;
+        }
+        member["unit"] = unit->id;
+        roster["roster"].push_back(std::move(member));
+        WriteJsonFile(data / "roster.json", roster);
+
+        json unlocks = json::object();
+        unlocks["schema_version"] = 1;
+        unlocks["unlocks"] = json::array();
+        unlocks["unlocks"].push_back({{"id", skillId}, {"kind", "skill"}, {"cost", 1}, {"seal_gate", 0}});
+        WriteJsonFile(data / "unlocks.json", unlocks);
+    };
+    FPrepBoot lockedOnly("prep-unlock-locked-only",
+                         [&](const std::filesystem::path& data) { writeWorld(data, true); });
+    const std::optional<std::string> problem = game::ValidateUnlockTargets(lockedOnly.registry);
+    CHECK(problem.has_value());
+    CHECK(problem->find(skillId) != std::string::npos);
+
+    // Positive control: the very same world with the row fieldable passes — the lock is the only difference.
+    FPrepBoot fieldable("prep-unlock-locked-only-ok",
+                        [&](const std::filesystem::path& data) { writeWorld(data, false); });
+    CHECK(!game::ValidateUnlockTargets(fieldable.registry).has_value());
+}
+
+// ---------------------------------------------------------------------------------------------
 // Unlock gates
 // ---------------------------------------------------------------------------------------------
 
@@ -709,10 +831,10 @@ void RosterUnlockGatesSelection() {
 void LockedStubNotOpenedByUnlock() {
     const char* kRoster = R"({"schema_version": 1, "roster": [
         {"id": "party.warrior", "name": "Alden", "enabled": true},
-        {"id": "party.rogue_stub", "name": "???", "locked": true, "unit": "char.archer"}
+        {"id": "party.test_stub", "name": "???", "locked": true, "unit": "char.archer"}
     ]})";
     const char* kUnlocks = R"({"schema_version": 1, "unlocks": [
-        {"id": "party.rogue_stub", "kind": "roster", "cost": 8, "seal_gate": 8}
+        {"id": "party.test_stub", "kind": "roster", "cost": 8, "seal_gate": 8}
     ]})";
     FPrepBoot boot("prep-stub-unlock", [&](const std::filesystem::path& data) {
         WriteTextFile(data / "roster.json", kRoster);
@@ -722,13 +844,13 @@ void LockedStubNotOpenedByUnlock() {
     CHECK(boot.InitMeta());
 
     // A locked stub resolves to nullptr even with a unit key...
-    CHECK(game::ResolveRunMemberUnit(registry, "party.rogue_stub") == nullptr);
+    CHECK(game::ResolveRunMemberUnit(registry, "party.test_stub") == nullptr);
     // ...and unlocking it changes nothing: the stub stays a locked placeholder, never a selectable member.
-    game::GrantMetaUnlock(registry, "party.rogue_stub");
-    CHECK(game::HasMetaUnlock(registry, "party.rogue_stub"));
-    CHECK(!game::IsRosterMemberSelectable(registry, "party.rogue_stub"));
+    game::GrantMetaUnlock(registry, "party.test_stub");
+    CHECK(game::HasMetaUnlock(registry, "party.test_stub"));
+    CHECK(!game::IsRosterMemberSelectable(registry, "party.test_stub"));
     const std::vector<game::FRosterChoice> choices = game::BuildRosterChoices(registry);
-    const game::FRosterChoice* stub = FindChoice(choices, "party.rogue_stub");
+    const game::FRosterChoice* stub = FindChoice(choices, "party.test_stub");
     CHECK(stub != nullptr);
     CHECK(stub->availability == game::ERosterAvailability::LockedStub);
     CHECK(stub->unitId.empty());
@@ -740,40 +862,50 @@ void LockedStubNotOpenedByUnlock() {
     // Even an open party slot does not let the stub in.
     game::FPreparationDraft draft = game::MakeDefaultDraft(registry, game::FRunStartRequest{true, -1});
     CHECK(game::ToggleDraftMember(registry, draft, "party.mage"));
-    CHECK(!game::ToggleDraftMember(registry, draft, "party.rogue_stub"));
-    CHECK(std::ranges::find(draft.setup.party, "party.rogue_stub") == draft.setup.party.end());
+    CHECK(!game::ToggleDraftMember(registry, draft, "party.test_stub"));
+    CHECK(std::ranges::find(draft.setup.party, "party.test_stub") == draft.setup.party.end());
 }
 
 void SkillPoolHidesLockedUnlock() {
     FPrepBoot boot("prep-skill-gate");  // shipped unit tables + the shipped unlocks catalog; meta not yet up
     entt::registry& registry = boot.registry;
     CHECK(boot.InitMeta());
+    // The gate target is derived from the catalogs (critic F2 — no shipped id in this file): the first
+    // gated skill of a fieldable member, authored beyond its default loadout.
+    const auto [gatedMember, gatedSkill] = GatedPoolSkill(registry);
+    CHECK(game::IsUnlockGated(registry, gatedSkill));
+    CHECK(!game::HasMetaUnlock(registry, gatedSkill));
 
-    // Nothing bought: the gated skills are absent from the pool, the ungated ones are present.
-    std::vector<std::string> pool = game::MemberSkillPool(registry, "party.warrior");
-    CHECK(std::ranges::find(pool, "skill.strike") != pool.end());
-    CHECK(std::ranges::find(pool, "skill.hook") == pool.end());
-    CHECK(std::ranges::find(pool, "skill.bash") == pool.end());
+    // Nothing bought: the gated skill is absent from the pool, the member's default loadout is present.
+    const std::vector<std::string> pool = game::MemberSkillPool(registry, gatedMember);
+    CHECK(std::ranges::find(pool, gatedSkill) == pool.end());
+    for (const std::string& skillId : game::DefaultMemberLoadout(registry, gatedMember)) {
+        CHECK(std::ranges::find(pool, skillId) != pool.end());
+    }
     game::FPreparationDraft draft = game::MakeDefaultDraft(registry, game::FRunStartRequest{true, -1});
-    CHECK(draft.setup.party.front() == "party.warrior");
-    CHECK(!game::SetDraftSkill(registry, draft, 0, 0, "skill.hook"));  // hidden: cannot be picked
+    const auto memberInDraft = std::ranges::find(draft.setup.party, gatedMember);
+    CHECK(memberInDraft != draft.setup.party.end());
+    const std::size_t memberIndex = static_cast<std::size_t>(memberInDraft - draft.setup.party.begin());
+    CHECK(!game::SetDraftSkill(registry, draft, memberIndex, 0, gatedSkill));  // hidden: cannot be picked
 
-    // After the unlock the skill appears in the pool and can be picked into a slot.
-    game::GrantMetaUnlock(registry, "skill.hook");
-    CHECK(game::HasMetaUnlock(registry, "skill.hook"));
-    pool = game::MemberSkillPool(registry, "party.warrior");
-    CHECK(std::ranges::find(pool, "skill.hook") != pool.end());
-    CHECK(std::ranges::find(pool, "skill.bash") == pool.end());  // only the bought unlock opens
-    CHECK(game::SetDraftSkill(registry, draft, 0, 0, "skill.hook"));
-    CHECK(draft.setup.skills[0][0] == "skill.hook");
+    // After the unlock the skill appears and can be picked — and NOTHING else moved: the unlocked pool is
+    // the old pool plus exactly the bought id (only the bought unlock opens).
+    game::GrantMetaUnlock(registry, gatedSkill);
+    CHECK(game::HasMetaUnlock(registry, gatedSkill));
+    const std::vector<std::string> unlockedPool = game::MemberSkillPool(registry, gatedMember);
+    CHECK(unlockedPool.size() == pool.size() + 1);
+    CHECK(std::ranges::find(unlockedPool, gatedSkill) != unlockedPool.end());
+    for (const std::string& skillId : pool) {
+        CHECK(std::ranges::find(unlockedPool, skillId) != unlockedPool.end());
+    }
+    CHECK(game::SetDraftSkill(registry, draft, memberIndex, 0, gatedSkill));
+    CHECK(draft.setup.skills[memberIndex][0] == gatedSkill);
 
-    // Meta never initialized: nothing is unlocked, so the same rows stay hidden.
+    // Meta never initialized: nothing is unlocked, so the same row stays hidden.
     FPrepBoot bare("prep-skill-gate-bare");
     CHECK(game::FindMetaSave(bare.registry) == nullptr);
-    const std::vector<std::string> barePool = game::MemberSkillPool(bare.registry, "party.warrior");
-    CHECK(std::ranges::find(barePool, "skill.strike") != barePool.end());
-    CHECK(std::ranges::find(barePool, "skill.hook") == barePool.end());
-    CHECK(std::ranges::find(barePool, "skill.bash") == barePool.end());
+    const std::vector<std::string> barePool = game::MemberSkillPool(bare.registry, gatedMember);
+    CHECK(std::ranges::find(barePool, gatedSkill) == barePool.end());
 }
 
 void FourSlotsEnforced() {
@@ -1376,6 +1508,10 @@ int main() {
         {"SkillPoolShorterThanSlotsFailsBoot", SkillPoolShorterThanSlotsFailsBoot},
         {"UnlockGatedEntryValidatedAtBoot", UnlockGatedEntryValidatedAtBoot},
         {"ShippedRosterContentValid", ShippedRosterContentValid},
+        {"ShippedUnlockTargetsValid", ShippedUnlockTargetsValid},
+        {"UnlockSkillWithoutConsumerRefused", UnlockSkillWithoutConsumerRefused},
+        {"UnlockRuneWithoutConsumerRefused", UnlockRuneWithoutConsumerRefused},
+        {"UnlockSkillOfLockedOnlyMemberRefused", UnlockSkillOfLockedOnlyMemberRefused},
         {"RosterUnlockGatesSelection", RosterUnlockGatesSelection},
         {"LockedStubNotOpenedByUnlock", LockedStubNotOpenedByUnlock},
         {"SkillPoolHidesLockedUnlock", SkillPoolHidesLockedUnlock},

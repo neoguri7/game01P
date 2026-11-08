@@ -1,10 +1,12 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include <entt/entt.hpp>
 
 #include "gameplay/dungeon/FRunStart.h"
+#include "gameplay/meta/FMetaProgress.h"
 
 namespace game {
 
@@ -29,6 +31,21 @@ struct FPreparationScreen {
     EHubTab tab{EHubTab::Expedition};
     std::string startBlockedReason;   // ValidateRunSetup result, refreshed by the state each frame
 };
+
+/// [WP-09h F6] The Unlocks tab's player-facing detail for one catalog row: the "For" column text and the
+/// hover tooltip's body lines. Pure content + rule reads (no ImGui), so tests check it headless. Raw
+/// content ids never appear in either field — the view appends the row id as a dim line only in a debug
+/// build.
+struct FUnlockOfferDetail {
+    std::string forText;
+    std::vector<std::string> tooltipLines;
+};
+
+/// The detail for `row` (see FUnlockOfferDetail): skill = tags/AP/effect + the authored-pool owners;
+/// rune = the RuneEffectSummary effect line (its requirement rules included) + the members who can equip
+/// it; roster = no For text (the recruit's own name is the Name column). Unknown ids yield empty fields,
+/// never a raw id.
+[[nodiscard]] FUnlockOfferDetail UnlockOfferDetail(entt::registry& registry, const FMetaUnlockRow& row);
 
 /// Draws the hub (seal header line and the Start/Back footer common to all tabs, the tab bar, the active
 /// tab body). Writes FPreparationCommand into ctx on Start/Cancel clicks; edits screen.draft only through

@@ -18,8 +18,10 @@
 #include "core/AssetManager.h"
 #include "core/EngineState.h"
 #include "core/FAssetDigest.h"
+#include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/meta/FMetaProgress.h"
+#include "presentation/FDungeonViews.h"
 #include "presentation/FUiTheme.h"
 
 namespace game {
@@ -156,10 +158,12 @@ float HubFooterHeight(const FPreparationScreen& screen) {
 }
 
 /// ⑧ The footer is common to every tab (a player who opened Unlocks or Records can still start in one
-/// click). It pins itself to the panel's bottom edge, so its place never depends on the tab body's length.
+/// click). Its position is pinned in ONE place (WP-09h F7): the panel's content bottom edge minus the
+/// footer's measured height. The tab bodies are measured to end exactly on this line, so the Start/Back
+/// buttons land on the same pixels in every tab — the old "push down when there is room" let
+/// Expedition's footer drift 7px lower (each tab body left a different trailing ItemSpacing.y behind).
 void DrawHubFooter(entt::registry& registry, FPreparationScreen& screen) {
-    const float top = ImGui::GetWindowHeight() - ImGui::GetStyle().WindowPadding.y - HubFooterHeight(screen);
-    if (top > ImGui::GetCursorPosY()) ImGui::SetCursorPosY(top);
+    ImGui::SetCursorPosY(ImGui::GetWindowContentRegionMax().y - HubFooterHeight(screen));
 
     const bool blocked = !screen.startBlockedReason.empty();
     ImGui::BeginDisabled(blocked);
@@ -319,9 +323,10 @@ void DrawExpeditionTab(entt::registry& registry, FPreparationScreen& screen) {
     const std::vector<FRosterChoice> roster = BuildRosterChoices(registry);
     const float contentWidth = ImGui::GetContentRegionAvail().x;
 
-    // Measure what the tab draws below the columns (the footer is common to every tab) and give the
-    // columns all the rest — no fixed band, so the four loadouts fit at 1280x800, nothing clips at larger
-    // scales, and a wrapped reason line is accounted for.
+    // The body-height rule every tab shares (WP-09h F7): the columns get everything above the pinned
+    // footer minus what this tab still draws below them (the start row, support, hint) — no fixed band,
+    // so the four loadouts fit at 1280x800, nothing clips at larger scales, and a wrapped reason line is
+    // accounted for.
     const float footerHeight = HubFooterHeight(screen);
     const std::vector<int> startLines = StartDungeonRowLines(screen, contentWidth);
     float startBlockHeight = static_cast<float>(startLines.back() + 1) * ImGui::GetFrameHeightWithSpacing();
@@ -373,7 +378,8 @@ const char* UnlockStatusFallback(EUnlockStatus status) {
 }
 
 /// The player-facing name of an offer's row: skill/rune display name, roster row name ("???" for a stub
-/// or an unknown row). The raw id never appears here — it stays in the dimmed tooltip.
+/// or an unknown row). No raw id reaches the player here or in the tooltip (WP-09h F6): the tooltip body
+/// is authored text from UnlockOfferDetail, and only a debug build appends the id as a dim last line.
 std::string UnlockDisplayName(entt::registry& registry, const gameplay::FContentRegistry* content,
                               const FMetaUnlockRow& row) {
     if (row.kind == "skill") {
@@ -411,12 +417,67 @@ std::string UnlockSkillOwners(const gameplay::FContentRegistry* content, const s
     return owners;
 }
 
+/// [WP-09h F6] One skill's effect line for the tooltip. There is no authored description field, so the
+/// line is the authored numbers the battle preview reads — the vocabulary RuneEffectSummary uses for
+/// runes. The status shows its display name; a status row missing from content is skipped, never printed
+/// raw.
+std::string SkillEffectText(const gameplay::FContentRegistry* content, const gameplay::FSkillContent& skill) {
+    std::string text;
+    const auto append = [&text](const std::string& part) {
+        if (!text.empty()) text += " · ";
+        text += part;
+    };
+    if (skill.power != 0) append("Power " + std::to_string(skill.power));
+    if (skill.range != 0) append("Range " + std::to_string(skill.range));
+    if (skill.shape != "single") append("Shape: " + skill.shape);
+    if (!skill.appliesStatus.empty()) {
+        const gameplay::FStatusContent* status =
+            content != nullptr ? content->statuses.find(skill.appliesStatus) : nullptr;
+        if (status != nullptr && !status->displayName.empty()) append("Applies " + status->displayName);
+    }
+    return text;
+}
+
+/// [WP-09h F6] "Rowan, Mira" — every non-locked roster member whose AUTHORED pool (units.json `skills`)
+/// carries at least one skill this rune legally attaches to. ValidateSkillSlot is the one rule call
+/// (socket count + the §3.2 tag rules) — this only asks it, it never re-judges. The authored pool, not
+/// MemberSkillPool: the gate hides unowned content, and this column names owners, not current draft
+/// legality. A zero-socket skill falls out naturally (ValidateSkillSlot rejects it).
+std::string RuneFittingMembers(entt::registry& registry, const gameplay::FContentRegistry* content,
+                               const std::string& runeId) {
+    std::string owners;
+    if (content == nullptr) return owners;
+    for (const FRosterChoice& choice : BuildRosterChoices(registry)) {
+        if (choice.availability == ERosterAvailability::LockedStub || choice.unitId.empty()) continue;
+        const gameplay::FUnitContent* unit = content->units.find(choice.unitId);
+        if (unit == nullptr) continue;
+        bool fits = false;
+        for (const std::string& skillId : unit->skillIds) {
+            if (!ValidateSkillSlot(FSkillSlot{skillId, {runeId}}, *content).has_value()) {
+                fits = true;
+                break;
+            }
+        }
+        if (!fits) continue;
+        if (!owners.empty()) owners += ", ";
+        owners += choice.name.empty() ? std::string{"???"} : choice.name;
+    }
+    return owners;
+}
+
+/// [WP-09h F6] Raw content ids are not player-facing text: a debug build appends the offer's id to the
+/// tooltip as a dim last line, a release build never shows it at all.
+#ifndef NDEBUG
+constexpr bool kUnlockTooltipShowsRawId = true;
+#else
+constexpr bool kUnlockTooltipShowsRawId = false;
+#endif
+
 void DrawUnlocksTab(entt::registry& registry, FPreparationScreen& screen) {
     const float footerHeight = HubFooterHeight(screen);
-    // One item spacing less than the free height: the footer pin then lands exactly on the panel's bottom
-    // edge (the same place it takes in the Expedition tab).
-    const float listHeight = std::max(ImGui::GetContentRegionAvail().y - footerHeight - ImGui::GetStyle().ItemSpacing.y,
-                                      kHubBodyMinHeight);
+    // The body-height rule every tab shares (WP-09h F7): the child takes all the space above the pinned
+    // footer. Nothing is drawn after it, so its height is exactly the free height minus the footer.
+    const float listHeight = std::max(ImGui::GetContentRegionAvail().y - footerHeight, kHubBodyMinHeight);
     ImGui::BeginChild("Unlock list", {0.f, listHeight}, ImGuiChildFlags_Borders);
     // [WP-21c] The offer table. BuildUnlockOffers evaluates status/reason live and PurchaseMetaUnlock is the
     // camp's own pattern: the view decides nothing (no cached offers, no local legality).
@@ -430,7 +491,6 @@ void DrawUnlocksTab(entt::registry& registry, FPreparationScreen& screen) {
     ImGui::TextWrapped("Unlocks add options to future expeditions: skills join a hero's pool, runes join the offer pool.");
 
     const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
-    const std::vector<FRosterChoice> roster = BuildRosterChoices(registry);
     const std::vector<FUnlockOffer> offers = BuildUnlockOffers(registry);
     if (offers.empty()) {
         ImGui::TextDisabled("No unlocks are available in this profile.");
@@ -447,20 +507,25 @@ void DrawUnlocksTab(entt::registry& registry, FPreparationScreen& screen) {
         ImGui::TableHeadersRow();
         for (const FUnlockOffer& offer : offers) {
             ImGui::PushID(offer.row.id.c_str());
+            // The tooltip body and the "For" column come from ONE helper — the same seam the tests read.
+            const FUnlockOfferDetail detail = UnlockOfferDetail(registry, offer.row);
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             ImGui::TextUnformatted(UnlockDisplayName(registry, content, offer.row).c_str());
-            if (ImGui::IsItemHovered()) {
+            if (ImGui::IsItemHovered() && (!detail.tooltipLines.empty() || kUnlockTooltipShowsRawId)) {
                 ImGui::BeginTooltip();
+                for (const std::string& line : detail.tooltipLines) {
+                    ImGui::TextUnformatted(line.c_str());
+                }
+#ifndef NDEBUG
                 ImGui::TextDisabled("%s", offer.row.id.c_str());
+#endif
                 ImGui::EndTooltip();
             }
             ImGui::TableSetColumnIndex(1);
             ImGui::TextUnformatted(UnlockKindLabel(offer.row.kind));
             ImGui::TableSetColumnIndex(2);
-            if (offer.row.kind == "skill") {
-                ImGui::TextUnformatted(UnlockSkillOwners(content, offer.row.id, roster).c_str());
-            }
+            ImGui::TextUnformatted(detail.forText.c_str());
             ImGui::TableSetColumnIndex(3);
             ImGui::Text("%d", offer.row.cost);
             ImGui::TableSetColumnIndex(4);
@@ -502,9 +567,8 @@ int RankKeyValue(std::string_view key) {
 
 void DrawRecordsTab(entt::registry& registry, FPreparationScreen& screen) {
     const float footerHeight = HubFooterHeight(screen);
-    const float bodyHeight =
-        std::max(ImGui::GetContentRegionAvail().y - footerHeight - ImGui::GetStyle().ItemSpacing.y,
-                 kHubBodyMinHeight);
+    // The body-height rule every tab shares (WP-09h F7): all the space above the pinned footer.
+    const float bodyHeight = std::max(ImGui::GetContentRegionAvail().y - footerHeight, kHubBodyMinHeight);
     ImGui::BeginChild("Record list", {0.f, bodyHeight}, ImGuiChildFlags_Borders);
     // [WP-21c] Read-only: FMetaStats, the live seals/lifetime figures, the owned count and the ladder.
     const FMetaSave* save = FindMetaSave(registry);
@@ -548,6 +612,35 @@ void DrawRecordsTab(entt::registry& registry, FPreparationScreen& screen) {
 }
 
 } // namespace
+
+// --- [WP-09h F6] the Unlocks tab's shared detail (header-declared: the view and the tests read one seam) --
+
+FUnlockOfferDetail UnlockOfferDetail(entt::registry& registry, const FMetaUnlockRow& row) {
+    FUnlockOfferDetail detail;
+    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
+    if (row.kind == "skill") {
+        const gameplay::FSkillContent* skill = content != nullptr ? content->skills.find(row.id) : nullptr;
+        detail.forText = UnlockSkillOwners(content, row.id, BuildRosterChoices(registry));
+        if (skill == nullptr) return detail;  // unknown row: empty fields, never the raw id
+        if (!skill->tags.empty()) detail.tooltipLines.push_back(JoinTags(skill->tags));
+        detail.tooltipLines.push_back("AP " + std::to_string(skill->apCost));
+        const std::string description = SkillEffectText(content, *skill);
+        if (!description.empty()) detail.tooltipLines.push_back(description);
+        return detail;
+    }
+    if (row.kind == "rune") {
+        const gameplay::FRuneContent* rune = content != nullptr ? content->runes.find(row.id) : nullptr;
+        if (rune == nullptr) return detail;
+        // One effect line only: RuneEffectSummary already carries the requirement rules inline, so a
+        // separate requires_*_tags line would repeat the same text in the same tooltip (review round 1).
+        detail.tooltipLines.push_back(RuneEffectSummary(*rune, content));
+        detail.forText = RuneFittingMembers(registry, content, row.id);
+        return detail;
+    }
+    // A roster row has no For text and no tooltip body (WP-09h review round 1): the recruit's own name is
+    // already the Name column (UnlockDisplayName), and "For" answers who an unlock serves.
+    return detail;
+}
 
 void DrawPreparationScreen(entt::registry& registry, FPreparationScreen& screen) {
     const auto* window = registry.ctx().find<FEngineWindowState>();

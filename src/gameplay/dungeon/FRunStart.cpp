@@ -196,6 +196,35 @@ std::optional<std::string> ValidateRosterContent(entt::registry& registry) {
     return std::nullopt;
 }
 
+std::optional<std::string> ValidateUnlockTargets(entt::registry& registry) {
+    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
+    if (content == nullptr) return "Gameplay content is unavailable.";
+    for (const FMetaUnlockRow& row : MetaUnlockCatalog(registry)) {
+        if (row.kind == "skill") {
+            // The AUTHORED pools of the fieldable members (the gate-filtered MemberSkillPool would only
+            // prove the row is hidden, never that a purchase opens anything).
+            bool authored = false;
+            for (const FMetaRosterRow& member : MetaRosterCatalog(registry)) {
+                if (member.locked) continue;
+                const gameplay::FUnitContent* unit = ResolveRunMemberUnit(registry, member.id);
+                if (unit == nullptr) continue;
+                if (std::ranges::find(unit->skillIds, row.id) != unit->skillIds.end()) {
+                    authored = true;
+                    break;
+                }
+            }
+            if (!authored) {
+                return "Unlock '" + row.id + "' is a skill no fieldable roster member authors.";
+            }
+        } else if (row.kind == "rune") {
+            if (content->runes.find(row.id) == nullptr) {
+                return "Unlock '" + row.id + "' is not in the rune table.";
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 FPreparationDraft MakeDefaultDraft(entt::registry& registry, const FRunStartRequest& request) {
     FPreparationDraft draft;
     draft.fresh = request.fresh;
