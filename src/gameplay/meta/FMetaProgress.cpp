@@ -802,6 +802,24 @@ std::filesystem::path MetaSavePath(const entt::registry& registry) {
     return store != nullptr ? store->path : std::filesystem::path{};
 }
 
+/// ---------------------------------------------------------------------------------------------
+/// [WP-19b] Run debrief accessors (D-20 ladder checkpoint / D-22 grand breakthroughs)
+/// ---------------------------------------------------------------------------------------------
+
+int MetaLadderCheckpoint(entt::registry& registry, int rank) {
+    if (rank < 1 || MetaDisabled(registry)) return 0;
+    const FMetaSave* save = FindMetaSave(registry);
+    if (save == nullptr) return 0;
+    const auto lane = save->ladder.find(std::to_string(rank));
+    return lane != save->ladder.end() ? lane->second.checkpoint : 0;
+}
+
+int MetaGrandCount(entt::registry& registry) {
+    if (MetaDisabled(registry)) return 0;
+    const FMetaSave* save = FindMetaSave(registry);
+    return save != nullptr ? save->stats.grand : 0;
+}
+
 std::optional<std::filesystem::path> ResolveMetaSavePath(const std::optional<std::filesystem::path>& overrideDir,
                                                          std::string_view checkpointPath,
                                                          const FMetaPrefDirProvider& prefPath) {
