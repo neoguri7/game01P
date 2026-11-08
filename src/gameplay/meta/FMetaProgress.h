@@ -133,4 +133,40 @@ struct FMetaUnlockRow {
 /// gated rows hidden.
 [[nodiscard]] bool IsUnlockGated(entt::registry& registry, std::string_view contentId);
 
+/// ---------------------------------------------------------------------------------------------
+/// [WP-21c] Unlocks tab purchase (WP-21 §1/§3): offer evaluation + the single purchase path
+/// ---------------------------------------------------------------------------------------------
+
+/// [WP-21c] The session state of one unlock catalog row (the Unlocks tab's status column). Purchasable means
+/// the shop would accept the purchase — PurchaseMetaUnlock performs exactly that evaluation.
+enum class EUnlockStatus { Purchasable, Owned, InsufficientSeals, BelowSealGate, Unavailable, MetaDisabled };
+
+/// [WP-21c] One evaluated shop row: the catalog row (filled best-effort so a read-only session still lists
+/// id/kind/cost) plus the session state; `reason` is the English UI text, numbers filled in.
+struct FUnlockOffer {
+    FMetaUnlockRow row;
+    EUnlockStatus status{EUnlockStatus::MetaDisabled};
+    std::string reason;
+};
+
+/// [WP-21c] Lifetime EARNED seals (R6 P8 ②): the sum of the milestone ledger — every ladder rank's `granted`
+/// key ending in `#clear` adds kClearSeals, `#boss` adds kBossSeals (the same named constants the grant code
+/// uses; no new save field). Balance spending never lowers it; L2 overflow seals and any future direct grants
+/// are balance only, not lifetime-earned. 0 without a store or when meta is disabled.
+[[nodiscard]] int LifetimeSealsEarned(const entt::registry& registry);
+
+/// [WP-21c] The single evaluation order: no store or disabled -> MetaDisabled; unknown id -> Unavailable;
+/// owned -> Owned; kind=roster whose roster target is missing or a `locked: true` stub -> Unavailable
+/// (buying it would change nothing — the no-op purchase is forbidden); LifetimeSealsEarned < seal_gate ->
+/// BelowSealGate; MetaSeals < cost -> InsufficientSeals; else Purchasable.
+[[nodiscard]] FUnlockOffer EvaluateUnlockOffer(entt::registry& registry, std::string_view unlockId);
+
+/// [WP-21c] Every catalog row evaluated, in catalog order (the Unlocks tab's list).
+[[nodiscard]] std::vector<FUnlockOffer> BuildUnlockOffers(entt::registry& registry);
+
+/// [WP-21c] The one purchase path: evaluate; only Purchasable proceeds — `save.seals -= cost` and the id
+/// append land in ONE store mutation, then ONE SaveMetaProgress (a failed save keeps the in-memory purchase,
+/// the same policy as the other grants). Returns the evaluated status (Purchasable = bought).
+EUnlockStatus PurchaseMetaUnlock(entt::registry& registry, std::string_view unlockId);
+
 } // namespace game

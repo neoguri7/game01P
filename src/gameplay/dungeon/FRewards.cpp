@@ -16,6 +16,7 @@
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FRunEventLog.h"
+#include "gameplay/meta/FMetaProgress.h"
 
 namespace game {
 namespace {
@@ -164,6 +165,9 @@ struct FRewardRng {
     std::vector<const FRuneContent*> unowned;
     std::vector<const FRuneContent*> owned;
     for (const auto& rune : content->runes.rows) {
+        // R6/WP-21c: a rune with an unlocks.json row is offered only after it is bought — the single point
+        // every room/boss/camp draw passes.
+        if (IsUnlockGated(registry, rune.id)) continue;
         if (!RuneFitsSkills(skills, rune)) continue;
         (IsOwned(*run, rune.id) ? owned : unowned).push_back(&rune);
     }

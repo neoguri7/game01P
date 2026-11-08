@@ -1,11 +1,15 @@
 #include "presentation/FPreparationView.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 #include <imgui.h>
@@ -346,7 +350,66 @@ void DrawExpeditionTab(entt::registry& registry, FPreparationScreen& screen) {
     DrawHubFooter(registry, screen);
 }
 
-// --- Unlocks tab (21b body is read-only; WP-21c adds buying in this one block) ------------------------
+// --- Unlocks tab ([WP-21c] body: the purchase table; every rule stays in FMetaProgress) ----------------
+
+const char* UnlockKindLabel(std::string_view kind) {
+    if (kind == "skill") return "Skill";
+    if (kind == "rune") return "Rune";
+    if (kind == "roster") return "Recruit";
+    return "Unlock";
+}
+
+/// Defensive status text for an offer whose reason is empty (the evaluator authors every reason).
+const char* UnlockStatusFallback(EUnlockStatus status) {
+    switch (status) {
+    case EUnlockStatus::Purchasable: return "Ready";
+    case EUnlockStatus::Owned: return "Unlocked";
+    case EUnlockStatus::InsufficientSeals: return "Not enough seals";
+    case EUnlockStatus::BelowSealGate: return "Seal gate not reached";
+    case EUnlockStatus::Unavailable: return "Unavailable";
+    case EUnlockStatus::MetaDisabled: return "meta disabled";
+    }
+    return "Unavailable";
+}
+
+/// The player-facing name of an offer's row: skill/rune display name, roster row name ("???" for a stub
+/// or an unknown row). The raw id never appears here — it stays in the dimmed tooltip.
+std::string UnlockDisplayName(entt::registry& registry, const gameplay::FContentRegistry* content,
+                              const FMetaUnlockRow& row) {
+    if (row.kind == "skill") {
+        const gameplay::FSkillContent* skill = content != nullptr ? content->skills.find(row.id) : nullptr;
+        if (skill != nullptr && !skill->displayName.empty()) return skill->displayName;
+        return "Unknown skill";
+    }
+    if (row.kind == "rune") {
+        const gameplay::FRuneContent* rune = content != nullptr ? content->runes.find(row.id) : nullptr;
+        if (rune != nullptr && !rune->displayName.empty()) return rune->displayName;
+        return "Unknown rune";
+    }
+    if (row.kind == "roster") {
+        for (const FMetaRosterRow& member : MetaRosterCatalog(registry)) {
+            if (member.id == row.id) return member.name.empty() ? std::string{"???"} : member.name;
+        }
+        return "???";
+    }
+    return "Unknown unlock";
+}
+
+/// "Alden, Rowan" — every live roster member whose unit's AUTHORED pool (units.json skills) carries the
+/// skill. The authored pool, not MemberSkillPool: the gated pool hides the very skill being offered.
+std::string UnlockSkillOwners(const gameplay::FContentRegistry* content, const std::string& skillId,
+                              const std::vector<FRosterChoice>& roster) {
+    std::string owners;
+    for (const FRosterChoice& choice : roster) {
+        const gameplay::FUnitContent* unit =
+            content != nullptr && !choice.unitId.empty() ? content->units.find(choice.unitId) : nullptr;
+        if (unit == nullptr) continue;
+        if (std::find(unit->skillIds.begin(), unit->skillIds.end(), skillId) == unit->skillIds.end()) continue;
+        if (!owners.empty()) owners += ", ";
+        owners += choice.name.empty() ? std::string{"???"} : choice.name;
+    }
+    return owners;
+}
 
 void DrawUnlocksTab(entt::registry& registry, FPreparationScreen& screen) {
     const float footerHeight = HubFooterHeight(screen);
@@ -355,29 +418,87 @@ void DrawUnlocksTab(entt::registry& registry, FPreparationScreen& screen) {
     const float listHeight = std::max(ImGui::GetContentRegionAvail().y - footerHeight - ImGui::GetStyle().ItemSpacing.y,
                                       kHubBodyMinHeight);
     ImGui::BeginChild("Unlock list", {0.f, listHeight}, ImGuiChildFlags_Borders);
-    const std::vector<FMetaUnlockRow> catalog = MetaUnlockCatalog(registry);
-    if (catalog.empty()) {
-        ImGui::TextDisabled("The unlock catalog is empty.");
+    // [WP-21c] The offer table. BuildUnlockOffers evaluates status/reason live and PurchaseMetaUnlock is the
+    // camp's own pattern: the view decides nothing (no cached offers, no local legality).
+    const FMetaSave* save = FindMetaSave(registry);
+    const bool canBuy = save != nullptr && !MetaDisabled(registry);
+    if (save != nullptr) {
+        ImGui::TextDisabled("Seals %d   ·   Lifetime earned %d", MetaSeals(registry), LifetimeSealsEarned(registry));
     } else {
-        for (const FMetaUnlockRow& row : catalog) {
-            ImGui::PushID(row.id.c_str());
-            ImGui::Text("%s", row.id.c_str());
-            ImGui::SameLine();
-            ImGui::TextDisabled("(%s  ·  cost %d  ·  seal gate %d)", row.kind.c_str(), row.cost, row.sealGate);
-            ImGui::SameLine();
-            if (HasMetaUnlock(registry, row.id)) {
+        ImGui::TextDisabled("Unlocks need a profile (meta progress is off).");
+    }
+    ImGui::TextWrapped("Unlocks add options to future expeditions: skills join a hero's pool, runes join the offer pool.");
+
+    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
+    const std::vector<FRosterChoice> roster = BuildRosterChoices(registry);
+    const std::vector<FUnlockOffer> offers = BuildUnlockOffers(registry);
+    if (offers.empty()) {
+        ImGui::TextDisabled("No unlocks are available in this profile.");
+    } else if (ImGui::BeginTable("Unlock offers", canBuy ? 7 : 6,
+                                 ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg |
+                                     ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.30f);
+        ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("For", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Cost (seals)", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Seal gate (lifetime)", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthStretch, 0.30f);
+        if (canBuy) ImGui::TableSetupColumn("##buy", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableHeadersRow();
+        for (const FUnlockOffer& offer : offers) {
+            ImGui::PushID(offer.row.id.c_str());
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(UnlockDisplayName(registry, content, offer.row).c_str());
+            if (ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                ImGui::TextDisabled("%s", offer.row.id.c_str());
+                ImGui::EndTooltip();
+            }
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TextUnformatted(UnlockKindLabel(offer.row.kind));
+            ImGui::TableSetColumnIndex(2);
+            if (offer.row.kind == "skill") {
+                ImGui::TextUnformatted(UnlockSkillOwners(content, offer.row.id, roster).c_str());
+            }
+            ImGui::TableSetColumnIndex(3);
+            ImGui::Text("%d", offer.row.cost);
+            ImGui::TableSetColumnIndex(4);
+            ImGui::Text("%d", offer.row.sealGate);
+            ImGui::TableSetColumnIndex(5);
+            if (offer.status == EUnlockStatus::Owned) {
                 ImGui::TextColored(ui::palette::kGoldBrightV, "Unlocked");
             } else {
-                ImGui::TextDisabled("Locked");
+                ImGui::TextDisabled("%s", offer.reason.empty() ? UnlockStatusFallback(offer.status)
+                                                               : offer.reason.c_str());
+            }
+            if (canBuy) {
+                ImGui::TableSetColumnIndex(6);
+                if (offer.status != EUnlockStatus::Owned) {
+                    ImGui::BeginDisabled(offer.status != EUnlockStatus::Purchasable);
+                    if (ImGui::SmallButton("Buy")) {
+                        (void)PurchaseMetaUnlock(registry, offer.row.id);
+                    }
+                    ImGui::EndDisabled();
+                }
             }
             ImGui::PopID();
         }
+        ImGui::EndTable();
     }
     ImGui::EndChild();
     DrawHubFooter(registry, screen);
 }
 
-// --- Records tab (21b body is minimal; WP-31 extends it) ----------------------------------------------
+// --- Records tab ([WP-21c] body: stats, seals and ladder ranks; the run-history ring is WP-31) --------
+
+/// The rank key as a number; keys are validated positive integer strings (MetaSaveFromJson), a malformed
+/// one sorts last and still prints as authored.
+int RankKeyValue(std::string_view key) {
+    int value = 0;
+    const auto parsed = std::from_chars(key.data(), key.data() + key.size(), value);
+    return parsed.ec == std::errc{} ? value : std::numeric_limits<int>::max();
+}
 
 void DrawRecordsTab(entt::registry& registry, FPreparationScreen& screen) {
     const float footerHeight = HubFooterHeight(screen);
@@ -385,6 +506,7 @@ void DrawRecordsTab(entt::registry& registry, FPreparationScreen& screen) {
         std::max(ImGui::GetContentRegionAvail().y - footerHeight - ImGui::GetStyle().ItemSpacing.y,
                  kHubBodyMinHeight);
     ImGui::BeginChild("Record list", {0.f, bodyHeight}, ImGuiChildFlags_Borders);
+    // [WP-21c] Read-only: FMetaStats, the live seals/lifetime figures, the owned count and the ladder.
     const FMetaSave* save = FindMetaSave(registry);
     if (save == nullptr) {
         ImGui::TextDisabled("No records yet");
@@ -395,6 +517,31 @@ void DrawRecordsTab(entt::registry& registry, FPreparationScreen& screen) {
         ImGui::Text("Best dungeon: %d", stats.bestDepth);
         ImGui::Text("Cycle best: %d", stats.cycleBest);
         ImGui::Text("Final bosses defeated: %d", stats.grand);
+        ImGui::Text("Seals: %d", MetaSeals(registry));
+        ImGui::Text("Lifetime earned: %d", LifetimeSealsEarned(registry));
+        const std::vector<FMetaUnlockRow> catalog = MetaUnlockCatalog(registry);
+        int owned = 0;
+        for (const FMetaUnlockRow& row : catalog) {
+            if (HasMetaUnlock(registry, row.id)) ++owned;
+        }
+        ImGui::Text("Unlocks owned: %d / %d", owned, static_cast<int>(catalog.size()));
+
+        ui::SectionTitle("RANKS");
+        if (save->ladder.empty()) {
+            ImGui::TextDisabled("No ranked runs yet.");
+        } else {
+            // Ascending numeric rank order: the map's string keys would sort "10" before "2".
+            std::vector<std::pair<std::string, const FMetaLadderRank*>> ranks;
+            ranks.reserve(save->ladder.size());
+            for (const auto& [key, rank] : save->ladder) ranks.push_back({key, &rank});
+            std::sort(ranks.begin(), ranks.end(), [](const auto& left, const auto& right) {
+                return RankKeyValue(left.first) < RankKeyValue(right.first);
+            });
+            for (const auto& [key, rank] : ranks) {
+                ImGui::Text("Rank %s: best dungeon %d   ·   checkpoint %d", key.c_str(), rank->bestDungeon,
+                            rank->checkpoint);
+            }
+        }
     }
     ImGui::EndChild();
     DrawHubFooter(registry, screen);

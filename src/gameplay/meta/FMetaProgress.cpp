@@ -133,20 +133,12 @@ bool UnlockIdMatchesKind(std::string_view id, std::string_view kind) {
     return false;
 }
 
-bool LoadRosterCatalog(const FAssetManager& assets, FMetaCatalog& catalog, std::string& error) {
-    const auto path = assets.resolvePath("data/roster");
-    if (!path) {
-        error = "roster.json is missing";
-        LOG_ERROR("meta content: roster.json is missing; the shipped roster is required for boot.");
-        return false;
-    }
-    const auto document = FJsonLoader::Load(*path, 1);
-    if (!document) {
-        error = "roster.json is unreadable";
-        return false; // the loader already logged the reason
-    }
-    const auto rows = document->find("roster");
-    if (rows == document->end() || !rows->is_array() || rows->empty()) {
+/// [WP-21c] The roster row parser: document -> rows. The SINGLE parser — the boot loader below
+/// (path -> document) and the no-store catalog fallback (the cached asset digest document) both funnel
+/// through it, so the fallback can never drift from boot validation.
+bool ParseRosterRows(const nlohmann::json& document, FMetaCatalog& catalog, std::string& error) {
+    const auto rows = document.find("roster");
+    if (rows == document.end() || !rows->is_array() || rows->empty()) {
         error = "roster.json needs a nonempty 'roster' array";
         LOG_ERROR("meta content: roster.json must carry a nonempty roster array.");
         return false;
@@ -197,20 +189,27 @@ bool LoadRosterCatalog(const FAssetManager& assets, FMetaCatalog& catalog, std::
     return true;
 }
 
-bool LoadUnlockCatalog(const FAssetManager& assets, FMetaCatalog& catalog, std::string& error) {
-    const auto path = assets.resolvePath("data/unlocks");
+/// [WP-21c] The boot path: path -> document (with the shipped-content error surface), then the single parser.
+bool LoadRosterCatalog(const FAssetManager& assets, FMetaCatalog& catalog, std::string& error) {
+    const auto path = assets.resolvePath("data/roster");
     if (!path) {
-        error = "unlocks.json is missing";
-        LOG_ERROR("meta content: unlocks.json is missing; the unlock catalog is required for boot.");
+        error = "roster.json is missing";
+        LOG_ERROR("meta content: roster.json is missing; the shipped roster is required for boot.");
         return false;
     }
     const auto document = FJsonLoader::Load(*path, 1);
     if (!document) {
-        error = "unlocks.json is unreadable";
+        error = "roster.json is unreadable";
         return false; // the loader already logged the reason
     }
-    const auto rows = document->find("unlocks");
-    if (rows == document->end() || !rows->is_array() || rows->empty()) {
+    return ParseRosterRows(*document, catalog, error);
+}
+
+/// [WP-21c] The unlock row parser: document -> rows (the same refactor as ParseRosterRows — one parser for
+/// the boot loader and the no-store fallback).
+bool ParseUnlockRows(const nlohmann::json& document, FMetaCatalog& catalog, std::string& error) {
+    const auto rows = document.find("unlocks");
+    if (rows == document.end() || !rows->is_array() || rows->empty()) {
         error = "unlocks.json needs a nonempty 'unlocks' array";
         LOG_ERROR("meta content: unlocks.json must carry a nonempty unlocks array.");
         return false;
@@ -241,6 +240,22 @@ bool LoadUnlockCatalog(const FAssetManager& assets, FMetaCatalog& catalog, std::
         return false;
     }
     return true;
+}
+
+/// [WP-21c] The boot path: path -> document (with the shipped-content error surface), then the single parser.
+bool LoadUnlockCatalog(const FAssetManager& assets, FMetaCatalog& catalog, std::string& error) {
+    const auto path = assets.resolvePath("data/unlocks");
+    if (!path) {
+        error = "unlocks.json is missing";
+        LOG_ERROR("meta content: unlocks.json is missing; the unlock catalog is required for boot.");
+        return false;
+    }
+    const auto document = FJsonLoader::Load(*path, 1);
+    if (!document) {
+        error = "unlocks.json is unreadable";
+        return false; // the loader already logged the reason
+    }
+    return ParseUnlockRows(*document, catalog, error);
 }
 
 /// [WP-21b] The L2 progression table (WP-21 §4). Shipped-content grade like the roster/unlock catalogs: a
@@ -838,16 +853,21 @@ int MemberRuneSocketBonus(const entt::registry& registry, std::string_view membe
     return std::min(MetaPromotionOf(registry, memberId).tier, 1);
 }
 
-/// The no-store fallback (FMetaProgress.h contract): parse the document through the asset boundary at most
-/// once per call; no root carries it (or it is unusable) = empty. Never throws — the row parsers catch their
-/// JSON exceptions and path probing does not throw.
+/// The no-store fallback (FMetaProgress.h contract). [WP-21c] R6 performance: this runs once per rune per
+/// draw through the FRewards gate, so it reads the asset manager's CACHED digest document instead of
+/// re-reading the file each call; the `resolvePath` probe runs first so an absent file stays silent (no
+/// digest-miss log), and the rows go through the SAME parser the boot loader uses. No root carries it, or
+/// it is unusable, = empty. Never throws — the row parser catches its JSON exceptions and path probing
+/// does not throw.
 std::vector<FMetaUnlockRow> MetaUnlockCatalog(const entt::registry& registry) {
     if (const auto* store = registry.ctx().find<FMetaProgressStore>()) return store->catalog.unlocks;
     const auto* assets = registry.ctx().find<FAssetManager>();
     if (assets == nullptr || !assets->resolvePath("data/unlocks")) return {};
+    const auto document = assets->digest("data/unlocks");
+    if (document == nullptr) return {};
     FMetaCatalog catalog;
     std::string error;
-    if (!LoadUnlockCatalog(*assets, catalog, error)) return {};
+    if (!ParseUnlockRows(document->json(), catalog, error)) return {};
     return catalog.unlocks;
 }
 
@@ -862,15 +882,112 @@ std::vector<FMetaRosterRow> MetaRosterCatalog(const entt::registry& registry) {
     if (const auto* store = registry.ctx().find<FMetaProgressStore>()) return store->catalog.roster;
     const auto* assets = registry.ctx().find<FAssetManager>();
     if (assets == nullptr || !assets->resolvePath("data/roster")) return {};
+    // [WP-21c] The same cached-digest fallback as MetaUnlockCatalog (silent when absent; one shared parser).
+    const auto document = assets->digest("data/roster");
+    if (document == nullptr) return {};
     FMetaCatalog catalog;
     std::string error;
-    if (!LoadRosterCatalog(*assets, catalog, error)) return {};
+    if (!ParseRosterRows(document->json(), catalog, error)) return {};
     return catalog.roster;
 }
 
 bool IsUnlockGated(entt::registry& registry, std::string_view contentId) {
     if (!FindMetaUnlockRow(registry, contentId).has_value()) return false;
     return !HasMetaUnlock(registry, contentId);
+}
+
+/// ---------------------------------------------------------------------------------------------
+/// [WP-21c] Unlocks tab purchase (WP-21 §1/§3): offer evaluation + the single purchase path
+/// ---------------------------------------------------------------------------------------------
+
+int LifetimeSealsEarned(const entt::registry& registry) {
+    const auto* store = registry.ctx().find<FMetaProgressStore>();
+    if (store == nullptr || store->disabled) return 0;
+    // The milestone ledger is the only source (R6 P8 ②): the same kClearSeals/kBossSeals constants the
+    // grants add, so a balance-only change (L2 overflow seals, any future direct grant) can never move the
+    // gate. The key format is validated by MetaSaveFromJson: every key ends in `#clear` or `#boss`.
+    int total = 0;
+    for (const auto& entry : store->save.ladder) {
+        for (const std::string& key : entry.second.granted) {
+            if (key.ends_with("#clear")) total += kClearSeals;
+            else if (key.ends_with("#boss")) total += kBossSeals;
+        }
+    }
+    return total;
+}
+
+FUnlockOffer EvaluateUnlockOffer(entt::registry& registry, std::string_view unlockId) {
+    FUnlockOffer offer;
+    // The row is carried best-effort so a read-only session still lists id/kind/cost (the tab's columns);
+    // only the STATUS follows the evaluation order below.
+    if (const auto row = FindMetaUnlockRow(registry, unlockId)) offer.row = *row;
+    if (MetaDisabled(registry)) {
+        offer.status = EUnlockStatus::MetaDisabled;
+        offer.reason = "Meta progress is off this session";
+        return offer;
+    }
+    if (offer.row.id.empty()) {
+        offer.status = EUnlockStatus::Unavailable;
+        offer.reason = "Unknown unlock";
+        return offer;
+    }
+    if (HasMetaUnlock(registry, unlockId)) {
+        offer.status = EUnlockStatus::Owned;
+        offer.reason = "Unlocked";
+        return offer;
+    }
+    if (offer.row.kind == "roster") {
+        // A kind=roster row whose roster target is a locked stub (or absent) would change nothing when
+        // bought — the no-op purchase is forbidden (R6 ②/WP-21c), so it is not for sale yet.
+        const std::vector<FMetaRosterRow> roster = MetaRosterCatalog(registry);
+        const auto target = std::ranges::find(roster, unlockId, &FMetaRosterRow::id);
+        if (target == roster.end() || target->locked) {
+            offer.status = EUnlockStatus::Unavailable;
+            offer.reason = "Not yet available — arrives in a later update";
+            return offer;
+        }
+    }
+    const int lifetime = LifetimeSealsEarned(registry);
+    if (lifetime < offer.row.sealGate) {
+        offer.status = EUnlockStatus::BelowSealGate;
+        const int missing = offer.row.sealGate - lifetime;
+        offer.reason = "Earn " + std::to_string(missing) + (missing == 1 ? " more seal" : " more seals") +
+            " to open (lifetime " + std::to_string(lifetime) + "/" + std::to_string(offer.row.sealGate) + ")";
+        return offer;
+    }
+    const int seals = MetaSeals(registry);
+    if (seals < offer.row.cost) {
+        offer.status = EUnlockStatus::InsufficientSeals;
+        const int shortfall = offer.row.cost - seals;
+        offer.reason = "Need " + std::to_string(shortfall) + (shortfall == 1 ? " more seal" : " more seals");
+        return offer;
+    }
+    offer.status = EUnlockStatus::Purchasable;
+    offer.reason = "Buy for " + std::to_string(offer.row.cost) + " seals";
+    return offer;
+}
+
+std::vector<FUnlockOffer> BuildUnlockOffers(entt::registry& registry) {
+    std::vector<FUnlockOffer> offers;
+    const std::vector<FMetaUnlockRow> catalog = MetaUnlockCatalog(registry);
+    offers.reserve(catalog.size());
+    for (const FMetaUnlockRow& row : catalog) offers.push_back(EvaluateUnlockOffer(registry, row.id));
+    return offers;
+}
+
+EUnlockStatus PurchaseMetaUnlock(entt::registry& registry, std::string_view unlockId) {
+    const FUnlockOffer offer = EvaluateUnlockOffer(registry, unlockId);
+    if (offer.status != EUnlockStatus::Purchasable) return offer.status;
+    auto* store = registry.ctx().find<FMetaProgressStore>();
+    if (store == nullptr) return EUnlockStatus::MetaDisabled; // unreachable: Purchasable implies a live store
+    // ONE mutation (the deduction and the unlock land together — a crash between two writes cannot strand a
+    // paid-for id), then ONE save. A failed save keeps the in-memory purchase: the same policy as
+    // GrantSeals/GrantMetaUnlock, with the warning logged once by SaveMetaProgress.
+    store->save.seals -= offer.row.cost;
+    store->save.unlocks.emplace_back(unlockId);
+    LOG_INFO("[meta] purchased {} for {} seal(s).", unlockId, offer.row.cost);
+    SaveMetaProgress(registry);
+    return EUnlockStatus::Purchasable;
 }
 
 } // namespace game
