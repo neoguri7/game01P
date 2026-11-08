@@ -8,14 +8,19 @@
 #include "../TestSupport.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <optional>
+#include <queue>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -44,6 +49,7 @@
 #include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/dungeon/FRewards.h"
+#include "gameplay/dungeon/FRoomGenerator.h"
 #include "gameplay/dungeon/FRunFlow.h"
 #include "gameplay/dungeon/FRunSequence.h"
 #include "gameplay/factory/FEntityDefinitions.h"
@@ -130,6 +136,16 @@ struct FLogCapture {
     std::string Text() const { return stream.str(); }
 };
 
+/// The `[room] family=...` metric lines in captured text (the boot probe's own lines never match).
+int MetricLineCount(const std::string& text) {
+    int count = 0;
+    std::istringstream stream(text);
+    for (std::string line; std::getline(stream, line);) {
+        if (line.find("[room] family=") != std::string::npos) ++count;
+    }
+    return count;
+}
+
 // --- a booted registry with its own checkpoint and save slot ------------------------------------
 
 struct FBoot {
@@ -206,6 +222,37 @@ bool BootsDocument(const json& document, const char* stem) {
     assets.Write("dungeon.json", document);
     auto loaded = game_test::LoadTestRegistry({assets.root.string(), kShipAssetRoot}, UniquePath(stem));
     return loaded.content && loaded.dungeon;
+}
+
+// --- room generation inputs (the fixture's crafted data, not the game's loader-private parse) ----
+
+/// Builds an FRoomGenConfig from a dungeon document's generation block. Mirrors the fields the game's
+/// ParseRoomGeneration reads — deliberately re-derived in the test so a change to the game-side parser
+/// cannot move these expectations.
+game::gameplay::FRoomGenConfig ConfigFromDocument(const json& document, std::string_view family = "open") {
+    const auto& generation = document.at("generation");
+    game::gameplay::FRoomGenConfig config;
+    for (const auto& name : generation.at("room_names")) config.names.push_back(name.get<std::string>());
+    for (const auto& enemy : generation.at("enemies")) {
+        config.enemies.push_back({enemy.at("unit").get<std::string>(),
+                                  enemy.at("display_name").get<std::string>(),
+                                  enemy.at("weight").get<int>()});
+    }
+    config.bossUnit = generation.at("boss_unit").get<std::string>();
+    config.bossName = generation.at("boss_name").get<std::string>();
+    config.enemyCount = {generation.at("enemy_count")[0].get<int>(), generation.at("enemy_count")[1].get<int>()};
+    config.obstacleCount = {generation.at("obstacle_count")[0].get<int>(), generation.at("obstacle_count")[1].get<int>()};
+    config.trapCount = {generation.at("trap_count")[0].get<int>(), generation.at("trap_count")[1].get<int>()};
+    config.family = std::string(family);
+    return config;
+}
+
+std::vector<std::pair<int, int>> PartyCellsFromDocument(const json& document) {
+    std::vector<std::pair<int, int>> cells;
+    for (const auto& member : document.at("party")) {
+        cells.emplace_back(member.at("grid_x").get<int>(), member.at("grid_y").get<int>());
+    }
+    return cells;
 }
 
 // --- a real battle harness (autoplay through the sequence) --------------------------------------
@@ -560,13 +607,24 @@ void BootProbeCoversTuples() {
 
 void BadFamilyFailsBoot() {
     const auto base = FixtureDocument();
-    for (const char* family : {"corridor", "open_variant", "banana"}) {
+    // An unknown family name is refused with the accepted set named.
+    {
         auto document = base;
-        document["themes"][0]["dungeons"][0]["rooms"][0]["family"] = family;
+        document["themes"][0]["dungeons"][0]["rooms"][0]["family"] = "banana";
         std::string error;
         CHECK(!game::FRunSequence::Load(document, error).has_value());
-        CHECK(!error.empty());
+        CHECK(error.find("banana") != std::string::npos);
+        CHECK(error.find("open_variant") != std::string::npos);  // the message names the accepted set
         CHECK(!BootsDocument(document, "sequence-bad-family"));
+    }
+    // open_variant is a valid family now (WP-08b) — the slot stores it (the heavy set is a separate rule,
+    // see FamilyStrengthRespected).
+    {
+        auto document = base;
+        document["themes"][0]["dungeons"][0]["rooms"][0]["family"] = "open_variant";
+        const auto sequence = LoadSequence(document);
+        const auto* slot = sequence.BattleSlotAt(sequence.PositionOf(0), 0);
+        CHECK(slot != nullptr && slot->family == "open_variant");
     }
     // Missing family stays legal (missing = "open").
     auto noFamily = base;
@@ -574,6 +632,296 @@ void BadFamilyFailsBoot() {
     const auto noFamilySequence = LoadSequence(noFamily);
     const auto* slot = noFamilySequence.BattleSlotAt(noFamilySequence.PositionOf(0), 0);
     CHECK(slot != nullptr && slot->family == "open");
+}
+
+// ------------------------------------------------------------------------------------------------
+// room families (WP-08b): the golden open layout, invariants, strength enforcement, metrics
+// ------------------------------------------------------------------------------------------------
+
+void OpenFamilyUnchanged() {
+    // Golden: the `open` family must keep the pre-WP-08b generator byte-identical — the same RNG draw order,
+    // so every seed that generated a room before still generates that exact room. The values were captured
+    // from the generator as committed at f2b9aa8, with this exact input: the fixture config, party cells
+    // (3,9)(4,9)(6,9)(7,9), request depth=1 room=0, seeds 1-3 x boss off/on. If this fails, the open draw
+    // order moved — not the fixture.
+    const auto document = FixtureDocument();
+    const auto config = ConfigFromDocument(document, "open");
+    const auto cells = PartyCellsFromDocument(document);
+    CHECK((cells == std::vector<std::pair<int, int>>{{3, 9}, {4, 9}, {6, 9}, {7, 9}}));
+
+    struct FEnemyGolden {
+        const char* unit;
+        int x;
+        int y;
+    };
+    struct FCase {
+        std::uint32_t seed;
+        bool boss;
+        const char* name;
+        std::array<const char*, 12> terrain;
+        std::vector<FEnemyGolden> enemies;
+    };
+    const std::vector<FCase> golden = {
+        {1, false, "The sunken vault",
+         {"............", "............", "............", "............", "............", ".......#....",
+          "......^#....", "............", "............", "............", "............", "............"},
+         {{"enemy.imp", 9, 1}, {"enemy.imp", 2, 3}, {"enemy.imp_shaman", 1, 1}, {"enemy.imp", 1, 2}}},
+        {1, true, "The sunken vault",
+         {"............", "............", "............", ".........##.", "........^...", ".......^....",
+          "............", "............", "............", "............", "............", "............"},
+         {{"enemy.guardian", 9, 1}, {"enemy.imp_archer", 2, 3}, {"enemy.imp", 1, 1}}},
+        {2, false, "Whispering cistern",
+         {"............", "............", "............", "....^...^...", "............", ".........#..",
+          ".........#..", "............", ".....^......", "............", "............", "............"},
+         {{"enemy.imp", 4, 2}, {"enemy.imp", 7, 1}, {"enemy.imp_archer", 10, 1}, {"enemy.imp", 7, 2}}},
+        {2, true, "Whispering cistern",
+         {"............", "............", "............", "....^...^...", "............", "...##....#..",
+          "...#.....#..", "............", ".....^......", "............", "............", "............"},
+         {{"enemy.guardian", 4, 2}, {"enemy.imp", 7, 1}, {"enemy.imp", 10, 1}}},
+        {3, false, "The sunken vault",
+         {"............", "............", "............", "......#.....", "..###.......", "....^.......",
+          "............", "..^.........", "......^.....", "............", "............", "............"},
+         {{"enemy.imp", 5, 1}, {"enemy.imp", 8, 3}, {"enemy.imp_archer", 10, 2}, {"enemy.imp_shaman", 4, 1}}},
+        {3, true, "The sunken vault",
+         {"............", "............", "............", "............", "..###.......", ".^..........",
+          "............", "............", "......^.....", "............", "............", "............"},
+         {{"enemy.guardian", 5, 1}, {"enemy.imp_shaman", 8, 3}, {"enemy.imp", 10, 2}}},
+    };
+    for (const auto& test : golden) {
+        const auto room = game::gameplay::GenerateRoom(config, {test.seed, 1, 0, test.boss, cells});
+        CHECK(room.name == test.name);
+        for (int y = 0; y < game::gameplay::FGeneratedRoom::kSize; ++y) {
+            CHECK(room.terrain[static_cast<std::size_t>(y)] == test.terrain[static_cast<std::size_t>(y)]);
+        }
+        CHECK(room.enemies.size() == test.enemies.size());
+        for (std::size_t i = 0; i < test.enemies.size(); ++i) {
+            CHECK(room.enemies[i].unit == test.enemies[i].unit);
+            CHECK(room.enemies[i].x == test.enemies[i].x && room.enemies[i].y == test.enemies[i].y);
+        }
+    }
+}
+
+/// Independent BFS: every unit (party + enemies) mutually reachable over non-wall cells, and no two units
+/// on one cell (the generation contract).
+bool AllUnitsReachable(const game::gameplay::FGeneratedRoom& room,
+                       const std::vector<std::pair<int, int>>& party) {
+    const int size = game::gameplay::FGeneratedRoom::kSize;
+    std::vector<std::pair<int, int>> units = party;
+    for (const auto& enemy : room.enemies) units.emplace_back(enemy.x, enemy.y);
+    std::ranges::sort(units);
+    CHECK(std::ranges::adjacent_find(units) == units.end());
+    std::array<std::array<bool, game::gameplay::FGeneratedRoom::kSize>, game::gameplay::FGeneratedRoom::kSize> seen{};
+    std::queue<std::pair<int, int>> open;
+    open.push(units.front());
+    seen[units.front().second][units.front().first] = true;
+    while (!open.empty()) {
+        const auto [x, y] = open.front();
+        open.pop();
+        for (const auto [dx, dy] : {std::pair{1, 0}, std::pair{-1, 0}, std::pair{0, 1}, std::pair{0, -1}}) {
+            const int nx = x + dx;
+            const int ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= size || ny >= size || seen[ny][nx]) continue;
+            if (room.terrain[static_cast<std::size_t>(ny)][static_cast<std::size_t>(nx)] == '#') continue;
+            seen[ny][nx] = true;
+            open.push({nx, ny});
+        }
+    }
+    return std::ranges::all_of(units, [&](const std::pair<int, int>& unit) {
+        return seen[unit.second][unit.first];
+    });
+}
+
+void FamiliesKeepInvariants() {
+    const auto document = FixtureDocument();
+    const auto cells = PartyCellsFromDocument(document);
+    const int size = game::gameplay::FGeneratedRoom::kSize;
+    for (const char* family : {"open", "open_variant", "corridor", "cover", "split"}) {
+        const auto config = ConfigFromDocument(document, family);
+        for (std::uint32_t seed = 1; seed <= 50; ++seed) {
+            for (const bool boss : {false, true}) {
+                const auto room = game::gameplay::GenerateRoom(config, {seed, 1, 0, boss, cells});
+                // Deterministic for a given config and request (the header contract): the same input twice.
+                const auto again = game::gameplay::GenerateRoom(config, {seed, 1, 0, boss, cells});
+                CHECK(room.terrain == again.terrain);
+                CHECK(room.enemies.size() == again.enemies.size());
+                for (std::size_t i = 0; i < room.enemies.size(); ++i) {
+                    CHECK(room.enemies[i].unit == again.enemies[i].unit);
+                    CHECK(room.enemies[i].x == again.enemies[i].x && room.enemies[i].y == again.enemies[i].y);
+                }
+                CHECK(!room.enemies.empty());
+                // The map is open: the outermost ring is never built on (walls, traps or units).
+                for (int i = 0; i < size; ++i) {
+                    CHECK(room.terrain[static_cast<std::size_t>(i)].front() == '.');
+                    CHECK(room.terrain[static_cast<std::size_t>(i)].back() == '.');
+                    CHECK(room.terrain.front()[static_cast<std::size_t>(i)] == '.');
+                    CHECK(room.terrain.back()[static_cast<std::size_t>(i)] == '.');
+                }
+                const auto spawnable = [&](int x, int y) {
+                    const char cell = room.terrain[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)];
+                    return cell == '.' || cell == '^';  // floor or trap — never a wall
+                };
+                int walls = 0;
+                for (const auto& row : room.terrain) {
+                    walls += static_cast<int>(std::ranges::count(row, '#'));
+                }
+                for (const auto& [x, y] : cells) CHECK(spawnable(x, y));
+                for (const auto& enemy : room.enemies) {
+                    // The spawn-band contract holds in every family.
+                    CHECK(enemy.y >= game::gameplay::kRoomEnemyFirstRow && enemy.y <= game::gameplay::kRoomEnemyLastRow);
+                    CHECK(spawnable(enemy.x, enemy.y));
+                }
+                CHECK(AllUnitsReachable(room, cells));
+                if (std::string_view(family) == "open" || std::string_view(family) == "open_variant") {
+                    // D-23: light families never pass the obstacle budget.
+                    CHECK(walls <= config.obstacleCount.max);
+                }
+                if (boss) CHECK(room.enemies.front().unit == config.bossUnit);
+            }
+        }
+    }
+}
+
+void FamilyStrengthRespected() {
+    const auto base = FixtureDocument();
+    // A heavy family on a normal battle slot is refused; the message names the slot and the rule.
+    for (const char* family : {"corridor", "cover", "split"}) {
+        auto document = base;
+        document["themes"][0]["dungeons"][0]["rooms"][0]["family"] = family;
+        std::string error;
+        CHECK(!game::FRunSequence::Load(document, error).has_value());
+        CHECK(error.find("heavy") != std::string::npos);
+        CHECK(error.find("light") != std::string::npos);
+        CHECK(error.find("slot 1") != std::string::npos);
+        CHECK(!BootsDocument(document, "sequence-heavy-normal"));
+    }
+    // Heavy on a boss slot stays refused while the data flag is false (the shipped state, D-23 §2).
+    auto bossHeavy = base;
+    bossHeavy["themes"][0]["dungeons"][2]["rooms"].back()["family"] = "cover";  // d3 closes on the mid boss
+    {
+        std::string error;
+        CHECK(!game::FRunSequence::Load(bossHeavy, error).has_value());
+        CHECK(error.find("boss") != std::string::npos);
+        CHECK(error.find("boss_rooms_allow_heavy") != std::string::npos);
+        CHECK(error.find("slot 4") != std::string::npos);
+        CHECK(!BootsDocument(bossHeavy, "sequence-heavy-boss-off"));
+    }
+    // The data flip opens exactly that: the same document boots with the flag true (heavy generation is
+    // part of the boot probe too).
+    auto allowed = bossHeavy;
+    allowed["family_rules"] = {{"boss_rooms_allow_heavy", true}};
+    CHECK(LoadSequence(allowed).bossRoomsAllowHeavy);
+    CHECK(BootsDocument(allowed, "sequence-heavy-boss-on"));
+    // Light families are fine on a boss slot.
+    auto lightBoss = base;
+    lightBoss["themes"][0]["dungeons"][2]["rooms"].back()["family"] = "open_variant";
+    CHECK(BootsDocument(lightBoss, "sequence-light-boss"));
+}
+
+void FamilyMetricsLogged() {
+    // The metric line is written by a real battle build (BuildDungeonBattlefield in the battle phase) and
+    // never by the boot probe; the content is the pure MeasureRoom of the same generated room.
+    FLogCapture capture;
+    FBoot boot(UniquePath("sequence-metrics"));
+    game::StartRun(boot.registry, kSeed, true);
+    CHECK(boot.run().phase == game::EDungeonPhase::Battle && boot.run().room == 0);
+    (void)game::BuildDungeonBattlefield(boot.registry);
+
+    const auto& data = game::DungeonDefinition(boot.registry);
+    const auto config = ConfigFromDocument(data, "open");
+    const auto cells = PartyCellsFromDocument(data);
+    const auto room = game::gameplay::GenerateRoom(config, {boot.run().seed, boot.run().depth, boot.run().room,
+                                                            false, cells});
+    const auto metrics = game::gameplay::MeasureRoom(room, cells);
+    char reachable[16];
+    std::snprintf(reachable, sizeof(reachable), "%.2f", metrics.reachableRatio);
+    const std::string expected = "[room] family=open strength=light walls=" + std::to_string(metrics.walls) +
+                                 " reachable=" + reachable + " min_path=" + std::to_string(metrics.minPath) +
+                                 " cover=" + std::to_string(metrics.coverCells) +
+                                 " traps=" + std::to_string(metrics.traps);
+    CHECK(capture.Text().find(expected) != std::string::npos);
+    CHECK(MetricLineCount(capture.Text()) == 1);
+    CHECK(capture.Text().find("[room] probe tuples=") != std::string::npos);  // the probe line is separate
+
+    // The second battle of the fixture dungeon is open_variant: the same rule reports its family/strength.
+    boot.run().room = 1;
+    (void)game::BuildDungeonBattlefield(boot.registry);
+    CHECK(capture.Text().find("[room] family=open_variant strength=light walls=") != std::string::npos);
+    CHECK(MetricLineCount(capture.Text()) == 2);
+
+    // A non-battle build (saved-phase continue) fields the room without logging the metric.
+    CHECK(game::ResolveRoomVictory(boot.registry, true).has_value());
+    CHECK(boot.run().phase == game::EDungeonPhase::Reward);
+    (void)game::BuildDungeonBattlefield(boot.registry);
+    CHECK(MetricLineCount(capture.Text()) == 2);
+}
+
+void FamilyMetricsDistribution() {
+    // A report, not a gate: the emergent shape of each family over 50 seeds. The only assertions are that
+    // the metrics were computed and that the light variant shows a genuinely different distribution from
+    // the classic layout (the WP-08 acceptance for light variants).
+    const auto document = FixtureDocument();
+    const auto cells = PartyCellsFromDocument(document);
+    struct FMetric {
+        double sum{0};
+        double min{1e9};
+        double max{-1e9};
+        int count{0};
+        void Add(double value) {
+            sum += value;
+            min = std::min(min, value);
+            max = std::max(max, value);
+            ++count;
+        }
+        [[nodiscard]] double Mean() const { return count > 0 ? sum / count : 0.0; }
+    };
+    struct FMetricSet {
+        FMetric walls, reachable, minPath, cover, traps;
+    };
+    const auto measure = [&](const char* family) {
+        const auto config = ConfigFromDocument(document, family);
+        FMetricSet set;
+        for (std::uint32_t seed = 1; seed <= 50; ++seed) {
+            const auto room = game::gameplay::GenerateRoom(config, {seed, 1, 0, false, cells});
+            const auto metrics = game::gameplay::MeasureRoom(room, cells);
+            set.walls.Add(metrics.walls);
+            set.reachable.Add(metrics.reachableRatio);
+            set.minPath.Add(metrics.minPath);
+            set.cover.Add(metrics.coverCells);
+            set.traps.Add(metrics.traps);
+        }
+        return set;
+    };
+    const auto report = [](const char* family, const FMetricSet& set) {
+        const auto row = [](const char* name, const FMetric& metric) {
+            std::ostringstream line;
+            line << " " << name << "=" << metric.Mean() << " (" << metric.min << ".." << metric.max << ")";
+            return line.str();
+        };
+        std::cout << "[metrics] family=" << family << " seeds=50" << row("walls", set.walls)
+                  << row("reachable", set.reachable) << row("min_path", set.minPath) << row("cover", set.cover)
+                  << row("traps", set.traps) << '\n';
+    };
+
+    std::map<std::string, FMetricSet> sets;
+    for (const char* family : {"open", "open_variant", "corridor", "cover", "split"}) {
+        sets[family] = measure(family);
+        report(family, sets[family]);
+        const auto& set = sets[family];
+        CHECK(set.walls.count == 50 && set.reachable.count == 50 && set.minPath.count == 50 &&
+              set.cover.count == 50 && set.traps.count == 50);  // every metric was computed
+        CHECK(set.walls.min >= 0);
+        CHECK(set.reachable.min >= 0.0 && set.reachable.max <= 1.0);
+        CHECK(set.minPath.min >= 0);  // the invariants hold: nothing is unreachable
+    }
+
+    const auto& classic = sets["open"];
+    const auto& variant = sets["open_variant"];
+    const bool differs = std::abs(classic.walls.Mean() - variant.walls.Mean()) > 1e-9 ||
+                         std::abs(classic.reachable.Mean() - variant.reachable.Mean()) > 1e-9 ||
+                         std::abs(classic.minPath.Mean() - variant.minPath.Mean()) > 1e-9 ||
+                         std::abs(classic.cover.Mean() - variant.cover.Mean()) > 1e-9 ||
+                         std::abs(classic.traps.Mean() - variant.traps.Mean()) > 1e-9;
+    CHECK(differs);  // the light variant is a different distribution, not a relabelled classic
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1067,6 +1415,11 @@ int main() {
         {"CampAfterLastBattleOnly", CampAfterLastBattleOnly},
         {"BootProbeCoversTuples", BootProbeCoversTuples},
         {"BadFamilyFailsBoot", BadFamilyFailsBoot},
+        {"OpenFamilyUnchanged", OpenFamilyUnchanged},
+        {"FamiliesKeepInvariants", FamiliesKeepInvariants},
+        {"FamilyStrengthRespected", FamilyStrengthRespected},
+        {"FamilyMetricsLogged", FamilyMetricsLogged},
+        {"FamilyMetricsDistribution", FamilyMetricsDistribution},
         {"SaveRoomRangeFollowsBattles", SaveRoomRangeFollowsBattles},
         {"OldSaveRoom2Loads", OldSaveRoom2Loads},
         {"EventGapResumeSkipsWhenMissing", EventGapResumeSkipsWhenMissing},

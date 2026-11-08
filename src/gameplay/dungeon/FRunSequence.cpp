@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FRoomGenerator.h"
 
 namespace game {
 namespace {
@@ -36,6 +37,17 @@ std::optional<FRunSequence> FRunSequence::Load(const nlohmann::json& document, s
     }
 
     FRunSequence sequence;
+    // D-23 §2: heavy families are reserved for elite/boss rooms, and the boss-room question stays a data
+    // flip until WP-14 (ship false). Parsed before the themes so slot validation can consult it.
+    if (const auto rules = document.find("family_rules"); rules != document.end()) {
+        if (!rules->is_object()) return Fail(error, "`family_rules` must be an object");
+        if (const auto allow = rules->find("boss_rooms_allow_heavy"); allow != rules->end()) {
+            if (!allow->is_boolean()) {
+                return Fail(error, "family_rules `boss_rooms_allow_heavy` must be a boolean");
+            }
+            sequence.bossRoomsAllowHeavy = allow->get<bool>();
+        }
+    }
     std::vector<std::string> themeIds;
     for (const auto& themeRow : *themes) {
         if (!themeRow.is_object()) return Fail(error, "every theme must be an object");
@@ -66,6 +78,7 @@ std::optional<FRunSequence> FRunSequence::Load(const nlohmann::json& document, s
             }
             FRunDungeonDef dungeon;
             dungeon.name = dungeonName->get<std::string>();
+            int slotNumber = 0;  // 1-based in the authored order; named in the strength refusals
 
             const auto rooms = dungeonRow.find("rooms");
             if (rooms == dungeonRow.end() || !rooms->is_array() || rooms->empty() ||
@@ -76,21 +89,25 @@ std::optional<FRunSequence> FRunSequence::Load(const nlohmann::json& document, s
             for (const auto& roomRow : *rooms) {
                 if (!roomRow.is_object()) return Fail(error, "every room slot must be an object");
                 FRunRoomSlot slot;
+                ++slotNumber;
                 const auto type = roomRow.find("type");
                 if (type == roomRow.end() || !type->is_string() ||
                     !IsKnownSlotType(type->get_ref<const std::string&>())) {
                     return Fail(error, "room slot `type` must be 'battle' or 'event'");
                 }
                 slot.type = type->get<std::string>();
-                // WP-08a: "open" is the only family that ships; a missing one means "open". WP-14 flips the
-                // heavy families on for elite/boss rooms — the loader widens here, the data decides.
+                // WP-08b: the family set is generator code and a missing one means "open"; an unknown name is
+                // a boot refusal. The strength rule runs after `boss` is read (it needs it).
                 slot.family = "open";
                 if (const auto family = roomRow.find("family"); family != roomRow.end()) {
                     if (!family->is_string()) return Fail(error, "room slot `family` must be a string");
                     const auto& familyId = family->get_ref<const std::string&>();
-                    if (!familyId.empty() && familyId != "open") {
-                        return Fail(error, "room family '" + familyId +
-                                               "' is not available (WP-08a ships 'open' only)");
+                    if (!familyId.empty()) {
+                        if (!gameplay::FamilyStrengthOf(familyId)) {
+                            return Fail(error, "room family '" + familyId +
+                                                   "' is unknown (open, open_variant, corridor, cover, split)");
+                        }
+                        slot.family = familyId;
                     }
                 }
                 if (const auto boss = roomRow.find("boss"); boss != roomRow.end()) {
@@ -113,6 +130,25 @@ std::optional<FRunSequence> FRunSequence::Load(const nlohmann::json& document, s
                         return Fail(error, std::string("room slot `") + key + "` must be a string");
                     }
                     *target = found->get<std::string>();
+                }
+                // D-23 strength enforcement (a code rule with a data flip): normal monster rooms are light;
+                // a heavy family needs a boss slot AND `family_rules.boss_rooms_allow_heavy` (ship false
+                // until WP-14). The refusal names the slot and the rule. Event slots generate no room, so
+                // the rule only binds battle slots.
+                if (slot.type == "battle") {
+                    const auto strength = gameplay::FamilyStrengthOf(slot.family);
+                    const std::string where = "dungeon '" + dungeon.name + "' slot " + std::to_string(slotNumber);
+                    if (strength == gameplay::EFamilyStrength::Heavy) {
+                        if (slot.boss.empty()) {
+                            return Fail(error, where + ": '" + slot.family +
+                                                   "' is a heavy room family; normal monster rooms stay light (D-23)");
+                        }
+                        if (!sequence.bossRoomsAllowHeavy) {
+                            return Fail(error, where + " (boss '" + slot.boss + "'): '" + slot.family +
+                                                   "' is a heavy room family; boss rooms allow heavy only when "
+                                                   "family_rules.boss_rooms_allow_heavy is true (D-23 §2 ships false)");
+                        }
+                    }
                 }
                 dungeon.rooms.push_back(std::move(slot));
             }

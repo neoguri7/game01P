@@ -57,7 +57,7 @@
           "rooms": [
             {"type": "battle", "family": "open"},
             {"type": "event", "event_pool": "common"},
-            {"type": "battle", "family": "open"},
+            {"type": "battle", "family": "open_variant"},
             {"type": "battle", "family": "open"}
           ]
         },
@@ -66,7 +66,7 @@
           "rooms": [
             {"type": "battle", "family": "open"},
             {"type": "event", "event_pool": "common"},
-            {"type": "battle", "family": "open"},
+            {"type": "battle", "family": "open_variant"},
             {"type": "battle", "family": "open"}
           ]
         },
@@ -74,7 +74,7 @@
           "name": "The cinder stair",
           "rooms": [
             {"type": "battle", "family": "open"},
-            {"type": "battle", "family": "open"},
+            {"type": "battle", "family": "open_variant"},
             {"type": "event", "event_pool": "common"},
             {"type": "battle", "family": "open", "boss": "mid"}
           ]
@@ -84,7 +84,7 @@
           "rooms": [
             {"type": "battle", "family": "open"},
             {"type": "event", "event_pool": "common"},
-            {"type": "battle", "family": "open"},
+            {"type": "battle", "family": "open_variant"},
             {"type": "event", "event_pool": "common"},
             {"type": "battle", "family": "open", "boss": "final"}
           ]
@@ -100,7 +100,7 @@
           "rooms": [
             {"type": "battle", "family": "open"},
             {"type": "event", "event_pool": "common"},
-            {"type": "battle", "family": "open"},
+            {"type": "battle", "family": "open_variant"},
             {"type": "battle", "family": "open"}
           ]
         },
@@ -108,7 +108,7 @@
           "name": "Fallen ward",
           "rooms": [
             {"type": "battle", "family": "open"},
-            {"type": "battle", "family": "open"},
+            {"type": "battle", "family": "open_variant"},
             {"type": "event", "event_pool": "common"},
             {"type": "battle", "family": "open"}
           ]
@@ -117,7 +117,7 @@
           "name": "Collapsed barracks",
           "rooms": [
             {"type": "battle", "family": "open"},
-            {"type": "battle", "family": "open"},
+            {"type": "battle", "family": "open_variant"},
             {"type": "event", "event_pool": "common"},
             {"type": "battle", "family": "open", "boss": "mid"}
           ]
@@ -127,7 +127,7 @@
           "rooms": [
             {"type": "battle", "family": "open"},
             {"type": "event", "event_pool": "common"},
-            {"type": "battle", "family": "open"},
+            {"type": "battle", "family": "open_variant"},
             {"type": "event", "event_pool": "common"},
             {"type": "battle", "family": "open", "boss": "final"}
           ]
@@ -145,6 +145,9 @@
   },
   "run": {
     "end_on_final_boss": false
+  },
+  "family_rules": {
+    "boss_rooms_allow_heavy": false
   },
   "generation": {
     "room_names": ["The broken gate", "Hall of echoes", "The sunken vault", "Ashen crypt", "Collapsed barracks", "Whispering cistern", "The cinder stair"],

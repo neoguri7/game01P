@@ -216,9 +216,11 @@ void FinishBattlefield(nlohmann::json& document, const nlohmann::json& data) {
 }
 
 nlohmann::json BuildRoomDocument(const nlohmann::json& data, const gameplay::FRoomGenConfig& config,
-                                 std::uint32_t seed, int depth, int room, bool boss) {
+                                 std::uint32_t seed, int depth, int room, bool boss,
+                                 gameplay::FGeneratedRoom* generatedOut = nullptr) {
     const auto cells = PartyCells(data.at("party"));
     const auto generated = gameplay::GenerateRoom(config, {seed, depth, room, boss, cells});
+    if (generatedOut != nullptr) *generatedOut = generated;
     nlohmann::json document;
     document["name"] = generated.name;
     document["terrain"] = generated.terrain;
@@ -486,8 +488,12 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
                     entt::registry probeRegistry;
                     FScene scene(probeRegistry, "validation");
                     scene.Load();
+                    // WP-08b: the family is per slot — copy the parsed config and set it (never mutate the
+                    // shared config; the probe walks several families).
+                    auto tupleConfig = *config;
+                    tupleConfig.family = slot->family;
                     const auto document =
-                        BuildRoomDocument(data, *config, seed, index + 1, ordinal, !slot->boss.empty());
+                        BuildRoomDocument(data, tupleConfig, seed, index + 1, ordinal, !slot->boss.empty());
                     const auto battlefield = FEntityFactory::CreateBattlefield(scene, document);
                     if (!battlefield) {
                         LOG_ERROR("Generated dungeon room invalid: {}", battlefield.error().message);
@@ -680,18 +686,29 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
     const auto config = ParseRoomGeneration(data, content);
     if (!config) return nlohmann::json::object();
     // WP-08: the boss flag comes from the sequence slot of the current battle ordinal — never a room index.
-    bool boss = false;
+    // WP-08b: the template family comes from the same slot (per-slot by copying the parsed config).
+    const FRunRoomSlot* slot = nullptr;
     if (const auto* sequence = FindRunSequence(registry)) {
         const auto position = sequence->PositionOf(run.depth - 1);
-        boss = sequence->IsBossBattle(position, run.room);
+        slot = sequence->BattleSlotAt(position, run.room);
     }
-    auto document = BuildRoomDocument(data, *config, run.seed, run.depth, run.room, boss);
+    auto slotConfig = *config;
+    if (slot != nullptr) slotConfig.family = slot->family;
+    gameplay::FGeneratedRoom generated;
+    auto document = BuildRoomDocument(data, slotConfig, run.seed, run.depth, run.room, slot != nullptr && !slot->boss.empty(),
+                                      &generated);
     run.roomName = document.at("name").get<std::string>();
     // WP-19a: a saved-phase continue (Reward/Event/Camp/Defeat) also builds the field but must not record a
-    // battle that will not happen; only a real Battle phase writes dungeon_enter/room_start.
+    // battle that will not happen; only a real Battle phase writes dungeon_enter/room_start. The emergent
+    // room metric (WP-08b) logs on the same real-battle condition — never from the boot probe.
     if (run.phase == EDungeonPhase::Battle) {
         LogDungeonEnter(registry);
         LogRoomStart(registry);
+        const auto metrics = gameplay::MeasureRoom(generated, PartyCells(data.at("party")));
+        const auto strength = gameplay::FamilyStrengthOf(slotConfig.family);
+        LOG_INFO("[room] family={} strength={} walls={} reachable={:.2f} min_path={} cover={} traps={}",
+                 slotConfig.family, strength ? gameplay::FamilyStrengthName(*strength) : "unknown", metrics.walls,
+                 metrics.reachableRatio, metrics.minPath, metrics.coverCells, metrics.traps);
     }
     return document;
 }

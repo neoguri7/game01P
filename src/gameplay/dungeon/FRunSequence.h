@@ -16,9 +16,10 @@ inline constexpr int kMaxDungeonSlots = 8;
 
 /// One slot of a dungeon's room sequence (dungeon.json v2 `themes[].dungeons[].rooms[]`). `type` is the
 /// open room-type key ("battle" | "event" — WP-09 widens the set), `family` names the room generator
-/// template family ("open" in WP-08a; heavy families arrive with WP-14's elite gate), `boss` is
-/// "" | "mid" | "final" (battle slots only). `encounter` (WP-14) and `event_pool` (WP-09) are stored but
-/// not consumed yet.
+/// template family: "open" (default) / "open_variant" (light) or "corridor" / "cover" / "split" (heavy;
+/// loader-enforced to boss slots only, and only when `family_rules.boss_rooms_allow_heavy` is true —
+/// D-23's data flip for WP-14), `boss` is "" | "mid" | "final" (battle slots only). `encounter` (WP-14)
+/// and `event_pool` (WP-09) are stored but not consumed yet.
 struct FRunRoomSlot {
     std::string type;
     std::string family;
@@ -76,6 +77,10 @@ struct FRunSequence {
     std::vector<FRunThemeDef> themes;
     std::vector<FRunCycleStep> cycles;
     FRunStartSupport startSupport;
+    /// `family_rules.boss_rooms_allow_heavy` (ship false until WP-14 decides the boss-room question, D-23
+    /// §2): when true, a heavy family is legal on a boss slot. Never a silent coercion — the loader refuses
+    /// the illegal combinations either way.
+    bool bossRoomsAllowHeavy{false};
     /// Optional top-level `next_dungeon_hint` string (the camp view's conditional preview reads it straight
     /// from the document). WP-17/21 derive the next dungeon's name from `themes` when it is absent.
     std::optional<std::string> nextDungeonHint;
