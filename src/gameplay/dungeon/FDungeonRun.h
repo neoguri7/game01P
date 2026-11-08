@@ -14,6 +14,8 @@
 
 namespace game {
 
+namespace gameplay { struct FUnitContent; }
+
 enum class EDungeonPhase { Battle, Reward, Event, Camp, Defeat };
 enum class EMenuRequest { None, Start, Continue, Quit };
 
@@ -174,6 +176,11 @@ struct FDungeonRecovery {
 
 /// KO 바닥: max(1, floor(maxHealth × fraction)) — 기존 정수 나눗셈(max/3)과 같은 형태의 규칙.
 [[nodiscard]] int KoRecoverFloor(int maxHealth, double fraction);
+
+/// The single memberId → unit-template resolver (WP-21 §1): the `data/dungeon party[].id → unit` lookup
+/// today; the roster lookup arrives with 21b. nullptr means the member's unit cannot be resolved — callers
+/// keep their existing warning/fallback. The run max-HP helper below resolves through this function.
+[[nodiscard]] const gameplay::FUnitContent* ResolveRunMemberUnit(const entt::registry& registry, std::string_view memberId);
 
 /// 런 단위 최대 HP (WP-10 ★4): content.units 베이스 maxHealth + bonusHealth + 노드 보너스.maxHealth —
 /// FCombatSheet.cpp:41,:55-57과 같은 입력. FCombatSheet는 편집하지 않고 동등성 테스트
