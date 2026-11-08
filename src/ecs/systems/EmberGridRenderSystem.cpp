@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <iterator>
 #include <span>
 #include <vector>
 #include <glm/common.hpp>
@@ -46,6 +47,9 @@ constexpr SDL_Color kMoveTrapLine{255, 118, 40, 230};
 constexpr float kMoveTrapOutlineInset = 0.f;
 constexpr float kMovePathOutlineInset = 2.f;
 constexpr float kReachOutlineInset = 0.f;
+// The hovered cell's double stroke (pointer-cursor affordance, inset 0 + 2 — SelectionOutlineInsets).
+constexpr SDL_Color kHoverOutline[]{{255, 224, 120, 230}, {255, 224, 120, 120}};
+static_assert(std::size(kHoverOutline) == 2, "one stroke colour per hovered inset");
 
 SDL_FColor Color(int r, int g, int b, int a) {
     return {static_cast<float>(r) / 255.f, static_cast<float>(g) / 255.f, static_cast<float>(b) / 255.f,
@@ -435,16 +439,27 @@ void EmberGridRenderSystem::render(entt::registry& registry) {
     if (selection) {
         for (const auto cell : selection->reachable) {
             FillDiamond(renderer, view, cell.x, cell.y, Color(70, 220, 255, 46));
-            OutlineDiamond(renderer, view, cell.x, cell.y, {90, 225, 255, 150}, 1.f);
+            for (const float inset : ui::SelectionOutlineInsets(ui::ESelectionCue::Reachable)) {
+                OutlineDiamond(renderer, view, cell.x, cell.y, {90, 225, 255, 150}, inset);
+            }
         }
         for (const auto cell : selection->affected) {
             if (!IsInsideGrid(*grid, cell.x, cell.y)) continue;
             FillDiamond(renderer, view, cell.x, cell.y, Color(230, 70, 60, 84));
-            OutlineDiamond(renderer, view, cell.x, cell.y, {255, 110, 90, 190}, 1.f);
+            // WP-12c: the hit forecast is a DOUBLE OUTLINE (inset 1 + 3) so the cue survives without colour;
+            // the move range keeps its single cyan outline (SelectionOutlineInsets is the shared table).
+            for (const float inset : ui::SelectionOutlineInsets(ui::ESelectionCue::Affected)) {
+                OutlineDiamond(renderer, view, cell.x, cell.y, {255, 110, 90, 190}, inset);
+            }
         }
         if (selection->hovered && IsInsideGrid(*grid, selection->hovered->x, selection->hovered->y)) {
-            OutlineDiamond(renderer, view, selection->hovered->x, selection->hovered->y, {255, 224, 120, 230}, 0.f);
-            OutlineDiamond(renderer, view, selection->hovered->x, selection->hovered->y, {255, 224, 120, 120}, 2.f);
+            // The hovered cell keeps its double outline as a pointer-cursor affordance, not as a range cue:
+            // it is the cell under the mouse, always on top, and no range verdict is drawn from it.
+            const auto insets = ui::SelectionOutlineInsets(ui::ESelectionCue::Hovered);
+            for (std::size_t stroke = 0; stroke < insets.size() && stroke < std::size(kHoverOutline); ++stroke) {
+                OutlineDiamond(renderer, view, selection->hovered->x, selection->hovered->y, kHoverOutline[stroke],
+                               insets[stroke]);
+            }
         }
     }
 
