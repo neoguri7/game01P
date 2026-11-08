@@ -1215,6 +1215,19 @@ void RoundCountDeltaReported() {
     FTempRoot afterTemp{"after-dungeon"};
     WriteJsonFile(afterTemp.root / "data" / "dungeon.json", shadowDungeon);
 
+    // WP-14a: the temp roots shadow units.json / dungeon.json over the SHIP assets, so the shipped
+    // encounters.json would otherwise fall through — validated against the shadowed units (boot failure in
+    // `before`) and composing role-slot rooms instead of the forced shaman composition. The frozen fixture
+    // table (empty) keeps both runs on the legacy generation.enemies path this measurement is built on.
+    const auto keepLegacyEncounters = [](const std::filesystem::path& root) {
+        std::error_code error;
+        std::filesystem::copy_file(FixtureDataPath("encounters.json"), root / "data" / "encounters.json",
+                                   std::filesystem::copy_options::overwrite_existing, error);
+        CHECK(!error);
+    };
+    keepLegacyEncounters(beforeTemp.root);
+    keepLegacyEncounters(afterTemp.root);
+
     const std::vector<std::string> beforeRoots{beforeTemp.root.string(), kShipAssetRoot};
     const std::vector<std::string> afterRoots{afterTemp.root.string(), kShipAssetRoot};
     const std::vector<std::uint32_t> seeds{1u, 2u, 3u};

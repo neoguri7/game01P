@@ -204,8 +204,11 @@ struct FTempAssets {
 
     /// Everything FGameplayServices + InitializeDungeon read; the dungeon is overwritten per test.
     void CopyGameplayData() {
+        // encounters.json (WP-14a), like bosses.json: else the shipped encounters.json falls through and is
+        // validated against the frozen fixture units (the six new enemies are absent there).
         for (const char* file : {"units.json", "skills.json", "runes.json", "statuses.json", "ai.json",
-                                 "rewards.json", "passive-tree.json", "dungeon.json", "bosses.json"}) {
+                                 "rewards.json", "passive-tree.json", "dungeon.json", "bosses.json",
+                                 "encounters.json"}) {
             Copy(file);
         }
     }

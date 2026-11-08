@@ -21,7 +21,7 @@ struct FUnitContent {
     int moveAp{0};     // design §4: 이동 AP (잠정 1)
     int skillAp{0};    // design §4: 스킬 AP (잠정 2)
     std::vector<std::string> skillIds; // design §5: 거점에서 유저가 고르는 해금 스킬 목록
-    std::string spriteId;              // presentation id; nothing resolves it yet
+    std::string spriteId;              // presentation id; FDungeonArt resolves it to an EDungeonSprite (P14-8)
     std::string className;             // "warrior" | "archer" | "mage" | 비어 있음(적). 게임 규칙은 아직 이 값에 의존하지 않는다
 
     // docs/design/skill-rune-progression.md §1.1: 피해 공식 `max(1, offense + power − defense)`의 입력.

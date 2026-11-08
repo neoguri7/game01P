@@ -8,6 +8,8 @@
 #include <entt/entt.hpp>
 #include <nlohmann/json.hpp>
 
+#include "gameplay/dungeon/FEncounterContent.h"
+
 namespace game {
 
 /// The per-dungeon slot cap. The loader rejects a dungeon with more slots, and the save reader uses it as
@@ -19,8 +21,8 @@ inline constexpr int kMaxDungeonSlots = 8;
 /// template family: "open" (default) / "open_variant" (light) or "corridor" / "cover" / "split" (heavy;
 /// loader-enforced to boss slots only, and only when `family_rules.boss_rooms_allow_heavy` is true —
 /// D-23's data flip for WP-14), `boss` is "" | "mid" | "final" (battle slots only). `event_pool` is
-/// consumed by the WP-09 event pick (the gap slot's pool selects the event); `encounter` (WP-14) is stored
-/// but not consumed yet.
+/// consumed by the WP-09 event pick (the gap slot's pool selects the event); `encounter` (WP-14a) names a
+/// fixed encounter for the slot ("" = the deterministic depth/theme pool pick — FrameRoomPlan).
 struct FRunRoomSlot {
     std::string type;
     std::string family;
@@ -126,5 +128,12 @@ struct FRunSequence {
 /// The cycle scale for the current run position. All zeros when the sequence or the run is missing, or the
 /// cycle table is empty.
 [[nodiscard]] FCycleScale CycleScaleFor(const entt::registry& registry);
+
+/// WP-14a: the plan of battle `battleOrdinal` of the current dungeon (pure ctx read: FDungeonRun,
+/// FRunSequence, FEncounterContent). `family` = the slot's effective family. `encounterId` = the slot's
+/// named encounter or the deterministic pool pick (ResolveEncounter with the run seed, run depth and
+/// `battleOrdinal`); "" for a boss slot (WP-15 generation pool), with no encounter table, without a run or
+/// a sequence, or when nothing is eligible. Never writes ctx — the caller emplaces the plan.
+[[nodiscard]] FRoomPlan FrameRoomPlan(const entt::registry& registry, int battleOrdinal);
 
 } // namespace game

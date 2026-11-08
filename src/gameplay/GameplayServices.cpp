@@ -8,6 +8,7 @@
 #include "gameplay/combat/FSkillApCap.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonCamp.h"
+#include "gameplay/dungeon/FEncounterContent.h"
 #include "gameplay/dungeon/FEventContent.h"
 #include "gameplay/dungeon/FEventEffects.h"
 #include "gameplay/dungeon/FEventSection.h"
@@ -88,6 +89,15 @@ bool FGameplayServices::Initialize(entt::registry& registry) {
     InitializeRunLog(registry);
     // [WP-25]
     RegisterEngineIgnitionListener(registry);
+    // [WP-14a]
+    if (!LoadEncounterContent(registry, *assets)) {
+        LOG_ERROR("encounter content is unusable; boot stopped (see the encounter errors above).");
+        return false;
+    }
+    if (!ValidateEncounterContent(registry)) {
+        LOG_ERROR("encounter content validation failed; boot stopped (see the errors above).");
+        return false;
+    }
 
     // keep last: every Register*Effects anchor is above this line
     if (!ValidateEffectContent(registry)) {
