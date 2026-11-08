@@ -6,19 +6,22 @@
 #include <string>
 #include <SDL3/SDL.h>
 
+#include "gameplay/data/FStatusContent.h"
+
 namespace game::ui {
 namespace {
 
-// WP-24b info-cue checklist. The order and ids are the acceptance table's ㉠…㉥ rows; the FollowUp rows
-// are the gaps the audit keeps visible instead of pretending they are covered.
+// WP-24b info-cue checklist. The order and ids are the acceptance table's ㉠…㉥ rows; WP-12c closed both
+// FollowUp rows (㉡ board range outlines, ㉥ status gem shapes), so every row now names its redundant channel.
 constexpr std::array<FInfoCueRow, 6> kInfoCueChecklist{{
     {"world.faction", "Unit faction in the world",
      "filled square (party) / upward triangle (enemy) badge at the HP bar's left end above the head; the "
      "faction-coloured feet ring and trim stay secondary",
      EInfoCueStatus::Covered},
     {"board.ranges", "Move and hit range cells on the board",
-     "filled-cell colour only; the ? tooltip names cyan/red (gap - follow-up: outline style, out of scope)",
-     EInfoCueStatus::FollowUp},
+     "move range cyan single outline / hit range double outline (inset 1 + 3); the fill colour and the ? "
+     "tooltip naming cyan/red stay secondary",
+     EInfoCueStatus::Covered},
     {"hud.faction", "Unit faction in the HUD",
      "unit name and attack/support wording; faction trim is secondary", EInfoCueStatus::Covered},
     {"hud.action_points", "Action-point gems and skill slot gems",
@@ -26,10 +29,42 @@ constexpr std::array<FInfoCueRow, 6> kInfoCueChecklist{{
     {"result.banner", "Battle result banner and journal",
      "text: VICTORY / DEFEAT, room label and log lines", EInfoCueStatus::Covered},
     {"unit.statuses", "Statuses on a unit",
-     "count/duration/dot name are text; per-status kind gems are colour-only -> follow-up: glyph/letter per "
-     "kind in the HUD view, not this lane",
-     EInfoCueStatus::FollowUp},
+     "count/duration/dot name are text; the per-status kind gems draw one shape per kind (filled circle / "
+     "upward triangle / square / diamond / hollow ring), colour stays secondary",
+     EInfoCueStatus::Covered},
 }};
+
+// WP-12c HUD text-size audit. Rows follow the WP's table order: the Class A numbers first, then the two
+// documented non-gap rows ("+N" is a hierarchy tier; the Cinzel name is measured by font, not by XAG), then
+// the explicit 84% residual list in the WP's own order.
+constexpr std::array<FHudTextSite, 20> kHudTextSites{{
+    {"intent_number", hud::kIntentNumberPx, EHudText::Free, true, false},
+    {"preview_number", hud::kPreviewNumberPx, EHudText::Free, true, false},
+    {"damage_pop", hud::kDamagePopPx, EHudText::Free, true, false},
+    {"threat_number", hud::kThreatNumberPx, EHudText::Zone, true, false},
+    {"hp_number", hud::kHpNumberPx, EHudText::Zone, true, false},
+    {"skill_key", hud::kSkillKeyPx, EHudText::Zone, true, false},
+    {"skill_cost", hud::kSkillCostPx, EHudText::Zone, true, false},
+    {"intent_plus", hud::kIntentPlusPx, EHudText::Free, false, false},
+    {"unit_name", hud::kUnitNamePx, EHudText::Zone, false, false},
+    {"ribbon_round", hud::kRibbonRoundPx, EHudText::Zone, false, true},
+    {"ribbon_marker", hud::kRibbonMarkerPx, EHudText::Zone, false, true},
+    {"unit_role", hud::kUnitRolePx, EHudText::Zone, false, true},
+    {"move_skill", hud::kMoveSkillPx, EHudText::Zone, false, true},
+    {"planning", hud::kPlanningPx, EHudText::Zone, false, true},
+    {"status_summary", hud::kStatusSummaryPx, EHudText::Zone, false, true},
+    {"status_dot", hud::kStatusSummaryPx, EHudText::Zone, false, true},
+    {"skip", hud::kStatusSummaryPx, EHudText::Zone, false, true},
+    {"journal", hud::kJournalPx, EHudText::Zone, false, true},
+    {"hover_tooltip", hud::kHoverTextPx, EHudText::Free, false, true},
+    {"topbar_title", hud::kTopBarTitlePx, EHudText::Zone, false, true},
+}};
+
+// WP-12c selection outlines. Affected is the double-outline hit forecast; hovered is already double and
+// stays that way as a pointer-cursor affordance (EmberGridRenderSystem.cpp names the exemption).
+constexpr float kReachableOutline[]{1.f};
+constexpr float kAffectedOutline[]{1.f, 3.f};
+constexpr float kHoveredOutline[]{0.f, 2.f};
 
 struct FFontSet {
     ImGuiContext* context{nullptr};
@@ -86,6 +121,91 @@ FMarkerOutline FactionMarkerOutline(EFactionMarker marker, float cx, float cy, f
 
 void ApplyTextScale(float scale) {
     ImGui::GetStyle().FontScaleMain = scale > 0.f ? scale : 1.f;
+}
+
+float HudTextPx(float base, float u, EHudText scope) {
+    return base * u * (scope == EHudText::Free ? ImGui::GetStyle().FontScaleMain : 1.f);
+}
+
+std::span<const FHudTextSite> HudTextSizeTable() { return kHudTextSites; }
+
+EStatusGemShape StatusGemShapeFor(std::string_view kind) {
+    if (kind == gameplay::kStatusKindDot) return EStatusGemShape::Circle;
+    if (kind == gameplay::kStatusKindControl) return EStatusGemShape::Triangle;
+    if (kind == gameplay::kStatusKindStat) return EStatusGemShape::Square;
+    if (kind == gameplay::kStatusKindMoveLock) return EStatusGemShape::Diamond;
+    return EStatusGemShape::Ring;
+}
+
+void DrawStatusGem(ImDrawList* draw, ImVec2 center, float radius, EStatusGemShape shape, ImU32 fill) {
+    if (draw == nullptr) return;
+    const ImU32 outline = IM_COL32(8, 8, 12, 220);
+    const float stroke = std::max(1.f, radius * (1.f / 3.f));  // the old 1u outline at the 3u gem radius
+    const ImVec2 up{center.x, center.y - radius};
+    const ImVec2 right{center.x + radius, center.y};
+    const ImVec2 down{center.x, center.y + radius};
+    const ImVec2 left{center.x - radius, center.y};
+    switch (shape) {
+    case EStatusGemShape::Circle:
+        draw->AddCircleFilled(center, radius, fill, 12);
+        draw->AddCircle(center, radius, outline, 12, stroke);
+        break;
+    case EStatusGemShape::Triangle:
+        draw->AddTriangleFilled(up, {right.x, down.y}, {left.x, down.y}, fill);
+        draw->AddTriangle(up, {right.x, down.y}, {left.x, down.y}, outline, stroke);
+        break;
+    case EStatusGemShape::Square:
+        draw->AddRectFilled({center.x - radius, center.y - radius}, {center.x + radius, center.y + radius}, fill);
+        draw->AddRect({center.x - radius, center.y - radius}, {center.x + radius, center.y + radius}, outline, 0.f, 0,
+                      stroke);
+        break;
+    case EStatusGemShape::Diamond:
+        draw->AddQuadFilled(up, right, down, left, fill);
+        draw->AddQuad(up, right, down, left, outline, stroke);
+        break;
+    case EStatusGemShape::Ring:
+        // Hollow: the dark edge stays outside the kind-coloured ring so the shape channel survives.
+        draw->AddCircle(center, radius, outline, 12, stroke);
+        draw->AddCircle(center, radius - stroke, fill, 12, stroke);
+        break;
+    }
+}
+
+void DrawPlateOutline(ImDrawList* draw, ImVec2 min, ImVec2 max, float radius, ImU32 color) {
+    if (draw == nullptr) return;
+    draw->AddRect(min, max, color, radius, 0, 1.f);
+}
+
+void DrawPlateCaret(ImDrawList* draw, ImVec2 plateBottomCenter, ImVec2 anchor, float u, ImU32 color) {
+    if (draw == nullptr) return;
+    draw->AddQuadFilled({plateBottomCenter.x - 2.f * u, plateBottomCenter.y},
+                        {plateBottomCenter.x + 2.f * u, plateBottomCenter.y}, {anchor.x + 1.f * u, anchor.y},
+                        {anchor.x - 1.f * u, anchor.y}, color);
+}
+
+int PlateLiftSteps(int stackIndex) noexcept { return std::min(stackIndex, 2); }
+
+std::span<const float> SelectionOutlineInsets(ESelectionCue cue) {
+    switch (cue) {
+    case ESelectionCue::Reachable: return kReachableOutline;
+    case ESelectionCue::Affected: return kAffectedOutline;
+    case ESelectionCue::Hovered: return kHoveredOutline;
+    }
+    return {};
+}
+
+float HeadingTextWidth(const char* text, float size) {
+    ImFont* font = HeadingFont();
+    if (font == nullptr || text == nullptr) return 0.f;
+    return font->CalcTextSizeA(size * ImGui::GetStyle().FontScaleMain, 1000.f, 0.f, text).x;
+}
+
+FRect SkillSlotRect(const FRect& zone, float u, int index) {
+    const float slot = 56.f * u;
+    const float pad = 18.f * u;
+    const float step = (zone.w - pad * 2.f - slot) / 3.f;
+    const float top = zone.y + (zone.h - slot) * .5f;
+    return {zone.x + pad + static_cast<float>(index) * step, top, slot, slot};
 }
 
 void InstallSkin(const FSkin& skin) { g_skin = skin; }

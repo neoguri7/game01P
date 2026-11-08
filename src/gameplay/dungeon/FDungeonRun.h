@@ -209,7 +209,9 @@ int ApplyChestHpCost(entt::registry& registry);
 /// 않고 곡선 카운터(upgradesTotal)도 건드리지 않는다.
 [[nodiscard]] std::optional<std::string> ValidateDungeonRespec(const entt::registry& registry);
 [[nodiscard]] std::optional<std::string> RespecDungeonNodes(entt::registry& registry);
-/// Camp-only loadout edits. Validation/failure returns a reason and leaves all runes unchanged.
+/// Loadout window (WP-27): rune edits are allowed in {Camp, Reward} and rejected elsewhere with
+/// "Runes can be changed between rooms, not in battle." Validation/failure returns a reason and leaves all
+/// runes unchanged (removal is rule-allowed in Reward but the UI only exposes it at camp).
 [[nodiscard]] std::optional<std::string> ValidateDungeonRuneEquip(
     const entt::registry& registry, std::size_t memberIndex, std::size_t slotIndex, std::size_t runeIndex);
 [[nodiscard]] std::optional<std::string> EquipDungeonRune(

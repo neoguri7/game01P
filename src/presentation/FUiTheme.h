@@ -6,6 +6,8 @@
 
 #include <imgui.h>
 
+#include "presentation/FUiLayout.h"
+
 namespace game::ui {
 
 // Dark-fantasy palette shared by every in-game window. Warm near-black stone, bronze and gold trim,
@@ -80,6 +82,93 @@ struct FMarkerOutline {
 /// Applies the user's text scale through ImGui's one global font factor (style.FontScaleMain). This is the
 /// only place the game writes FontScaleMain: explicit PushFont(font, size) sites scale automatically.
 void ApplyTextScale(float scale);
+
+// ---------------------------------------------------------------------------------------------
+// WP-12c HUD legibility: the Free/Zone text model, the board-plate cues and the non-colour channels
+// ---------------------------------------------------------------------------------------------
+
+/// WP-12c text scopes. Free = board-attached text (intent / preview numbers, damage pops, board hover
+/// tooltip): it follows the user's text scale. Zone = the fixed HUD clusters: the authored size is kept,
+/// and ImGui-path Zone text (unit name, END TURN) keeps ImGui's own scaling without a wrapper.
+enum class EHudText { Free, Zone };
+
+/// The one text-size rule: `base * u` in a fixed zone, `base * u * FontScaleMain` on the free board.
+/// `u` is the layout scale, which FUiTheme does not know — the caller passes it.
+[[nodiscard]] float HudTextPx(float base, float u, EHudText scope);
+
+namespace hud {
+
+// WP-12c size table (design px at u = 1): the single source of truth for every HUD text site this WP
+// touched. The view reads these constants; HudTextSizeTable() carries the scope/class audit so a test
+// can report the sizes without restating them. See docs/expansion/plans/WP-12c-hud-legibility.md §2.
+inline constexpr float kIntentNumberPx = 18.f;  // intent damage number (Class A, Free)
+inline constexpr float kIntentPlusPx = 12.f;    // same-cell "+N" (Free, hierarchy tier)
+inline constexpr float kPreviewNumberPx = 18.f; // selected-skill preview number (Class A, Free)
+inline constexpr float kDamagePopPx = 18.f;     // floating damage pop (Class A, Free)
+inline constexpr float kHoverTextPx = 15.f;     // board hover tooltip (Free)
+inline constexpr float kRibbonRoundPx = 15.f;   // turn ribbon "ROUND N" (Zone)
+inline constexpr float kRibbonMarkerPx = 15.f;  // turn ribbon next-round marker (Zone)
+inline constexpr float kUnitNamePx = 15.f;      // unit readout name (Cinzel, ImGui path)
+inline constexpr float kUnitRolePx = 15.f;      // unit readout role label (Zone)
+inline constexpr float kHpNumberPx = 18.f;      // HP "cur / max" (Class A, Zone)
+inline constexpr float kMoveSkillPx = 15.f;     // "M" / "S" action-point labels (Zone)
+inline constexpr float kPlanningPx = 15.f;      // "Planning..." enemy-turn label (Zone)
+inline constexpr float kStatusSummaryPx = 15.f; // status summary / dot plate / SKIP (Zone)
+inline constexpr float kThreatNumberPx = 18.f;  // card threat total (Class A, Zone)
+inline constexpr float kSkillKeyPx = 18.f;      // skill slot hotkey (Class A, Zone)
+inline constexpr float kSkillCostPx = 18.f;     // skill slot AP cost (Class A, Zone)
+inline constexpr float kJournalPx = 15.f;       // journal lines (Zone)
+inline constexpr float kTopBarTitlePx = 15.f;   // "EMBER DUNGEON" title (Cinzel, ImGui path)
+
+} // namespace hud
+
+/// One row of the WP-12c HUD text-size audit. `classA` is the XAG-critical gameplay number (must stay at
+/// or above 18 design px); `residualGap` names a row in the WP's explicit 84% report (held at 15 on purpose).
+struct FHudTextSite {
+    std::string_view id;
+    float basePx;
+    EHudText scope;
+    bool classA;
+    bool residualGap;
+};
+
+/// The size table the tests report against (data lives in FUiTheme.cpp), built from the hud:: constants.
+[[nodiscard]] std::span<const FHudTextSite> HudTextSizeTable();
+
+/// Status gem shape by status kind (`kStatusKind*` from gameplay/data/FStatusContent.h): a second channel
+/// next to the kind colour. Unknown kinds get the hollow ring.
+enum class EStatusGemShape { Circle, Triangle, Square, Diamond, Ring };
+
+[[nodiscard]] EStatusGemShape StatusGemShapeFor(std::string_view kind);
+
+/// One status gem at `center`: the kind's shape in `fill` with the existing dark 1px outline.
+void DrawStatusGem(ImDrawList* draw, ImVec2 center, float radius, EStatusGemShape shape, ImU32 fill);
+
+/// 1px bright outline over a board plate's dark backing (WP-12c), so the plate reads on any terrain.
+void DrawPlateOutline(ImDrawList* draw, ImVec2 min, ImVec2 max, float radius, ImU32 color);
+
+/// Board-plate caret: a filled trapezoid from the plate's bottom centre (4u wide) to `anchor` (2u wide),
+/// so a stacked plate still names the cell it belongs to. Colour = the plate's meaning colour.
+void DrawPlateCaret(ImDrawList* draw, ImVec2 plateBottomCenter, ImVec2 anchor, float u, ImU32 color);
+
+/// Same-cell stack lift: the 3rd and later plates stay at the 2nd step and let the caret length carry the
+/// affiliation instead of growing an unbounded column.
+[[nodiscard]] int PlateLiftSteps(int stackIndex) noexcept;
+
+/// Which selection cues on the board are drawn as an outline, and at which diamond insets. Affected (the
+/// hit forecast) is the double-outline cue; hovered is the pointer-cursor affordance (see the renderer).
+enum class ESelectionCue { Reachable, Affected, Hovered };
+
+[[nodiscard]] std::span<const float> SelectionOutlineInsets(ESelectionCue cue);
+
+/// Layout width of `text` in the heading font at the EFFECTIVE size (`size * FontScaleMain`) — what the
+/// ImGui text path really lays out, which is the width the unit readout's role label must clear. Zero
+/// without the bundled heading font.
+[[nodiscard]] float HeadingTextWidth(const char* text, float size);
+
+/// The rect of one skill slot inside `zone` (`layout.zones.skills`): 56u slot, 18u pad, three gaps. The
+/// view's hit rect and the click test read the same geometry.
+[[nodiscard]] FRect SkillSlotRect(const FRect& zone, float u, int index);
 
 /// One piece of the carved-metal UI skin. An empty piece (size 0) means "draw the procedural fallback".
 struct FSkinPiece {

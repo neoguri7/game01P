@@ -465,6 +465,7 @@ bool FRunEventSchemaValid(const nlohmann::json& event) {
                      "ms_to_first_battle", "report"}},
         {"dungeon_clear", {"t", "depth"}},
         {"engine_ignition", {"t", "depth", "room", "round", "engine"}},
+        {"loadout", {"t", "depth", "room", "phase", "member", "slot", "rune", "action"}},
     };
     const std::string& name = type->get_ref<const std::string&>();
     for (const FRule& rule : kRules) {

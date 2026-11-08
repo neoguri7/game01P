@@ -465,24 +465,24 @@ void TextScaleKeepsZones() {
         };
 
         // Height: the tallest authored font of each fixed HUD cluster.
-        expectHeight(layout.zones.title, 14.f, "title");
-        expectHeight(layout.zones.turnOrder, 11.f, "turn order");
+        expectHeight(layout.zones.title, 15.f, "title");
+        expectHeight(layout.zones.turnOrder, 15.f, "turn order");
         expectHeight(layout.zones.status, 13.f, "status");
-        expectHeight(layout.zones.party, 13.f, "party");
-        expectHeight(layout.zones.unit, 14.f, "unit");
+        expectHeight(layout.zones.party, 18.f, "party");
+        expectHeight(layout.zones.unit, 18.f, "unit");
         expectHeight(layout.zones.skills, 20.f, "skills");
         expectHeight(layout.zones.endTurn, 20.f, "end turn");
-        expectHeight(layout.zones.journal, 12.f, "journal");
+        expectHeight(layout.zones.journal, 15.f, "journal");
         expectHeight(layout.zones.hints, 22.f, "hints");
         expectHeight(layout.zones.targets, 15.f, "targets");
 
         // Width: the fixed strings the HUD draws inside a zone (incl. the skeleton's own turn-order assert).
-        expectWidth(layout.zones.title, "EMBER DUNGEON", 14.f, 8.f, "title heading");
+        expectWidth(layout.zones.title, "EMBER DUNGEON", 15.f, 8.f, "title heading");
         expectWidth(layout.zones.status, "DEPTH 01  |  ROOM 1 / 3", 13.f, 8.f, "status depth");
         expectWidth(layout.zones.status, "MATERIALS 0  |  CHECKPOINT 0  |  NODES 0", 12.f, 8.f, "status resources");
-        expectWidth(layout.zones.turnOrder, game::ecs::kNextRoundMarker, 11.f, 24.f, "turn marker");
+        expectWidth(layout.zones.turnOrder, game::ecs::kNextRoundMarker, 15.f, 24.f, "turn marker");
         expectWidth(layout.zones.skills, "ROOM RESOLVED", 20.f, 0.f, "skills banner");
-        expectWidth(layout.zones.unit, "Lumen", 14.f, 0.f, "unit name");
+        expectWidth(layout.zones.unit, "Lumen", 15.f, 0.f, "unit name");
         expectWidth(layout.zones.hints, "?", 22.f, 0.f, "hint mark");
         expectWidth(layout.zones.targets, "Rain of Arrows", 15.f, 32.f, "target card name");
         expectWidth(layout.zones.targets, "Range 4  |  AP 2  |  spread", 15.f, 32.f, "target card stats");
@@ -607,12 +607,12 @@ void InfoCueChecklistComplete() {
     const auto rows = game::ui::InfoCueChecklist();
     CHECK(rows.size() == 6);
     constexpr std::array<game::ui::EInfoCueStatus, 6> kExpected{
-        game::ui::EInfoCueStatus::Covered,   // world faction badge above the head + colour ring
-        game::ui::EInfoCueStatus::FollowUp,  // board move/hit range cells: colour only (documented gap)
-        game::ui::EInfoCueStatus::Covered,   // HUD faction -> name and text
-        game::ui::EInfoCueStatus::Covered,   // AP gems -> letters, counts, numbers
-        game::ui::EInfoCueStatus::Covered,   // result banner/log -> text
-        game::ui::EInfoCueStatus::FollowUp,  // status gems: kind is colour-only (documented gap)
+        game::ui::EInfoCueStatus::Covered,  // world faction badge above the head + colour ring
+        game::ui::EInfoCueStatus::Covered,  // board ranges: move single outline / hit double outline (WP-12c)
+        game::ui::EInfoCueStatus::Covered,  // HUD faction -> name and text
+        game::ui::EInfoCueStatus::Covered,  // AP gems -> letters, counts, numbers
+        game::ui::EInfoCueStatus::Covered,  // result banner/log -> text
+        game::ui::EInfoCueStatus::Covered,  // status gems: one shape per kind (WP-12c)
     };
     for (std::size_t index = 0; index < rows.size(); ++index) {
         CHECK(!rows[index].id.empty());
@@ -620,12 +620,11 @@ void InfoCueChecklistComplete() {
         CHECK(!rows[index].cue.empty());
         CHECK(rows[index].status == kExpected[index]);
     }
-    // Both residual gaps are named as such, so neither can silently become "covered".
+    // Both former follow-up rows now name their non-colour channel, so neither can regress silently.
     CHECK(rows[1].id == "board.ranges");
-    CHECK(rows[1].status == game::ui::EInfoCueStatus::FollowUp);
+    CHECK(rows[1].cue.find("double outline") != std::string_view::npos);
     CHECK(rows[5].id == "unit.statuses");
-    CHECK(rows[5].status == game::ui::EInfoCueStatus::FollowUp);
-    CHECK(rows[5].cue.find("colour-only") != std::string_view::npos);
+    CHECK(rows[5].cue.find("shape per kind") != std::string_view::npos);
 }
 
 // ---------------------------------------------------------------------------------------------
