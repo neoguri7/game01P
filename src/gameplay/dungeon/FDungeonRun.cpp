@@ -28,10 +28,12 @@
 #include "gameplay/dungeon/FRunFlow.h"
 #include "gameplay/dungeon/FRunLog.h"
 #include "gameplay/dungeon/FRunSequence.h"
+#include "gameplay/dungeon/FRunStart.h"
 #include "gameplay/dungeon/FSaveSections.h"
 #include "gameplay/dungeon/FRoomGenerator.h"
 #include "gameplay/factory/FEntityDefinitions.h"
 #include "gameplay/factory/FEntityFactory.h"
+#include "gameplay/meta/FMetaProgress.h"
 #include "gameplay/battle/FBattleSetup.h"
 
 namespace game {
@@ -51,7 +53,22 @@ std::optional<FDungeonSaveRules> SaveRules(entt::registry& registry) {
     FDungeonSaveRules rules;
     rules.content = content;
     rules.passiveTree = &growth->passiveTree;
-    for (const auto& member : DungeonDefinition(registry).at("party")) rules.partyIds.push_back(member.at("id").get<std::string>());
+    // [WP-21b] The run party is chosen from the roster, so the save accepts WHICH ids may appear (dungeon
+    // party ids ∪ every roster entry that is not a `locked: true` stub, no duplicates). The count stays
+    // pinned to the four battlefield cells (kRunPartySize): Subset widens the id set, never the size. An
+    // old save (the authored four) still loads.
+    rules.partyMatch = EPartyMatch::Subset;
+    rules.partySize = kRunPartySize;
+    std::set<std::string> seen;
+    const auto addPartyId = [&rules, &seen](const std::string& id) {
+        if (seen.insert(id).second) rules.partyIds.push_back(id);
+    };
+    for (const auto& member : DungeonDefinition(registry).at("party")) {
+        addPartyId(member.at("id").get<std::string>());
+    }
+    for (const FMetaRosterRow& row : MetaRosterCatalog(registry)) {
+        if (!row.locked) addPartyId(row.id);
+    }
     return rules;
 }
 
@@ -206,7 +223,16 @@ bool IsKnownStatUpgrade(std::string_view stat) {
 void ReportUnknownRunMember(std::string_view id) {
     static std::set<std::string> reported;
     if (reported.insert(std::string(id)).second) {
-        LOG_ERROR("Run member '{}' has no unit template in the dungeon party; its max HP is unknown.", id);
+        LOG_ERROR("Run member '{}' has no unit template; its max HP is unknown.", id);
+    }
+}
+
+/// The battlefield-placement report is once per id: a broken run member must be loud once, not flood every
+/// room build (the same discipline as ReportUnknownRunMember).
+void ReportUnplacedRunMember(std::string_view id) {
+    static std::set<std::string> reported;
+    if (reported.insert(std::string(id)).second) {
+        LOG_ERROR("Run member '{}' has no unit template; it is not placed on the battlefield.", id);
     }
 }
 
@@ -214,6 +240,43 @@ std::vector<std::pair<int, int>> PartyCells(const nlohmann::json& party) {
     std::vector<std::pair<int, int>> cells;
     for (const auto& member : party) cells.emplace_back(member.at("grid_x").get<int>(), member.at("grid_y").get<int>());
     return cells;
+}
+
+/// [WP-21b] The display name for an installed setup member: the authored dungeon party row's display_name
+/// when the id is an authored row, else the roster catalog name. A member in neither keeps its id (the
+/// setup validation refuses such a member before a run is installed).
+std::string SetupMemberDisplayName(entt::registry& registry, std::string_view memberId) {
+    for (const auto& row : DungeonDefinition(registry).at("party")) {
+        if (row.at("id").get<std::string>() == memberId) return row.at("display_name").get<std::string>();
+    }
+    for (const FMetaRosterRow& row : MetaRosterCatalog(registry)) {
+        if (row.id == memberId) return row.name;
+    }
+    return std::string(memberId);
+}
+
+/// [WP-21b] The `document["units"]` party rows for the installed run: each member's placement id, its
+/// resolved unit template (ResolveRunMemberUnit — the single rule), its run display name and the i-th
+/// dungeon.json party[] placement cell. A member whose unit does not resolve is skipped, and never more
+/// members than authored cells are placed.
+nlohmann::json BattlefieldPartyRows(entt::registry& registry, const FDungeonRun& run, const nlohmann::json& data) {
+    const auto& cells = data.at("party");
+    nlohmann::json party = nlohmann::json::array();
+    for (std::size_t i = 0; i < run.party.size() && i < cells.size(); ++i) {
+        const FRunMember& member = run.party[i];
+        const gameplay::FUnitContent* unit = ResolveRunMemberUnit(registry, member.id);
+        if (unit == nullptr) {
+            ReportUnplacedRunMember(member.id);
+            continue;
+        }
+        party.push_back({{"id", member.id},
+                         {"display_name", member.displayName},
+                         {"unit", unit->id},
+                         {"faction", "party"},
+                         {"grid_x", cells[i].at("grid_x")},
+                         {"grid_y", cells[i].at("grid_y")}});
+    }
+    return party;
 }
 
 // Fills the battlefield fields that every dungeon room shares.
@@ -224,7 +287,12 @@ void FinishBattlefield(nlohmann::json& document, const nlohmann::json& data) {
     document["trap_damage"] = data["balance"]["trap_damage"];
 }
 
-nlohmann::json BuildRoomDocument(const nlohmann::json& data, const gameplay::FRoomGenConfig& config,
+// [WP-21b] `party` is only the party part of `document["units"]`: the boot probe passes the authored
+// `dungeon.json party` (unchanged output), the live battlefield passes the installed run's rows
+// (BattlefieldPartyRows). The generator cells ALWAYS come from the authored `data.at("party")` — terrain
+// and enemy placement must not depend on who is in the party (seed determinism, battle-ordinal identity).
+nlohmann::json BuildRoomDocument(const nlohmann::json& data, const nlohmann::json& party,
+                                 const gameplay::FRoomGenConfig& config,
                                  std::uint32_t seed, int depth, int room, bool boss,
                                  gameplay::FGeneratedRoom* generatedOut = nullptr) {
     const auto cells = PartyCells(data.at("party"));
@@ -233,7 +301,7 @@ nlohmann::json BuildRoomDocument(const nlohmann::json& data, const gameplay::FRo
     nlohmann::json document;
     document["name"] = generated.name;
     document["terrain"] = generated.terrain;
-    document["units"] = data.at("party");
+    document["units"] = party;
     int index = 1;
     for (const auto& enemy : generated.enemies) {
         document["units"].push_back({{"id", "enemy." + std::to_string(index++)},
@@ -282,15 +350,38 @@ int KoRecoverFloor(int maxHealth, double fraction) {
     return std::max(1, floored);
 }
 
-/// The unit template a run member maps to (`data/dungeon party[].id → unit`, then the content row). The run
-/// keeps placement ids ("party.warrior"); the unit table is keyed by template id ("char.warrior"). Mirrors
-/// how FRewards resolves party skills — a const-registry-safe read for the run HP derivation.
-/// WP-21 §1: the single memberId → unit resolver every call site shares (max HP, event stats, battlefield
-/// placement). Roster awareness (a `data/roster` lookup ahead of the dungeon fallback) arrives with 21b.
+/// The unit template a run member maps to (WP-21 §1, the single rule): a `data/roster` row with this id
+/// wins — `locked: true` resolves to nullptr (even when the row carries a `unit` key; locked rows are
+/// excluded from resolution and cannot be fielded), a string `unit` key resolves through the content
+/// table; otherwise (no row, no `unit` key, unreadable roster) the `data/dungeon` `party[].id → unit`
+/// lookup decides. The run keeps placement ids ("party.warrior"); the unit table is keyed by template id
+/// ("char.warrior"). Mirrors how FRewards resolves party skills — a const-registry-safe read for the run
+/// HP derivation. nullptr means the member's unit cannot be resolved; callers keep their existing
+/// warning/fallback.
 const gameplay::FUnitContent* ResolveRunMemberUnit(const entt::registry& registry, std::string_view memberId) {
     const auto* assets = registry.ctx().find<FAssetManager>();
     const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
     if (assets == nullptr || content == nullptr) return nullptr;
+    // `resolvePath` is the silent existence probe (the FBossContent precedent): an absent roster document
+    // is the dungeon fallback, not an error — content-only boots stay quiet.
+    if (assets->resolvePath("data/roster")) {
+        if (const auto roster = assets->digest("data/roster")) {
+            try {
+                for (const auto& row : roster->json().at("roster")) {
+                    if (row.at("id").get<std::string>() != memberId) continue;
+                    // A locked stub resolves to nullptr even when it carries a `unit` key: locked rows are
+                    // excluded from resolution and cannot be fielded (WP §1).
+                    if (row.value("locked", false)) return nullptr;
+                    if (const auto unit = row.find("unit"); unit != row.end() && unit->is_string()) {
+                        return content->units.find(unit->get<std::string>());
+                    }
+                    break;  // no `unit` key and not locked: the dungeon fallback decides
+                }
+            } catch (const nlohmann::json::exception& error) {
+                LOG_WARN("Run member unit could not be resolved: {}", error.what());
+            }
+        }
+    }
     const auto digest = assets->digest("data/dungeon");
     if (!digest) return nullptr;
     try {
@@ -300,7 +391,7 @@ const gameplay::FUnitContent* ResolveRunMemberUnit(const entt::registry& registr
             }
         }
     } catch (const nlohmann::json::exception& error) {
-        LOG_WARN("Run member max health could not read the dungeon party: {}", error.what());
+        LOG_WARN("Run member unit could not be resolved: {}", error.what());
     }
     return nullptr;
 }
@@ -534,7 +625,7 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
                     FScene scene(probeRegistry, "validation");
                     scene.Load();
                     const auto document =
-                        BuildRoomDocument(data, tupleConfig, seed, index + 1, ordinal, !slot->boss.empty());
+                        BuildRoomDocument(data, data.at("party"), tupleConfig, seed, index + 1, ordinal, !slot->boss.empty());
                     const auto battlefield = FEntityFactory::CreateBattlefield(scene, document);
                     if (!battlefield) {
                         LOG_ERROR("Generated dungeon room invalid: {}", battlefield.error().message);
@@ -634,11 +725,30 @@ void InstallDungeonRunAt(entt::registry& registry, std::uint32_t seed, int clear
     if (const auto* sequence = FindRunSequence(registry)) {
         run.materials = sequence->StartMaterials(index);
     }
-    for (const auto& member : DungeonDefinition(registry).at("party")) {
-        FRunMember runMember;
-        runMember.id = member.at("id").get<std::string>();
-        runMember.displayName = member.at("display_name").get<std::string>();
-        run.party.push_back(std::move(runMember));
+    // [WP-21b] The preparation screen's setup request is consumed exactly once — also when it is unusable
+    // (validation lives in StartDungeonRunFromSetup, never here). Without a request the authored dungeon
+    // party installs exactly as before.
+    if (registry.ctx().contains<FRunSetupRequest>()) {
+        FRunSetup setup = std::move(registry.ctx().get<FRunSetupRequest>().setup);
+        registry.ctx().erase<FRunSetupRequest>();
+        for (std::size_t i = 0; i < setup.party.size(); ++i) {
+            FRunMember runMember;
+            runMember.id = setup.party[i];
+            runMember.displayName = SetupMemberDisplayName(registry, setup.party[i]);
+            if (i < setup.skills.size()) {
+                for (const std::string& skillId : setup.skills[i]) {
+                    runMember.skills.push_back(FSkillSlot{skillId, {}});
+                }
+            }
+            run.party.push_back(std::move(runMember));
+        }
+    } else {
+        for (const auto& member : DungeonDefinition(registry).at("party")) {
+            FRunMember runMember;
+            runMember.id = member.at("id").get<std::string>();
+            runMember.displayName = member.at("display_name").get<std::string>();
+            run.party.push_back(std::move(runMember));
+        }
     }
     // A new run starts with a clean preserved-section slate and its own event log.
     ClearPreserved(registry);
@@ -751,8 +861,8 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
         registry.ctx().erase<FBossBattle>();
     }
     gameplay::FGeneratedRoom generated;
-    auto document = BuildRoomDocument(data, slotConfig, run.seed, run.depth, run.room, slot != nullptr && !slot->boss.empty(),
-                                      &generated);
+    auto document = BuildRoomDocument(data, BattlefieldPartyRows(registry, run, data), slotConfig, run.seed,
+                                      run.depth, run.room, slot != nullptr && !slot->boss.empty(), &generated);
     run.roomName = document.at("name").get<std::string>();
     // WP-19a: a saved-phase continue (Reward/Event/Camp/Defeat) also builds the field but must not record a
     // battle that will not happen; only a real Battle phase writes dungeon_enter/room_start. The emergent

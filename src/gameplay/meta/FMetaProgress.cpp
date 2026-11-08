@@ -34,6 +34,12 @@ constexpr int kDefaultLadderRank = 1;
 /// (depth reaches 1000 in LeaveCamp).
 constexpr int kLadderCheckpointCap = 999;
 
+/// [WP-21b] The D-14 seal amounts of the milestone ledger: the first clear of a dungeon position and the
+/// first breakthrough of its boss. 21c's LifetimeSealsEarned sums `ladder[*].granted` with these same
+/// constants (one source for the grant and the lifetime total).
+constexpr int kClearSeals = 1;
+constexpr int kBossSeals = 2;
+
 constexpr const char* kSaveDirEnv = "GAME01P_SAVE_DIR";
 
 /// The GAME01P_SAVE_DIR override, or nullopt when unset or empty. std::getenv, not SDL_getenv: SDL caches
@@ -57,19 +63,11 @@ std::optional<std::filesystem::path> PreferenceDirectory() {
     return result;
 }
 
-/// One unlock catalog row (`unlocks.json`). `id` is the content id (skill.hook / rune.inferno / a roster
-/// stub id) and is what meta_save.unlocks stores.
-struct FMetaUnlockEntry {
-    std::string id;
-    std::string kind;
-    int cost{0};
-    int sealGate{0};
-};
-
-/// The shipped meta catalogs, loaded once at boot through the asset boundary.
+/// The shipped meta catalogs, loaded once at boot through the asset boundary. The unlock rows are the
+/// public FMetaUnlockRow (FMetaProgress.h): the catalog view hands out the very same rows — no conversion.
 struct FMetaCatalog {
     std::vector<FMetaRosterRow> roster;
-    std::vector<FMetaUnlockEntry> unlocks;
+    std::vector<FMetaUnlockRow> unlocks;
 };
 
 } // namespace
@@ -80,6 +78,8 @@ struct FMetaCatalog {
 struct FMetaProgressStore {
     FMetaSave save;
     FMetaCatalog catalog;
+    /// [WP-21b] the L2 progression table (progression.json): shipped content, loaded at boot — never saved.
+    FMetaProgression progression;
     std::filesystem::path path;
     bool disabled{false};
     std::string reason;
@@ -167,6 +167,14 @@ bool LoadRosterCatalog(const FAssetManager& assets, FMetaCatalog& catalog, std::
             }
             if (const auto enabled = row.find("enabled"); enabled != row.end()) entry.enabled = enabled->get<bool>();
             if (const auto locked = row.find("locked"); locked != row.end()) entry.locked = locked->get<bool>();
+            // [WP-21b] The optional `unit` key (WP-21 §1): the single memberId→unit resolver reads it from the
+            // raw `data/roster` document, so it is pinned here but never stored in FMetaRosterRow (identity
+            // rows stay identity only). Unknown keys keep the loader's ignore behaviour.
+            if (const auto unit = row.find("unit"); unit != row.end() && !unit->is_string()) {
+                error = "roster row '" + entry.id + "' unit must be a string";
+                LOG_ERROR("meta content: {}", error);
+                return false;
+            }
             // Identity rows are either enabled or locked — never both, never neither (the save schema
             // mirrors this shape).
             if (entry.id.empty() || entry.name.empty() || entry.enabled == entry.locked) {
@@ -209,7 +217,7 @@ bool LoadUnlockCatalog(const FAssetManager& assets, FMetaCatalog& catalog, std::
     }
     try {
         for (const auto& row : *rows) {
-            FMetaUnlockEntry entry;
+            FMetaUnlockRow entry;
             entry.id = row.at("id").get<std::string>();
             entry.kind = row.at("kind").get<std::string>();
             entry.cost = row.at("cost").get<int>();
@@ -220,7 +228,7 @@ bool LoadUnlockCatalog(const FAssetManager& assets, FMetaCatalog& catalog, std::
                 LOG_ERROR("meta content: unlocks.json row '{}' is invalid (kind, id namespace, cost/seal_gate).", entry.id);
                 return false;
             }
-            if (std::ranges::any_of(catalog.unlocks, [&](const FMetaUnlockEntry& other) { return other.id == entry.id; })) {
+            if (std::ranges::any_of(catalog.unlocks, [&](const FMetaUnlockRow& other) { return other.id == entry.id; })) {
                 error = "unlocks repeat '" + entry.id + "'";
                 LOG_ERROR("meta content: unlocks.json repeats id '{}'.", entry.id);
                 return false;
@@ -230,6 +238,60 @@ bool LoadUnlockCatalog(const FAssetManager& assets, FMetaCatalog& catalog, std::
     } catch (const nlohmann::json::exception& exception) {
         error = std::string("unlocks.json is invalid: ") + exception.what();
         LOG_ERROR("meta content: unlocks.json is unusable: {}", exception.what());
+        return false;
+    }
+    return true;
+}
+
+/// [WP-21b] The L2 progression table (WP-21 §4). Shipped-content grade like the roster/unlock catalogs: a
+/// missing or invalid file stops the boot. Values are data — the struct carries no code defaults.
+bool LoadProgressionCatalog(const FAssetManager& assets, FMetaProgression& progression, std::string& error) {
+    const auto path = assets.resolvePath("data/progression");
+    if (!path) {
+        error = "progression.json is missing";
+        LOG_ERROR("meta content: progression.json is missing; the L2 progression table is required for boot.");
+        return false;
+    }
+    const auto document = FJsonLoader::Load(*path, 1);
+    if (!document) {
+        error = "progression.json is unreadable";
+        return false; // the loader already logged the reason
+    }
+    const auto fail = [&error](std::string reason) {
+        error = "progression.json " + std::move(reason);
+        LOG_ERROR("meta content: {}", error);
+        return false;
+    };
+    try {
+        const int slotCap = document->at("slot_cap").get<int>();
+        if (slotCap < kBaseActiveSkillSlots) {
+            return fail("slot_cap must be at least " + std::to_string(kBaseActiveSkillSlots));
+        }
+        const auto rewards = document->find("promotion_rewards");
+        if (rewards == document->end() || !rewards->is_object()) {
+            return fail("promotion_rewards must be an object");
+        }
+        const int bossesPerPromotion = rewards->at("bosses_per_promotion").get<int>();
+        const int sealsPerOverflow = rewards->at("seals_per_overflow").get<int>();
+        if (bossesPerPromotion < 1 || sealsPerOverflow < 0) {
+            return fail("promotion_rewards must carry bosses_per_promotion >= 1 and seals_per_overflow >= 0");
+        }
+        const auto slotPromotion = document->find("slot_promotion");
+        if (slotPromotion == document->end() || !slotPromotion->is_boolean()) {
+            return fail("slot_promotion must be a boolean");
+        }
+        const auto socketPromotion = document->find("socket_promotion");
+        if (socketPromotion == document->end() || !socketPromotion->is_boolean()) {
+            return fail("socket_promotion must be a boolean");
+        }
+        progression.slotCap = slotCap;
+        progression.slotPromotion = slotPromotion->get<bool>();
+        progression.socketPromotion = socketPromotion->get<bool>();
+        progression.bossesPerPromotion = bossesPerPromotion;
+        progression.sealsPerOverflow = sealsPerOverflow;
+    } catch (const nlohmann::json::exception& exception) {
+        error = std::string("progression.json is invalid: ") + exception.what();
+        LOG_ERROR("meta content: progression.json is unusable: {}", exception.what());
         return false;
     }
     return true;
@@ -253,7 +315,7 @@ FMetaSave FreshMetaSave(const FMetaCatalog& catalog) {
 bool CatalogAccepts(const FMetaCatalog& catalog, const FMetaSave& save, std::string& problem) {
     for (const auto& id : save.unlocks) {
         const bool known = std::ranges::any_of(catalog.unlocks,
-                                               [&](const FMetaUnlockEntry& entry) { return entry.id == id; });
+                                               [&](const FMetaUnlockRow& entry) { return entry.id == id; });
         if (!known) {
             problem = "unlock '" + id + "' is not in unlocks.json";
             return false;
@@ -412,7 +474,7 @@ bool GrantDungeonClear(FMetaProgressStore& store, const FRunEvent& event, const 
     auto& lane = store.save.ladder[std::to_string(kDefaultLadderRank)];
     if (!HasGranted(lane, milestone.key)) {
         lane.granted.push_back(milestone.key);
-        store.save.seals += 1;
+        store.save.seals += kClearSeals;
         LOG_INFO("[meta] +1 seal: dungeon clear {} (D-14/D-22: first clear only).", milestone.key);
     }
     store.save.stats.clears += 1;
@@ -425,16 +487,55 @@ bool GrantDungeonClear(FMetaProgressStore& store, const FRunEvent& event, const 
     return true;
 }
 
-/// BossDefeated (the WP-15 cross contract; tests append it directly — standalone green): +2 seals for the
-/// first breakthrough of (rank, dungeon position). A final slot also records the grand milestone:
-/// stats.grand counts every final defeat (cycles included), ladder[rank].grand only the first grant.
-bool GrantBossDefeat(FMetaProgressStore& store, const FMetaMilestone& milestone) {
+/// [WP-21b] WP-21 §4 L2 accrual, called ONLY for a newly inserted `#boss` key (a repeat event never reaches
+/// it — the ledger already holds the key, D-22). Every member of the active run gets one step: a member whose
+/// every LIT axis is already capped converts the step into seals_per_overflow straight into the balance (no
+/// new ledger key, progress unchanged); otherwise progress +1 and a tier-up at bosses_per_promotion. With
+/// both axes off (the shipped default) only progress/tier accrue — nothing converts, nothing is applied.
+void AccruePromotions(entt::registry& registry, FMetaProgressStore& store) {
+    const auto* run = registry.ctx().find<FDungeonRun>();
+    if (run == nullptr) return; // the milestone arrived without a run: nothing to promote
+    const FMetaProgression& progression = store.progression;
+    const int slotHeadroom = progression.slotCap - kBaseActiveSkillSlots;
+    for (const FRunMember& member : run->party) {
+        FMetaPromotion& promotion = store.save.promotions[member.id];
+        // A lit axis is capped at min(tier, cap) == cap: slot at tier >= slotCap - kBaseActiveSkillSlots,
+        // socket at tier >= 1.
+        const bool slotCapped = progression.slotPromotion && std::min(promotion.tier, slotHeadroom) == slotHeadroom;
+        const bool socketCapped = progression.socketPromotion && std::min(promotion.tier, 1) == 1;
+        if ((progression.slotPromotion || progression.socketPromotion) && (!progression.slotPromotion || slotCapped) &&
+            (!progression.socketPromotion || socketCapped)) {
+            store.save.seals += progression.sealsPerOverflow;
+            LOG_INFO("[meta] promotion {}: +{} seal(s) overflow (every lit axis is capped).", member.id,
+                     progression.sealsPerOverflow);
+            continue;
+        }
+        promotion.progress += 1;
+        if (promotion.progress >= progression.bossesPerPromotion) {
+            promotion.progress = 0;
+            promotion.tier += 1;
+            LOG_INFO("[meta] promotion {}: tier {} reached ({} boss breakthrough(s)).", member.id, promotion.tier,
+                     progression.bossesPerPromotion);
+        } else {
+            LOG_INFO("[meta] promotion {}: progress {}/{} (tier {}).", member.id, promotion.progress,
+                     progression.bossesPerPromotion, promotion.tier);
+        }
+    }
+}
+
+/// BossDefeated (the WP-15 cross contract; tests append it directly — standalone green): +kBossSeals seals for
+/// the first breakthrough of (rank, dungeon position). A final slot also records the grand milestone:
+/// stats.grand counts every final defeat (cycles included), ladder[rank].grand only the first grant. A NEW
+/// milestone also steps the party's L2 promotions (WP-21 §4 — only here, so repeat/lower-start bosses grant
+/// nothing).
+bool GrantBossDefeat(entt::registry& registry, FMetaProgressStore& store, const FMetaMilestone& milestone) {
     auto& lane = store.save.ladder[std::to_string(kDefaultLadderRank)];
     const bool first = !HasGranted(lane, milestone.key);
     if (first) {
         lane.granted.push_back(milestone.key);
-        store.save.seals += 2;
+        store.save.seals += kBossSeals;
         LOG_INFO("[meta] +2 seals: boss breakthrough {} (D-14/D-22: first clear only).", milestone.key);
+        AccruePromotions(registry, store);
     }
     const bool final = IsFinalBossSlot(milestone);
     if (final) {
@@ -468,7 +569,7 @@ void HandleMetaRunEvent(entt::registry& registry, const FRunEvent& event) {
     }
     case ERunEventKind::BossDefeated: {
         if (const auto milestone = MilestoneFor(registry, *store, event, "#boss")) {
-            changed = GrantBossDefeat(*store, *milestone);
+            changed = GrantBossDefeat(registry, *store, *milestone);
         }
         break;
     }
@@ -490,13 +591,19 @@ bool InitializeMetaProgress(entt::registry& registry, std::string path, FMetaPre
         LOG_ERROR("meta progress needs the asset boundary: FAssetManager is missing from the registry context.");
         return false;
     }
-    // Shipped content first: a missing or invalid roster.json / unlocks.json stops the boot regardless of
-    // the storage state (FRewards.h:50 precedent — "a missing file or a validation failure returns false
-    // and the boot stops"). Save corruption (reset allowed, backup first) and content corruption (boot
-    // failure) are different grades.
+    // Shipped content first: a missing or invalid roster.json / unlocks.json / progression.json stops the
+    // boot regardless of the storage state (FRewards.h:50 precedent — "a missing file or a validation failure
+    // returns false and the boot stops"). Save corruption (reset allowed, backup first) and content corruption
+    // (boot failure) are different grades.
     FMetaProgressStore store;
     std::string error;
     if (!LoadMetaCatalog(*assets, store.catalog, error)) {
+        registry.ctx().erase<FMetaProgressStore>();
+        LOG_ERROR("meta content is unusable ({}); boot stopped (see the meta content errors above).", error);
+        return false;
+    }
+    // [WP-21b] the L2 progression table (WP-21 §4): shipped-content grade like the roster/unlock catalogs.
+    if (!LoadProgressionCatalog(*assets, store.progression, error)) {
         registry.ctx().erase<FMetaProgressStore>();
         LOG_ERROR("meta content is unusable ({}); boot stopped (see the meta content errors above).", error);
         return false;
@@ -641,7 +748,7 @@ void GrantMetaUnlock(entt::registry& registry, std::string_view unlockId) {
     // An id outside the catalog would make the next load fail its cross-check (unlocks ⊆ unlocks.json):
     // refuse it at the source.
     if (!std::ranges::any_of(store->catalog.unlocks,
-                             [&](const FMetaUnlockEntry& entry) { return entry.id == unlockId; })) {
+                             [&](const FMetaUnlockRow& entry) { return entry.id == unlockId; })) {
         LOG_WARN("[meta] unknown unlock id '{}' ignored (it is not in unlocks.json).", unlockId);
         return;
     }
@@ -700,6 +807,70 @@ std::optional<std::filesystem::path> ResolveMetaSavePath(const std::optional<std
         if (const auto directory = prefPath()) return *directory / std::filesystem::path(kMetaSaveFileName);
     }
     return std::nullopt;
+}
+
+/// ---------------------------------------------------------------------------------------------
+/// [WP-21b] L2 promotion state (WP-21 §4) + the public catalog/gate view (WP-21 §1/§3)
+/// ---------------------------------------------------------------------------------------------
+
+const FMetaProgression* FindMetaProgression(const entt::registry& registry) {
+    const auto* store = registry.ctx().find<FMetaProgressStore>();
+    return store != nullptr ? &store->progression : nullptr;
+}
+
+FMetaPromotion MetaPromotionOf(const entt::registry& registry, std::string_view memberId) {
+    const auto* store = registry.ctx().find<FMetaProgressStore>();
+    if (store == nullptr) return {};
+    const auto found = store->save.promotions.find(std::string(memberId));
+    return found != store->save.promotions.end() ? found->second : FMetaPromotion{};
+}
+
+int MemberActiveSkillSlots(const entt::registry& registry, std::string_view memberId) {
+    const auto* progression = FindMetaProgression(registry);
+    if (progression == nullptr || !progression->slotPromotion) return kBaseActiveSkillSlots;
+    return kBaseActiveSkillSlots +
+        std::min(MetaPromotionOf(registry, memberId).tier, progression->slotCap - kBaseActiveSkillSlots);
+}
+
+int MemberRuneSocketBonus(const entt::registry& registry, std::string_view memberId) {
+    const auto* progression = FindMetaProgression(registry);
+    if (progression == nullptr || !progression->socketPromotion) return 0;
+    return std::min(MetaPromotionOf(registry, memberId).tier, 1);
+}
+
+/// The no-store fallback (FMetaProgress.h contract): parse the document through the asset boundary at most
+/// once per call; no root carries it (or it is unusable) = empty. Never throws — the row parsers catch their
+/// JSON exceptions and path probing does not throw.
+std::vector<FMetaUnlockRow> MetaUnlockCatalog(const entt::registry& registry) {
+    if (const auto* store = registry.ctx().find<FMetaProgressStore>()) return store->catalog.unlocks;
+    const auto* assets = registry.ctx().find<FAssetManager>();
+    if (assets == nullptr || !assets->resolvePath("data/unlocks")) return {};
+    FMetaCatalog catalog;
+    std::string error;
+    if (!LoadUnlockCatalog(*assets, catalog, error)) return {};
+    return catalog.unlocks;
+}
+
+std::optional<FMetaUnlockRow> FindMetaUnlockRow(const entt::registry& registry, std::string_view id) {
+    for (const FMetaUnlockRow& row : MetaUnlockCatalog(registry)) {
+        if (row.id == id) return row;
+    }
+    return std::nullopt;
+}
+
+std::vector<FMetaRosterRow> MetaRosterCatalog(const entt::registry& registry) {
+    if (const auto* store = registry.ctx().find<FMetaProgressStore>()) return store->catalog.roster;
+    const auto* assets = registry.ctx().find<FAssetManager>();
+    if (assets == nullptr || !assets->resolvePath("data/roster")) return {};
+    FMetaCatalog catalog;
+    std::string error;
+    if (!LoadRosterCatalog(*assets, catalog, error)) return {};
+    return catalog.roster;
+}
+
+bool IsUnlockGated(entt::registry& registry, std::string_view contentId) {
+    if (!FindMetaUnlockRow(registry, contentId).has_value()) return false;
+    return !HasMetaUnlock(registry, contentId);
 }
 
 } // namespace game

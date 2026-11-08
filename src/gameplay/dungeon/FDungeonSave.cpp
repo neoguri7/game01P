@@ -113,9 +113,12 @@ std::optional<nlohmann::json> MigrateV1ToV2(nlohmann::json document) {
     return document;
 }
 
-/// Exact keeps the historical rule (whole party); Subset accepts any non-empty part of it.
+/// Exact keeps the historical rule (whole party); Subset accepts any non-empty part of it, or exactly
+/// `partySize` members when the rules pin a count (a run party is always kRunPartySize — the four
+/// battlefield cells — and Subset only widens WHICH ids are legal, never the size).
 bool PartySizeAccepted(std::size_t size, const FDungeonSaveRules& rules) {
     if (rules.partyMatch == EPartyMatch::Exact) return size == rules.partyIds.size();
+    if (rules.partySize > 0) return size == rules.partySize;
     return size >= 1 && size <= rules.partyIds.size();
 }
 

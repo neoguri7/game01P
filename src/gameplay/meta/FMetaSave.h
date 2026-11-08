@@ -54,6 +54,15 @@ struct FMetaStats {
     int grand{0};
 };
 
+/// [WP-21b] L2 (WP-21 §4): one member's permanent promotion record. `progress` counts NEW boss milestones
+/// toward the next tier; `tier` is what the progression.json axes read (slot promotion caps at
+/// slot_cap - kBaseActiveSkillSlots, socket promotion at 1). Tier ALWAYS accrues and is saved; whether a
+/// tier applies is the data flag's call (both off = storage only, nothing applied or converted).
+struct FMetaPromotion {
+    int progress{0};
+    int tier{0};
+};
+
 /// The meta save document. Defaults are all-zero/empty; FMetaProgress fills the roster from the shipped
 /// catalog and owns the ladder import. `savedAt` is stamped at write time (MetaUtcTimestamp).
 struct FMetaSave {
@@ -62,6 +71,10 @@ struct FMetaSave {
     int seals{0};
     std::vector<std::string> unlocks;
     std::vector<FMetaRosterRow> roster;
+    /// [WP-21b] L2 promotions: roster member id -> permanent record. Additive on schema v1; the JSON key is
+    /// written ONLY when the map is non-empty, so an untouched save keeps its exact old shape (NoPowerFields
+    /// and the byte-identical round trip stay valid).
+    std::map<std::string, FMetaPromotion> promotions;
     std::map<std::string, FMetaLadderRank> ladder;
     FMetaStats stats;
 };
@@ -69,12 +82,13 @@ struct FMetaSave {
 [[nodiscard]] FMetaSave DefaultMetaSave();
 
 /// The write-side serialization. It emits exactly the documented key set (schema_version, saved_at, seals,
-/// unlocks, roster, ladder, stats) — the NoPowerFields contract lives here: the serializer can never emit
-/// a stats/power key because there is no field for one.
+/// unlocks, roster, ladder, stats; promotions only when non-empty) — the NoPowerFields contract lives here:
+/// the serializer can never emit a stats/power key because there is no field for one.
 [[nodiscard]] nlohmann::json MetaSaveToJson(const FMetaSave& save);
 
-/// The read-side schema validation: structure, field types, non-negative counts, ladder-rank key format and
-/// granted-key format; duplicates in `granted`/`unlocks`/`roster` are rejected. Unknown fields are ignored
+/// The read-side schema validation: structure, field types, non-negative counts (promotions entries
+/// included), ladder-rank key format and granted-key format; duplicates in `granted`/`unlocks`/`roster` are
+/// rejected. Unknown fields are ignored
 /// (forward compatibility — a future additive field must not be mistaken for corruption). `schema_version`
 /// must be exactly kMetaSaveVersion; the future-version branch is the caller's job (FMetaProgress reads the
 /// raw version first and keeps the file read-only). Catalog cross-checks (unlocks ⊆ unlocks.json, roster id

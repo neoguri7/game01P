@@ -905,6 +905,10 @@ void MissingUnlocksCatalogFailsInit() {
     CHECK(!code);
     WriteText(root / "data" / "roster.json",
               R"({"schema_version": 1, "roster": [{"id": "party.warrior", "name": "Alden", "enabled": true}]})");
+    // WP-21b: progression.json joined the required catalogs — write it up front so the only file missing
+    // from the first attempt is the unlocks catalog under test.
+    WriteText(root / "data" / "progression.json",
+              R"({"schema_version": 1, "slot_cap": 5, "slot_promotion": false, "socket_promotion": false, "promotion_rewards": {"bosses_per_promotion": 2, "seals_per_overflow": 1}})");
 
     entt::registry registry;
     game::FAssetManager::Initialize(registry, {root.string()});

@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <entt/entt.hpp>
 
@@ -25,9 +26,9 @@ inline constexpr const char* kMetaSaveFileName = "meta_save.json";
 using FMetaPrefDirProvider = std::function<std::optional<std::filesystem::path>()>;
 
 /// Boot (the composition root calls it inside the ember block, right after InitializeDungeon): loads the
-/// shipped meta content (roster/unlocks through the FAssetManager boundary — a missing or invalid file is
-/// a boot failure), resolves storage, loads the save (corrupt = backup + defaults; a future version = the
-/// session runs read-only), imports the checkpoint once when the save is absent, and registers the run
+/// shipped meta content (roster/unlocks/progression through the FAssetManager boundary — a missing or invalid
+/// file is a boot failure), resolves storage, loads the save (corrupt = backup + defaults; a future version =
+/// the session runs read-only), imports the checkpoint once when the save is absent, and registers the run
 /// event listener exactly once per registry.
 ///
 /// `path` (tests/tools) is the meta_save.json FILE path and outranks every other rule; empty resolves
@@ -77,5 +78,59 @@ void GrantMetaUnlock(entt::registry& registry, std::string_view unlockId);
 [[nodiscard]] std::optional<std::filesystem::path> ResolveMetaSavePath(
     const std::optional<std::filesystem::path>& overrideDir, std::string_view checkpointPath,
     const FMetaPrefDirProvider& prefPath);
+
+/// ---------------------------------------------------------------------------------------------
+/// [WP-21b] L2 promotion (WP-21 §4) + the public catalog/gate view (WP-21 §1/§3)
+/// ---------------------------------------------------------------------------------------------
+
+/// [WP-21b] The HUD/battle contract when every promotion axis is off (Skill1..Skill4, 3-socket skill cap).
+/// WP §4: active slots = kBaseActiveSkillSlots + (slotPromotion ? min(tier, slotCap - kBaseActiveSkillSlots) : 0).
+inline constexpr int kBaseActiveSkillSlots = 4;
+
+/// [WP-21b] `data/progression` (assets/data/progression.json), loaded and validated by InitializeMetaProgress
+/// — a missing or invalid file is a boot failure. The struct is only the container: values come from the
+/// data, never from code defaults.
+struct FMetaProgression {
+    int slotCap{};             // >= kBaseActiveSkillSlots
+    bool slotPromotion{};      // ships false (active slots stay 4)
+    bool socketPromotion{};    // ships false (rune socket bonus stays 0)
+    int bossesPerPromotion{};  // >= 1
+    int sealsPerOverflow{};    // >= 0
+};
+
+/// [WP-21b] The live progression table; nullptr when meta is not initialized.
+[[nodiscard]] const FMetaProgression* FindMetaProgression(const entt::registry& registry);
+
+/// [WP-21b] One member's promotion record; {} when meta is uninitialized or the member has none yet.
+[[nodiscard]] FMetaPromotion MetaPromotionOf(const entt::registry& registry, std::string_view memberId);
+
+/// [WP-21b] WP §4: kBaseActiveSkillSlots + (slotPromotion ? min(tier, slotCap - kBaseActiveSkillSlots) : 0);
+/// kBaseActiveSkillSlots without meta/progression.
+[[nodiscard]] int MemberActiveSkillSlots(const entt::registry& registry, std::string_view memberId);
+
+/// [WP-21b] WP §4: socketPromotion ? min(tier, 1) : 0 — the follow-up HUD/socket WP applies it; nothing
+/// consumes it in W9. Rune sockets themselves are 3 without it.
+[[nodiscard]] int MemberRuneSocketBonus(const entt::registry& registry, std::string_view memberId);
+
+/// [WP-21b] One unlock catalog row (`unlocks.json`). `id` is the content id (skill.x / rune.y / a roster id)
+/// and is what meta_save.unlocks stores.
+struct FMetaUnlockRow {
+    std::string id;
+    std::string kind;
+    int cost{0};
+    int sealGate{0};
+};
+
+/// [WP-21b] Public read-only view of the shipped catalogs. With a store: the store's catalog. Without one
+/// (meta never initialized — tests, forest): parsed from the FAssetManager documents `data/unlocks` /
+/// `data/roster` when they exist, else empty. Never throws.
+[[nodiscard]] std::vector<FMetaUnlockRow> MetaUnlockCatalog(const entt::registry& registry);
+[[nodiscard]] std::optional<FMetaUnlockRow> FindMetaUnlockRow(const entt::registry& registry, std::string_view id);
+[[nodiscard]] std::vector<FMetaRosterRow> MetaRosterCatalog(const entt::registry& registry);
+
+/// [WP-21b] The single gate predicate (skill pool, roster selection, rune offers): true when `contentId` has
+/// an unlocks.json row and HasMetaUnlock(contentId) is false. Meta off/uninitialized = nothing unlocked =
+/// gated rows hidden.
+[[nodiscard]] bool IsUnlockGated(entt::registry& registry, std::string_view contentId);
 
 } // namespace game

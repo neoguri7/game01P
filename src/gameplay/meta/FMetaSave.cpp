@@ -167,13 +167,24 @@ nlohmann::json MetaSaveToJson(const FMetaSave& save) {
                                   {"best_depth", save.stats.bestDepth},
                                   {"cycle_best", save.stats.cycleBest},
                                   {"grand", save.stats.grand}};
-    return {{"schema_version", save.schemaVersion},
-            {"saved_at", save.savedAt},
-            {"seals", save.seals},
-            {"unlocks", save.unlocks},
-            {"roster", std::move(roster)},
-            {"ladder", std::move(ladder)},
-            {"stats", stats}};
+    nlohmann::json result = {{"schema_version", save.schemaVersion},
+                             {"saved_at", save.savedAt},
+                             {"seals", save.seals},
+                             {"unlocks", save.unlocks},
+                             {"roster", std::move(roster)},
+                             {"ladder", std::move(ladder)},
+                             {"stats", stats}};
+    // [WP-21b] promotions (memberId -> {progress, tier}) are additive: written ONLY when non-empty so an
+    // untouched save keeps its exact old shape (the NoPowerFields whitelist and the byte-identical round
+    // trip of a fresh save stay valid; schema_version stays 1).
+    if (!save.promotions.empty()) {
+        nlohmann::json promotions = nlohmann::json::object();
+        for (const auto& [memberId, promotion] : save.promotions) {
+            promotions[memberId] = {{"progress", promotion.progress}, {"tier", promotion.tier}};
+        }
+        result["promotions"] = std::move(promotions);
+    }
+    return result;
 }
 
 std::expected<FMetaSave, std::string> MetaSaveFromJson(const nlohmann::json& document) {
@@ -217,6 +228,25 @@ std::expected<FMetaSave, std::string> MetaSaveFromJson(const nlohmann::json& doc
                 return std::unexpected("roster repeats '" + row->id + "'");
             }
             save.roster.push_back(std::move(*row));
+        }
+    }
+    // [WP-21b] promotions (memberId -> {progress, tier}): additive — missing = empty. A non-object map,
+    // a non-object entry, or a negative count is the existing invalid-document path; unknown keys inside
+    // an entry are ignored like everywhere else (forward compatibility).
+    if (const auto promotions = document.find("promotions"); promotions != document.end()) {
+        if (!promotions->is_object()) return std::unexpected("promotions must be an object");
+        for (auto it = promotions->begin(); it != promotions->end(); ++it) {
+            if (!it.value().is_object()) {
+                return std::unexpected("promotion '" + it.key() + "' must be an object");
+            }
+            FMetaPromotion promotion;
+            if (const auto progress = ReadCount(it.value(), "progress", promotion.progress, false); !progress) {
+                return std::unexpected("promotion '" + it.key() + "' " + progress.error());
+            }
+            if (const auto tier = ReadCount(it.value(), "tier", promotion.tier, false); !tier) {
+                return std::unexpected("promotion '" + it.key() + "' " + tier.error());
+            }
+            save.promotions[it.key()] = promotion;
         }
     }
     if (const auto ladder = document.find("ladder"); ladder != document.end()) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <expected>
 #include <filesystem>
 #include <functional>
@@ -30,6 +31,8 @@ enum class EPartyMatch { Exact, Subset };
 struct FDungeonSaveRules {
     std::vector<std::string> partyIds;
     EPartyMatch partyMatch{EPartyMatch::Exact};
+    /// Subset only: the exact member count a save must carry (0 = any nonempty subset — the W1 default)
+    std::size_t partySize{0};
     const gameplay::FContentRegistry* content{nullptr};
     const FPassiveTree* passiveTree{nullptr};
 };
