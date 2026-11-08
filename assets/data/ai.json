@@ -47,6 +47,18 @@
           {"type": "Once", "key": "enrage", "children": [{"type": "UseSkill", "role": "buff", "self_only": true}]}
         ]
       }
+    },
+    {
+      "id": "fragment.boss_phase",
+      "_comment": "Boss phase rule: once the action phase reaches 2 (the core is exposed), the boss closes in and commits to its area skill. The condition is false for a unit without FBossGoals, so the single-phase fallback guardian is unchanged.",
+      "node": {
+        "type": "Sequence",
+        "children": [
+          {"type": "BossPhaseAtLeast", "phase": 2},
+          {"type": "Succeeder", "children": [{"type": "Engage", "skills": ["skill.cleave"]}]},
+          {"type": "UseSkill", "skills": ["skill.cleave"]}
+        ]
+      }
     }
   ],
   "profiles": [
@@ -68,8 +80,20 @@
         "type": "ActiveSelector",
         "children": [
           {"type": "Ref", "id": "fragment.enrage"},
+          {"type": "Ref", "id": "fragment.boss_phase"},
           {"type": "Ref", "id": "fragment.fight"},
           {"type": "Ref", "id": "fragment.tend_allies"}
+        ]
+      }
+    },
+    {
+      "id": "ai.part",
+      "_comment": "Boss part (the guardian's hearts): a stationary turret. It never repositions (no Engage), it fires the best skill from where it stands, else it waits. Authored with move_ap 0, so the fix is the profile, not the AP value.",
+      "tree": {
+        "type": "ActiveSelector",
+        "children": [
+          {"type": "UseSkill", "role": "any"},
+          {"type": "Wait"}
         ]
       }
     }

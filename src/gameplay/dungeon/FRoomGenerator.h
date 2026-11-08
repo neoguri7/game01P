@@ -24,6 +24,15 @@ struct FIntRange {
     int max{0};
 };
 
+/// WP-15: one boss part row of the room config (a `bosses.json` part resolved through the run slot). The
+/// generator places `count` units of `unit` (display name `displayName`) in a boss room only; an empty
+/// `FRoomGenConfig::bossParts` means no parts.
+struct FBossPartSpawn {
+    std::string unit;
+    std::string displayName;
+    int count{1};
+};
+
 struct FRoomGenConfig {
     std::vector<std::string> names;
     std::vector<FEnemyChoice> enemies;
@@ -34,9 +43,13 @@ struct FRoomGenConfig {
     FIntRange trapCount;
     /// Room template family (WP-08): "open", "open_variant" (light), or "corridor" / "cover" / "split"
     /// (heavy). Missing/invalid names are refused by the sequence loader, so generation never sees one; the
-    /// default keeps hand-built configs (tests) working. Deliberately the last member: pre-family aggregate
-    /// initializers keep their meaning.
+    /// default keeps hand-built configs (tests) working. Deliberately placed before `bossParts`:
+    /// pre-family aggregate initializers keep their meaning.
     std::string family{"open"};
+    /// WP-15: boss parts the generator appends to a boss room's document (empty = none; non-boss rooms and
+    /// part-less boss rooms output byte-identical rooms). Placed after `family` so pre-parts aggregate
+    /// initializers keep their meaning.
+    std::vector<FBossPartSpawn> bossParts;
 };
 
 /// The spawn band: every family keeps enemies inside these rows (the header contract, tested).
@@ -99,7 +112,10 @@ struct FRoomMetrics {
 /// the traps at the centre and the spawns on the flanks; the heavy families (`corridor`, `cover`, `split`)
 /// build fixed structures that are not bound by `obstacleCount` and are reserved for elite/boss rooms
 /// (loader-enforced, D-23). Every family keeps the invariants: the outer ring stays empty, walls never
-/// disconnect any unit, and no unit spawns on a wall or trap.
+/// disconnect any unit, and no unit spawns on a wall or trap. A boss room additionally appends
+/// `config.bossParts` (WP-15) inside the spawn band, boss-adjacent first — the parts are the last enemies in
+/// the document, and their placement keeps every unit connected (no random draws: a part-less boss room is
+/// byte-identical to the pre-WP-15 output).
 [[nodiscard]] FGeneratedRoom GenerateRoom(const FRoomGenConfig& config, const FRoomRequest& request);
 
 } // namespace game::gameplay

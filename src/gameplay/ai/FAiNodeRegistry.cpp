@@ -342,6 +342,14 @@ void RegisterConditions(FAiNodeRegistry& registry) {
                              return InRange(CountSide(ctx, true, false), minimum, maximum);
                          });
     }));
+    // WP-15b: the action-side boss phase (`FBossGoals::behaviorPhase` — promoted a round after the
+    // transition). A unit without FBossGoals is never at a phase, so ai.boss keeps its pre-WP-15 behavior
+    // for the fallback guardian.
+    registry.add("BossPhaseAtLeast", 0, 0, Checked([](FNodeSpec& spec) -> FBtNodePtr {
+        const int phase = spec.params.integer("phase", 1, 99);
+        return Condition("BossPhaseAtLeast", "phase >= " + std::to_string(phase),
+                         [phase](FBtContext& ctx) { return SelfBossPhaseAtLeast(ctx, phase); });
+    }));
 }
 
 } // namespace
