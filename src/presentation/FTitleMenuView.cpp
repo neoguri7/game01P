@@ -8,6 +8,7 @@
 
 #include "core/EngineState.h"
 #include "core/Logger.h"
+#include "gameplay/meta/FMetaProgress.h"
 #include "presentation/FCompendiumView.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
@@ -228,7 +229,16 @@ void DrawTitleMenu(entt::registry& registry) {
             centered(y, checkpoint.error, {.9f, .31f, .31f, 1});
             y += 22.f * u;
         }
-        if (!save.error.empty()) centered(y, save.error, {.9f, .31f, .31f, 1});
+        if (!save.error.empty()) {
+            centered(y, save.error, {.9f, .31f, .31f, 1});
+            y += 22.f * u;
+        }
+        // [WP-20] meta save: one read-only information line ("Seals N · Best dungeon M · Clears K";
+        // "meta disabled" for a read-only session). Nothing is drawn while meta is not initialized. The
+        // records/unlocks panel is WP-21's preparation screen — this is a drawing-path block only.
+        if (const std::string metaLine = MetaSummaryLine(registry); !metaLine.empty()) {
+            centered(y, metaLine, ui::palette::kTextV);
+        }
 
         ui::FBodyFont hints(14.f * u);
         centered(h - 26.f * u, "Mouse: move / target    WASD: one-cell move    1-4: skill    Space: end turn    Esc: abandon",
