@@ -130,13 +130,18 @@ void DrawCampMemberSection(entt::registry& registry, FDungeonRun& run, std::size
 
     if (ImGui::TreeNodeEx("Skills & runes (free)", ImGuiTreeNodeFlags_SpanAvailWidth)) {
         auto& member = run.party[memberIndex];
+        const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
         ImGui::PushID("runes");
         for (std::size_t slotIndex = 0; slotIndex < member.skills.size(); ++slotIndex) {
             const auto& slot = member.skills[slotIndex];
             ImGui::PushID(static_cast<int>(slotIndex));
-            ImGui::Text("%s", slot.skillId.c_str());
+            // WP-27: the same display-name rule the reward cards use (id fallback); the raw id stays on hover.
+            const auto* skill = content != nullptr ? content->skills.find(slot.skillId) : nullptr;
+            ImGui::Text("%s", ContentDisplayName(skill, slot.skillId).c_str());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", slot.skillId.c_str());
             for (std::size_t runeIndex = 0; runeIndex < slot.runeIds.size(); ++runeIndex) {
-                const auto label = slot.runeIds[runeIndex] + "  [remove]";
+                const auto* fitted = content != nullptr ? content->runes.find(slot.runeIds[runeIndex]) : nullptr;
+                const auto label = ContentDisplayName(fitted, slot.runeIds[runeIndex]) + "  [remove]";
                 if (ImGui::SmallButton(label.c_str())) {
                     if (const auto error = RemoveDungeonRune(registry, memberIndex, slotIndex, runeIndex)) {
                         run.message = "Cannot remove rune: " + *error;
@@ -151,7 +156,8 @@ void DrawCampMemberSection(entt::registry& registry, FDungeonRun& run, std::size
                     ImGui::PushID(static_cast<int>(index));
                     const auto problem = ValidateDungeonRuneEquip(registry, memberIndex, slotIndex, index);
                     ImGui::BeginDisabled(problem.has_value());
-                    if (ImGui::Selectable(run.runes[index].c_str())) {
+                    const auto* collected = content != nullptr ? content->runes.find(run.runes[index]) : nullptr;
+                    if (ImGui::Selectable(ContentDisplayName(collected, run.runes[index]).c_str())) {
                         if (const auto error = EquipDungeonRune(registry, memberIndex, slotIndex, index)) {
                             run.message = "Cannot fit rune: " + *error;
                         } else {
