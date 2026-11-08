@@ -24,8 +24,13 @@
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "presentation/FSettings.h"
 
 namespace game::ecs {
+
+/// AI think pause (WP-06 P6-10): armed at every turn start, counted down by real dt scaled by
+/// FSettings::animSpeed (absent = 1x). autoPlay bypasses the wait entirely. Pinned by ThinkDelayScalesWithSpeed.
+inline constexpr float kAiThinkDelaySeconds = 0.45f;
 
 /// Per-turn bookkeeping the turn controller deliberately does not own: AP refill, the status tick at the
 /// actor's turn start, and one auto action through gameplay/combat (FAutoAction). Player turns wait for
@@ -84,7 +89,7 @@ struct TurnFlowSystem {
         combat->scheduledTurnSerial = token.turnSerial;
         if (turnStarted) {
             combat->autoActionsThisTurn = 0;
-            combat->thinkDelay = 0.45f;
+            combat->thinkDelay = kAiThinkDelaySeconds;
         }
 
         auto* log = registry.ctx().find<FCombatLog>();
@@ -151,9 +156,14 @@ struct TurnFlowSystem {
         if (isParty && !combat->autoPlay) {
             return; // party turns wait for player input
         }
-        combat->thinkDelay -= deltaTime;
+        // WP-06 (P6-10): the countdown runs on real dt scaled by the presentation speed setting — the
+        // context value only; the simulation never loads it from disk (the title view owns that file IO).
+        // Absent = 1x.
+        const auto* settings = registry.ctx().find<FSettings>();
+        const float scale = settings != nullptr ? settings->animSpeed : 1.0f;
+        combat->thinkDelay -= deltaTime * scale;
         if (combat->thinkDelay > 0.f && !combat->autoPlay) return;
-        combat->thinkDelay = 0.45f;
+        combat->thinkDelay = kAiThinkDelaySeconds;
 
         // Auto action (enemies; both sides when auto-play is on). The decision lives in gameplay/combat;
         // this system only applies it to the queue and closes the turn.
@@ -174,7 +184,7 @@ struct TurnFlowSystem {
             // WP-06: one submit path — the command states its source and issues its session seq. A refused
             // submit (PresentationBusy / OutcomeResolved) must cost nothing: no action was taken, the cap
             // and the turn stay untouched, and the same plan retries next frame. thinkDelay 0 takes away
-            // the 0.45s think pause just restored above, so a non-autoplay enemy retries immediately.
+            // the think pause just restored above, so a non-autoplay enemy retries immediately.
             if (!SubmitBattleCommand(registry, FBattleCommand{*request, ECommandSource::Ai, 0})) {
                 combat->thinkDelay = 0.f;
                 return;

@@ -56,6 +56,7 @@
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/grid/FGridTerrain.h"
 #include "gameplay/grid/FGridTypes.h"
+#include "presentation/FSettings.h"
 
 namespace {
 
@@ -1080,6 +1081,161 @@ void SheetRefreshOnlyInEmber() {
     }
 }
 
+void FreezeSpeedEndToEnd() {
+    // The full WP-13 × WP-06 chain, with nothing hand-written into the status list: the resolver applies
+    // freeze through a real skill+rune (rune.cold → status_on_hit status.freeze), the refresh line puts
+    // speed_pct 50 into FSpeed, and the next round's collect reorders the round around the frozen unit.
+    {
+        FCommandFixture fixture{"freeze-run", true};  // FDungeonRun in ctx (Ember)
+        auto& r = fixture.registry();
+        r.get<game::FSkillLoadout>(fixture.actor).slots[0].runeIds = {"rune.cold"};
+        r.emplace<game::FTurnParticipant>(fixture.foe);
+        r.emplace<game::FTurnParticipant>(fixture.ally);
+        r.get<game::FSpeed>(fixture.actor).value = 20;
+        r.get<game::FSpeed>(fixture.foe).value = 10;
+        r.get<game::FSpeed>(fixture.ally).value = 8;
+        r.emplace<game::FActiveStatuses>(fixture.foe);
+        r.emplace<game::FBaseCombatStats>(fixture.foe, game::FBaseCombatStats{game::FStats{10, 8, 2, 2}, 50, 10});
+        const auto token = fixture.StartTurn();
+
+        auto& runtime = r.ctx().get<game::FTurnRuntime>();
+        const auto roundOne = runtime.controller.snapshot().entries;
+        CHECK(roundOne.size() == 3);
+        CHECK(roundOne[0].entity == fixture.actor && roundOne[1].entity == fixture.foe &&
+              roundOne[2].entity == fixture.ally);
+
+        const auto result = fixture.DrainDirect(SkillAction(token, fixture.actor, fixture.foe, "skill.strike"));
+        CHECK(result.reject == ECommandReject::None);
+        const auto& statuses = r.get<game::FActiveStatuses>(fixture.foe);
+        CHECK(statuses.effects.size() == 1 && statuses.effects.front().statusId == "status.freeze");
+        CHECK(r.get<game::FSpeed>(fixture.foe).value == 5);  // max(1, round(10 × 50%)), right after the drain
+
+        CHECK(runtime.controller.endTurn(r, token).has_value());
+        const auto foeToken = runtime.controller.snapshot().currentTurn;
+        CHECK(foeToken.has_value() && foeToken->actor == fixture.foe);
+        CHECK(runtime.controller.endTurn(r, *foeToken).has_value());
+        const auto allyToken = runtime.controller.snapshot().currentTurn;
+        CHECK(allyToken.has_value() && allyToken->actor == fixture.ally);
+        CHECK(runtime.controller.endTurn(r, *allyToken).has_value());  // round wrap: collect runs again
+
+        const auto roundTwo = runtime.controller.snapshot().entries;
+        CHECK(roundTwo.size() == 3);
+        CHECK(roundTwo[0].entity == fixture.actor);   // 20
+        CHECK(roundTwo[1].entity == fixture.ally);    // 8 — passed the frozen unit
+        CHECK(roundTwo[2].entity == fixture.foe);     // 5 — a later slot than in round one
+        CHECK(roundTwo[2].speed == 5);
+    }
+    // Forest control: the same hit applies the status, but without FDungeonRun the sheet (and FSpeed) is
+    // left as-is — the forest passives stay in charge of those values.
+    {
+        FCommandFixture fixture{"freeze-forest"};  // no FDungeonRun
+        auto& r = fixture.registry();
+        r.get<game::FSkillLoadout>(fixture.actor).slots[0].runeIds = {"rune.cold"};
+        r.emplace<game::FActiveStatuses>(fixture.foe);
+        r.get<game::FSpeed>(fixture.foe).value = 42;  // tampered: a refresh would restore the base
+        const auto token = fixture.StartTurn();
+
+        const auto result = fixture.DrainDirect(SkillAction(token, fixture.actor, fixture.foe, "skill.strike"));
+        CHECK(result.reject == ECommandReject::None);
+        const auto& statuses = r.get<game::FActiveStatuses>(fixture.foe);
+        CHECK(statuses.effects.size() == 1 && statuses.effects.front().statusId == "status.freeze");
+        CHECK(r.get<game::FSpeed>(fixture.foe).value == 42);
+    }
+}
+
+void ParalyzeRollFailureAppliesNothing() {
+    // TryApplyStatus' one RNG consumer: an on_apply control (paralyze = 50%) that loses its roll applies
+    // nothing — no FActiveStatuses entry, and no sheet refresh either (the tampered FSpeed would have
+    // been restored from FBaseCombatStats if the refresh had run). The roll is pinned by seeding the
+    // battle RNG with the first state whose percent roll loses.
+    FCommandFixture fixture{"paralyze-miss", true};
+    auto& r = fixture.registry();
+    const auto token = fixture.StartTurn();
+    r.get<game::FSkillLoadout>(fixture.actor).slots[0].runeIds = {"rune.lightning"};
+    r.emplace<game::FActiveStatuses>(fixture.foe);
+    r.emplace<game::FBaseCombatStats>(fixture.foe, game::FBaseCombatStats{game::FStats{10, 8, 2, 2}, 50, 10});
+    r.get<game::FSpeed>(fixture.foe).value = 777;
+
+    std::uint32_t failingState = 0;
+    for (std::uint32_t state = 1; state < 10000u && failingState == 0u; ++state) {
+        game::FBattleRng probe{state};
+        if (probe.rollPercent() >= 50) {
+            failingState = state;  // rollChance(50) fails: rollPercent() is not < 50
+        }
+    }
+    CHECK(failingState != 0u);
+    r.ctx().get<game::FCombatRuntime>().rng.state = failingState;
+
+    const auto result = fixture.DrainDirect(SkillAction(token, fixture.actor, fixture.foe, "skill.strike"));
+    CHECK(result.reject == ECommandReject::None);                            // the action itself succeeded
+    CHECK(r.get<game::FActiveStatuses>(fixture.foe).effects.empty());        // the lost roll applied nothing
+    CHECK(r.get<game::FSpeed>(fixture.foe).value == 777);                    // ...and refreshed nothing
+}
+
+void ThinkDelayScalesWithSpeed() {
+    // WP-06 P6-10: the AI think pause counts down on real dt scaled by the presentation setting, read from
+    // the context only. autoPlay remains the bypass (AiSubmissionCarriesSource covers it). The source pin
+    // forbids the file-IO entry points: the simulation must never load settings itself.
+    const std::string turnFlowSource = ReadText("src/ecs/systems/TurnFlowSystem.h");
+    CHECK(turnFlowSource.find("CurrentSettings") == std::string::npos);
+    CHECK(turnFlowSource.find("LoadSettings") == std::string::npos);
+
+    // ① animSpeed 2.0: one half-delay step after the turn-start frame covers the whole pause.
+    {
+        FBattleTest fixture;
+        auto& registry = fixture.registry;
+        fixture.StartEnemyTurn();
+        registry.ctx().emplace<game::FSettings>(game::FSettings{game::kAnimSpeedFast, false});
+        auto& combat = registry.ctx().get<game::FCombatRuntime>();
+        auto& queue = registry.ctx().get<game::FActionQueue>();
+
+        game::ecs::TurnFlowSystem flow;
+        flow.update(registry, 0.016f);  // turn start: the pause is armed, one frame elapses
+        CHECK(combat.autoActionsThisTurn == 0);
+        CHECK(combat.thinkDelay == game::ecs::kAiThinkDelaySeconds - 0.016f * game::kAnimSpeedFast);
+
+        flow.update(registry, 0.225f);  // at 2x this half-delay step ends the pause
+        CHECK(combat.autoActionsThisTurn == 1);
+        CHECK(queue.pending.size() == 1);
+    }
+    // ② no FSettings (headless, forest): the pause runs at 1x — one half-delay step is not enough.
+    {
+        FBattleTest fixture;
+        auto& registry = fixture.registry;
+        fixture.StartEnemyTurn();
+        auto& combat = registry.ctx().get<game::FCombatRuntime>();
+        auto& queue = registry.ctx().get<game::FActionQueue>();
+
+        game::ecs::TurnFlowSystem flow;
+        flow.update(registry, 0.016f);
+        CHECK(combat.thinkDelay == game::ecs::kAiThinkDelaySeconds - 0.016f);
+        flow.update(registry, 0.225f);
+        CHECK(combat.autoActionsThisTurn == 0);
+        CHECK(queue.pending.empty());
+        CHECK(combat.thinkDelay == game::ecs::kAiThinkDelaySeconds - 0.016f - 0.225f);
+
+        flow.update(registry, 0.225f);  // the second half-delay step: the pause elapses
+        CHECK(combat.autoActionsThisTurn == 1);
+        CHECK(queue.pending.size() == 1);
+    }
+    // ③ an explicit normal speed behaves exactly like the absent value.
+    {
+        FBattleTest fixture;
+        auto& registry = fixture.registry;
+        fixture.StartEnemyTurn();
+        registry.ctx().emplace<game::FSettings>(game::FSettings{game::kAnimSpeedNormal, false});
+        auto& combat = registry.ctx().get<game::FCombatRuntime>();
+        auto& queue = registry.ctx().get<game::FActionQueue>();
+
+        game::ecs::TurnFlowSystem flow;
+        flow.update(registry, 0.016f);
+        flow.update(registry, 0.225f);
+        CHECK(combat.autoActionsThisTurn == 0);
+        CHECK(queue.pending.empty());
+        CHECK(combat.thinkDelay == game::ecs::kAiThinkDelaySeconds - 0.016f - 0.225f);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1117,5 +1273,8 @@ int main() {
         {"AiRetriesAfterBusySubmit", AiRetriesAfterBusySubmit},
         {"DrainWritesNoCombatLogLine", DrainWritesNoCombatLogLine},
         {"SheetRefreshOnlyInEmber", SheetRefreshOnlyInEmber},
+        {"FreezeSpeedEndToEnd", FreezeSpeedEndToEnd},
+        {"ParalyzeRollFailureAppliesNothing", ParalyzeRollFailureAppliesNothing},
+        {"ThinkDelayScalesWithSpeed", ThinkDelayScalesWithSpeed},
     });
 }

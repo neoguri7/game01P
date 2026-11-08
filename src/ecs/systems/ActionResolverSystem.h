@@ -7,6 +7,7 @@
 
 #include <entt/entt.hpp>
 
+#include "core/Logger.h"
 #include "ecs/components/FActionPoints.h"
 #include "ecs/components/FActiveStatuses.h"
 #include "ecs/components/FFaction.h"
@@ -250,6 +251,13 @@ private:
         const gameplay::FSkillContent* skillRow = content.skills.find(slot->skillId);
         const std::string skillName = skillRow != nullptr ? skillRow->displayName : slot->skillId;
 
+        // WP-13 (D-12): TryApplyStatus rolls an `on_apply` control on the battle RNG — one FCombatRuntime
+        // lookup per Resolve, never per status (the roll mutates the runtime's RNG). A missing runtime is a
+        // wiring error: the first status that needs a roll logs once and applies nothing (0%가 100%가 되면
+        // 안 된다 — no silent always-apply).
+        auto* combat = registry.ctx().find<FCombatRuntime>();
+        bool warnedMissingRng = false;
+
         // Shape semantics live in gameplay/combat so the resolver, the HUD and later slices share one
         // definition of what a skill affects (docs/design/skill-rune-progression.md §3.2).
         FBattleEvent event{.kind = FBattleEvent::EKind::Skill, .actor = actor, .skillId = slot->skillId,
@@ -328,12 +336,23 @@ private:
                 const gameplay::FStatusContent* definition = content.statuses.find(status.statusId);
                 if (definition == nullptr) continue;
                 if (auto* active = registry.try_get<FActiveStatuses>(target.unit)) {
-                    ApplyStatus(*active, *definition, status.durationDelta, status.magnitudeDelta);
-                    // WP-06 (P6-6, ★3): the application can change what the sheet derives (WP-13's
-                    // speed_pct reads it on the next collect). Ember-only guard: forest passives are added
-                    // inline in FBattleState and a refresh would flatten them back to base (FCombatSheet.h).
-                    if (registry.ctx().contains<FDungeonRun>()) {
-                        RefreshCombatSheet(registry, target.unit, content);
+                    if (combat == nullptr) {
+                        if (!warnedMissingRng) {
+                            LOG_ERROR("[battle] status not applied: FCombatRuntime (battle RNG) is missing.");
+                            warnedMissingRng = true;
+                        }
+                        continue;
+                    }
+                    // WP-13 (D-12): the one rolling application — an on_apply control can refuse itself.
+                    if (TryApplyStatus(*active, *definition, status.durationDelta, status.magnitudeDelta,
+                                       combat->rng)) {
+                        // WP-06 (P6-6, ★3): an applied status can change what the sheet derives (WP-13's
+                        // speed_pct reads it on the next collect) — refresh only then, so a refused roll
+                        // leaves no trace. Ember-only guard: forest passives are added inline in
+                        // FBattleState and a refresh would flatten them back to base (FCombatSheet.h).
+                        if (registry.ctx().contains<FDungeonRun>()) {
+                            RefreshCombatSheet(registry, target.unit, content);
+                        }
                     }
                 }
             }
