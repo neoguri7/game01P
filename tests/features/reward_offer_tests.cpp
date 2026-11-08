@@ -608,8 +608,11 @@ void EmptyLegalPoolDeactivatesOffer() {
     FTempAssets assets("reward-empty-pool");
     assets.CopyGameplayData(true);
     auto runes = ReadJsonFile(FixtureDataPath("runes.json"));
+    // WP-22: an unknown requires_all_tags now fails the boot (the derived tag vocabulary gate), so the
+    // dead-end rune is expressed with exclusions instead — every party skill carries at least one of
+    // these tags, so the legal pool is still empty.
     runes["runes"] = json::array({json{{"id", "rune.impossible"}, {"display_name", "Impossible"},
-        {"requires_all_tags", json::array({"NoSkillHasThisTag"})}}});
+        {"excludes_tags", json::array({"Attack", "Spell", "Support", "Heal"})}}});
     assets.Write("runes.json", runes);
     auto dungeon = ReadJsonFile(FixtureDataPath("dungeon.json"));
     dungeon["rune_drops"] = json::array({"rune.impossible"});

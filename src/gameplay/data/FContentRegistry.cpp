@@ -5,6 +5,7 @@
 
 #include <tracy/Tracy.hpp>
 
+#include <algorithm>
 #include <span>
 #include <string>
 #include <string_view>
@@ -164,6 +165,54 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
         if (!rune.statusId.empty() && registry.statuses.find(rune.statusId) == nullptr) {
             LOG_ERROR("content: rune '{}' references unknown status_id '{}'.", rune.id, rune.statusId);
             return std::nullopt;
+        }
+    }
+    // WP-22: the tag vocabulary is derived from the content itself. `tags` is a free-form string in the
+    // schema (FSkillContent/FRuneContent), but rune equip gates speak it through CheckRuneTagRequirements
+    // (fixed point = base skill tags ∪ every attached rune's adds_tags). A requires_all/any tag that no
+    // skill carries and no rune adds can never be satisfied — the rune would be dead content nobody can
+    // equip — so it fails the boot, naming rune and tag (R19). An excludes tag outside the vocabulary
+    // excludes nothing; a vacuous exclusion is legal (legacy rune.fire excludes "Heal"/"Support"), so it
+    // only warns. Duplicate tag signatures are deliberately NOT rejected: the same Fire rune fitting two
+    // melee skills is normal, and role overlap is a content-review matter, not a boot gate (W7 review ★6).
+    {
+        std::vector<std::string> knownTags;
+        const auto rememberTag = [&knownTags](const std::string& tag) {
+            if (std::ranges::find(knownTags, tag) == knownTags.end()) {
+                knownTags.push_back(tag);
+            }
+        };
+        for (const FSkillContent& skill : registry.skills.rows) {
+            for (const std::string& tag : skill.tags) {
+                rememberTag(tag);
+            }
+        }
+        for (const FRuneContent& rune : registry.runes.rows) {
+            for (const std::string& tag : rune.addsTags) {
+                rememberTag(tag);
+            }
+        }
+        for (const FRuneContent& rune : registry.runes.rows) {
+            for (const std::string& tag : rune.requiresAllTags) {
+                if (std::ranges::find(knownTags, tag) == knownTags.end()) {
+                    LOG_ERROR("content: rune '{}' requires_all_tags '{}', which no skill tag or rune "
+                              "adds_tags provides.", rune.id, tag);
+                    return std::nullopt;
+                }
+            }
+            for (const std::string& tag : rune.requiresAnyTags) {
+                if (std::ranges::find(knownTags, tag) == knownTags.end()) {
+                    LOG_ERROR("content: rune '{}' requires_any_tags '{}', which no skill tag or rune "
+                              "adds_tags provides.", rune.id, tag);
+                    return std::nullopt;
+                }
+            }
+            for (const std::string& tag : rune.excludesTags) {
+                if (std::ranges::find(knownTags, tag) == knownTags.end()) {
+                    LOG_WARN("content: rune '{}' excludes_tags '{}', which no skill tag or rune adds_tags "
+                             "provides; the exclusion is vacuous.", rune.id, tag);
+                }
+            }
         }
     }
     // WP-25 engines: the trigger kind is a closed set the system switches on, the rune/status references must

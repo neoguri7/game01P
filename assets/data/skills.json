@@ -1,5 +1,5 @@
 {
-  "_comment": "개편 3차: 클래스별 베이스 스킬 9종과 숲 확장 스킬 3종. damage_type(physical/magical)과 rune_sockets(PoE 소켓)가 추가되었다. 태그는 룬 장착 조건(정본 §3.2)의 입력이며 수치는 잠정값이다. WP-16 템포 스킬 4종(shove/barrage/shackle/imp_firebomb) 추가. Shared IDs use forest display names; original Ember names: Strike, Cleave, Arrow, Volley, Bolt, Weakening fog, Heal, Battle blessing, Curse.",
+  "_comment": "개편 3차 + WP-16/WP-22: 클래스별 베이스 스킬 + 숲 확장 + 템포 스킬 + 콘텐츠 A 12종. damage_type(physical/magical)과 rune_sockets(PoE 소켓)가 추가되었다. 태그는 룬 장착 조건(정본 §3.2)의 입력이며 수치는 잠정값이다. WP-16 템포 스킬 4종(shove/barrage/shackle/imp_firebomb) 추가. WP-22: skills rows are the full authored set — the equip pool lives in units.json `skills`; default loadout = first 4 of that pool (BuildLoadout). Role axes — hook: drags a range-2 enemy next to the warrior | bash: melee hit that weakens the target's damage | charge: long line hit that knocks every struck enemy back | brace: spend a leftover AP to buff yourself | mark: cheap ranged weaken | pin: ranged move-lock (delay an advance) | piercing: line hit through several enemies at range | storm: ranged area denial | frost_lance: ranged freeze control | flame_field: area burn (zone strengthening) | renew: 1-AP tempo heal | static: cheap paralysis gamble. Shared IDs use forest display names; original Ember names: Strike, Cleave, Arrow, Volley, Bolt, Weakening fog, Heal, Battle blessing, Curse.",
   "schema_version": 1,
   "skills": [
     {
@@ -281,6 +281,239 @@
         "Spell",
         "AoE",
         "Zone"
+      ]
+    },
+    {
+      "id": "skill.hook",
+      "display_name": "Chain Hook",
+      "ap_cost": 1,
+      "power": 1,
+      "range": 2,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 1,
+      "tags": [
+        "Attack",
+        "Pull"
+      ],
+      "hooks": [
+        {
+          "id": "hook.hook_pull",
+          "event": "on_hit",
+          "effect": {
+            "kind": "pull",
+            "from": "caster",
+            "distance": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "skill.bash",
+      "display_name": "Shield Bash",
+      "ap_cost": 2,
+      "power": 2,
+      "range": 1,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "applies_status": "status.debuff",
+      "damage_type": "physical",
+      "rune_sockets": 2,
+      "tags": [
+        "Melee",
+        "Attack",
+        "Curse"
+      ]
+    },
+    {
+      "id": "skill.charge",
+      "display_name": "Charge",
+      "ap_cost": 2,
+      "power": 3,
+      "range": 3,
+      "shape": "pierce",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 2,
+      "tags": [
+        "Melee",
+        "Attack"
+      ],
+      "hooks": [
+        {
+          "id": "hook.charge_push",
+          "event": "on_hit",
+          "effect": {
+            "kind": "push",
+            "from": "caster",
+            "distance": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "skill.brace",
+      "display_name": "Brace",
+      "ap_cost": 1,
+      "power": 0,
+      "range": 0,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "self",
+      "applies_status": "status.buff",
+      "damage_type": "magical",
+      "rune_sockets": 1,
+      "tags": [
+        "Support",
+        "Duration"
+      ]
+    },
+    {
+      "id": "skill.mark",
+      "display_name": "Marking Shot",
+      "ap_cost": 1,
+      "power": 1,
+      "range": 4,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "applies_status": "status.debuff",
+      "damage_type": "physical",
+      "rune_sockets": 1,
+      "tags": [
+        "Bow",
+        "Attack",
+        "Projectile",
+        "Curse"
+      ]
+    },
+    {
+      "id": "skill.pin",
+      "display_name": "Pinning Shot",
+      "ap_cost": 2,
+      "power": 2,
+      "range": 4,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "applies_status": "status.locked_move",
+      "damage_type": "physical",
+      "rune_sockets": 2,
+      "tags": [
+        "Bow",
+        "Attack",
+        "Projectile"
+      ]
+    },
+    {
+      "id": "skill.piercing",
+      "display_name": "Piercing Arrow",
+      "ap_cost": 2,
+      "power": 3,
+      "range": 4,
+      "shape": "pierce",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 2,
+      "tags": [
+        "Bow",
+        "Attack",
+        "Projectile"
+      ]
+    },
+    {
+      "id": "skill.storm",
+      "display_name": "Arrow Storm",
+      "ap_cost": 2,
+      "power": 1,
+      "range": 4,
+      "shape": "zone",
+      "area_radius": 1,
+      "target": "cell",
+      "damage_type": "physical",
+      "rune_sockets": 2,
+      "tags": [
+        "Bow",
+        "Attack",
+        "Projectile",
+        "AoE",
+        "Zone"
+      ]
+    },
+    {
+      "id": "skill.frost_lance",
+      "display_name": "Frost Lance",
+      "ap_cost": 2,
+      "power": 2,
+      "range": 3,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "applies_status": "status.freeze",
+      "damage_type": "magical",
+      "rune_sockets": 2,
+      "tags": [
+        "Spell",
+        "Projectile",
+        "Cold"
+      ]
+    },
+    {
+      "id": "skill.flame_field",
+      "display_name": "Flame Field",
+      "ap_cost": 2,
+      "power": 1,
+      "range": 3,
+      "shape": "zone",
+      "area_radius": 1,
+      "target": "cell",
+      "applies_status": "status.burn",
+      "damage_type": "magical",
+      "rune_sockets": 2,
+      "tags": [
+        "Spell",
+        "AoE",
+        "Zone",
+        "Fire"
+      ]
+    },
+    {
+      "id": "skill.renew",
+      "display_name": "Quick Mend",
+      "ap_cost": 1,
+      "power": 2,
+      "range": 3,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "ally",
+      "damage_type": "magical",
+      "rune_sockets": 1,
+      "tags": [
+        "Spell",
+        "Heal"
+      ]
+    },
+    {
+      "id": "skill.static",
+      "display_name": "Static Charge",
+      "ap_cost": 1,
+      "power": 1,
+      "range": 3,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "applies_status": "status.paralyze",
+      "damage_type": "magical",
+      "rune_sockets": 1,
+      "tags": [
+        "Spell",
+        "Projectile",
+        "Lightning"
       ]
     }
   ]

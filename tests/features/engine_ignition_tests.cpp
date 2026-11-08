@@ -292,7 +292,9 @@ void UsesExistingRunes() {
     const game::FAssetManager assets{ShipAssetRoots()};
     const std::optional<game::gameplay::FContentRegistry> content = game::gameplay::FContentRegistry::load(assets);
     CHECK(content.has_value());
-    CHECK(content->engines.rows.size() == 2);
+    // WP-22: the engine table grew from the WP-25 seed pair to four archetypes (shock and the
+    // ember_kindled alternative path were authored in assets/data/engine_ignition.json).
+    CHECK(content->engines.rows.size() == 4);
 
     std::vector<std::string> ids;
     for (const game::gameplay::FEngineContent& engine : content->engines.rows) {
@@ -306,7 +308,8 @@ void UsesExistingRunes() {
         ids.push_back(engine.id);
     }
     std::ranges::sort(ids);
-    CHECK((ids == std::vector<std::string>{"engine.ember", "engine.frost"}));
+    CHECK((ids == std::vector<std::string>{"engine.ember", "engine.ember_kindled", "engine.frost",
+                                           "engine.shock"}));
 }
 
 /// AbsentDocumentBootsWithoutEngines: the engine table is the one optional table — a root without the
