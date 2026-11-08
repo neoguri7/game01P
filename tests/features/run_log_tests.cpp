@@ -34,6 +34,7 @@
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/combat/FBattleCommand.h"
 #include "gameplay/combat/FIntent.h"
+#include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/dungeon/FRewards.h"
@@ -410,6 +411,8 @@ void OfferCampEventLogged() {
     CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward).has_value());
     CHECK(boot.run().phase == game::EDungeonPhase::Camp);
     boot.run().materials = 10;
+    const int upgradeCost = game::UpgradeCostOf(registry.ctx().get<game::FCampTables>(),
+                                                registry.ctx().get<game::FCampProgress>());
     CHECK(!game::UpgradeDungeonStat(registry, 0, 0).has_value());
 
     const auto& log = boot.log();
@@ -435,7 +438,7 @@ void OfferCampEventLogged() {
     const auto camps = EventsOfType(log, "camp");
     CHECK(camps.size() == 1u);
     CHECK(camps[0]["id"] == "upgrade.attack");
-    CHECK(camps[0]["amount"] == 2);
+    CHECK(camps[0]["amount"] == upgradeCost);
     CHECK(camps[0]["member"] == 0);
     CHECK(camps[0]["depth"] == 1);
 }
@@ -550,19 +553,23 @@ void HpLossIgnoresClamp() {
 
     auto* stats = registry.ctx().find<game::FRoomBattleStats>();
     CHECK(stats != nullptr && stats->hpMin.at("party.warrior") == 30);
-    registry.get<game::FHealth>(warrior).current = 5;  // below max/3 = 10
+    const int maxHealth = registry.get<game::FHealth>(warrior).max;
+    const double koFraction = game::DungeonRecovery(registry).koRecoverFraction;
+    const int koFloor = game::KoRecoverFloor(maxHealth, koFraction);
+    CHECK(koFloor > 5);  // the test only proves the floor engaged while 5 sits below it
+    registry.get<game::FHealth>(warrior).current = 5;  // below the KO floor
     BattleFrame(registry, 1);
     CHECK(stats->hpMin.at("party.warrior") == 5);
 
     game::CaptureRunParty(registry);
-    CHECK(boot.run().party[0].health == 10);  // CaptureRunParty clamps to max/3
+    CHECK(boot.run().party[0].health == koFloor);  // CaptureRunParty applies the data KO floor
 
     game::AppendRunEvent(registry, game::ERunEventKind::RoomCleared);
     const auto rooms = EventsOfType(boot.log(), "room_end");
     CHECK(rooms.size() == 1u);
     CHECK(rooms[0]["hp_loss"].size() == 1u);
     CHECK(rooms[0]["hp_loss"][0]["id"] == "party.warrior");
-    CHECK(rooms[0]["hp_loss"][0]["loss"] == 25);  // 30 - 5, not 30 - 10
+    CHECK(rooms[0]["hp_loss"][0]["loss"] == 25);  // raw 30 - 5, not 30 - koFloor
 }
 
 void SkillsCountedFromCommandResults() {

@@ -31,7 +31,7 @@ void RenderDungeonEventView(entt::registry& registry) {
         const auto restLabel = "Rest at the shrine  /  heal " +
             std::to_string(DungeonBalance(registry, "event_heal")) + " HP";
         const auto cacheLabel = "Open the cache  /  gain " +
-            std::to_string(DungeonBalance(registry, "event_materials")) + " materials";
+            std::to_string(DungeonBalance(registry, "event_materials")) + " materials  /  costs party HP";
         if (ui::Button(restLabel.c_str(), {-1, 42})) {
             PostRunIntent(registry, ERunIntent::ChooseEventRest);
             ImGui::CloseCurrentPopup();
@@ -40,6 +40,14 @@ void RenderDungeonEventView(entt::registry& registry) {
             PostRunIntent(registry, ERunIntent::ChooseEventLoot);
             ImGui::CloseCurrentPopup();
         }
+        // WP-10 §4: the per-member cost is listed under the button (a full name list would clip inside the
+        // label), from the same helper the flow applies it with — displayed loss == applied loss, 0 honest.
+        std::string lossLine;
+        for (const auto& member : run.party) {
+            if (!lossLine.empty()) lossLine += ", ";
+            lossLine += MemberName(member) + " " + std::to_string(ChestHpLossFor(registry, member));
+        }
+        if (!lossLine.empty()) ImGui::TextWrapped("HP cost: %s", lossLine.c_str());
         ImGui::EndPopup();
     }
 }

@@ -45,13 +45,13 @@ struct FRunMember {
     std::vector<FSkillSlot> skills;
 };
 
-/// 물질 강화 항목 (정본 §5: 항목별 비용·상한은 데이터). `stat`은 DungeonMemberStatBonus가 해석한다.
+/// 물질 강화 항목 (정본 §5: 항목별 상한은 데이터). 가격은 항목별 고정이 아니라 런 누적 곡선
+/// (`data/dungeon camp.upgrade_cost_steps` + FCampProgress.upgradesTotal — WP-10)이 결정한다.
 struct FStatUpgrade {
     std::string id;
     std::string displayName;
     std::string stat;  // health | attack | magic_attack | defense | magic_defense | speed
     int amount{1};
-    int cost{1};
     int cap{1};
 };
 
@@ -138,6 +138,42 @@ void ContinueDungeonReward(entt::registry& registry);
 void ChooseDungeonEvent(entt::registry& registry, bool rest);
 /// 캠프를 떠나 다음 던전으로 내려간다. 강화는 캠프에서 UpgradeDungeonStat으로 먼저 한다.
 void LeaveDungeonCamp(entt::registry& registry);
+/// 회복 예산표 (WP-10 §3 / D-18): 회복원 전부가 데이터다. 이 구조체는 로드 결과의 그릇일 뿐이고
+/// **기본값을 코드에 두지 않는다**(데이터와 코드가 이중 정본이 되는 것을 W6 비평이 기각). `recovery`
+/// 블록은 정수 0–1000 루프 밖에서 검증된다 — 실수 3종은 0 ≤ v ≤ 1, camp_heal_percent는 0–100.
+struct FDungeonRecovery {
+    double koRecoverFraction{};         // KO/전투 후 바닥: max(1, floor(maxHp × fraction))
+    int campAutoHeal{};                 // 캠프 도착 자동 회복(비선택·무료 항)
+    int campHealCost{};                 // 유료 치료 가격(물질)
+    int campHealPercent{};              // 유료 치료량 = maxHp의 % (멤버별)
+    double eventChestHpCostFraction{};  // 상자 선택의 파티 HP 비용 비율(유효 HP 기준)
+    double freeHealCapFraction{};       // 무료 회복 예산 상한 = maxHp의 % (검증·테스트 기준값)
+};
+
+/// The loaded recovery block; all-zero when the registry never booted the dungeon (a wiring error that is
+/// logged once). The data is the only source of these numbers — never reintroduce in-code defaults.
+[[nodiscard]] const FDungeonRecovery& DungeonRecovery(const entt::registry& registry);
+
+/// KO 바닥: max(1, floor(maxHealth × fraction)) — 기존 정수 나눗셈(max/3)과 같은 형태의 규칙.
+[[nodiscard]] int KoRecoverFloor(int maxHealth, double fraction);
+
+/// 런 단위 최대 HP (WP-10 ★4): content.units 베이스 maxHealth + bonusHealth + 노드 보너스.maxHealth —
+/// FCombatSheet.cpp:41,:55-57과 같은 입력. FCombatSheet는 편집하지 않고 동등성 테스트
+/// (RunMaxHpMatchesCombatSheet)로 묶는다. 재파생 수렴은 WP-18(W11) 몫.
+/// A return <= 0 means the member's unit template could not be resolved (logged): callers must treat the
+/// maximum as unknown — never clamp against it.
+[[nodiscard]] int DungeonMemberMaxHealth(const entt::registry& registry, const FRunMember& member);
+/// 유효 HP = health < 0(미포착=만피 센티넬) ? maxHp : min(health, maxHp). maxHp <= 0(알 수 없음)이면
+/// 클램프하지 않고 보유 HP를 그대로 돌려준다.
+[[nodiscard]] int DungeonEffectiveHealth(const entt::registry& registry, const FRunMember& member);
+/// 상자 비용 순수 함수: min(floor(maxHealth × fraction), effectiveHealth − 1) — KO 불가·HP 1 바닥.
+/// 손실 0이면 0으로 정직하게 계산한다(최소 1피해 강제 없음 — F3-4). 표시와 적용이 같은 함수를 쓴다.
+/// Unknown maxHealth(알 수 없는 멤버)는 손실 0 — 0을 향해 클램프하지 않는다.
+[[nodiscard]] int ChestHpLoss(int maxHealth, int effectiveHealth, double fraction);
+[[nodiscard]] int ChestHpLossFor(const entt::registry& registry, const FRunMember& member);
+/// 상자 선택의 비용 적용: 파티 전원에게 ChestHpLossFor만큼 HP를 잃게 하고 합계 손실을 돌려준다.
+int ApplyChestHpCost(entt::registry& registry);
+
 /// 정본 §6: 인접 노드 할당. 전투/패배 중에는 잠긴다(Reward/Event/Camp에서만).
 [[nodiscard]] bool CanAllocateDungeonNode(
     const entt::registry& registry, std::size_t memberIndex, std::string_view nodeId);
@@ -147,6 +183,14 @@ void LeaveDungeonCamp(entt::registry& registry);
     const entt::registry& registry, std::size_t memberIndex, std::size_t upgradeIndex);
 [[nodiscard]] std::optional<std::string> UpgradeDungeonStat(
     entt::registry& registry, std::size_t memberIndex, std::size_t upgradeIndex);
+/// WP-10: 캠프 유료 치료(recovery.camp_heal_cost → 멤버별 maxHp의 camp_heal_percent%). 센티넬(-1=만피)은
+/// 스킵. 전원이 이미 만피면 거부 — 구매는 선택이라 강제되지 않는다(PaidHealIsOptional).
+[[nodiscard]] std::optional<std::string> ValidateDungeonCampHeal(const entt::registry& registry);
+[[nodiscard]] std::optional<std::string> PayDungeonCampHeal(entt::registry& registry);
+/// WP-10: 초기화(camp.respec_cost) — 할당된 노드 전부를 passivePoints로 되돌린다. stat 강화는 환불하지
+/// 않고 곡선 카운터(upgradesTotal)도 건드리지 않는다.
+[[nodiscard]] std::optional<std::string> ValidateDungeonRespec(const entt::registry& registry);
+[[nodiscard]] std::optional<std::string> RespecDungeonNodes(entt::registry& registry);
 /// Camp-only loadout edits. Validation/failure returns a reason and leaves all runes unchanged.
 [[nodiscard]] std::optional<std::string> ValidateDungeonRuneEquip(
     const entt::registry& registry, std::size_t memberIndex, std::size_t slotIndex, std::size_t runeIndex);

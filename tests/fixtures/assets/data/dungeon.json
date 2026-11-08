@@ -6,24 +6,39 @@
   "balance": {
     "move_range": 2,
     "trap_damage": 8,
-    "room_heal": 8,
+    "room_heal": 4,
     "event_heal": 35,
     "event_materials": 3,
-    "camp_heal": 45,
-    "room_materials": 1,
+    "room_materials": 2,
     "room_experience": 25,
     "level_experience": 25,
     "level_experience_step": 5,
     "enemy_health_per_depth": 5,
     "enemy_attack_per_depth": 1
   },
+  "camp": {
+    "actions_per_camp": 0,
+    "upgrade_cost_steps": [1, 2, 4, 7, 11],
+    "rune_offer_draw_cost_steps": [3, 5, 8],
+    "rune_offer_camp_cap": 2,
+    "special_discount": 1,
+    "respec_cost": 5
+  },
+  "recovery": {
+    "ko_recover_fraction": 0.25,
+    "camp_auto_heal": 22,
+    "camp_heal_cost": 3,
+    "camp_heal_percent": 25,
+    "event_chest_hp_cost_fraction": 0.10,
+    "free_heal_cap_fraction": 0.6
+  },
   "stat_upgrades": [
-    {"id": "upgrade.attack", "display_name": "Attack", "stat": "attack", "amount": 1, "cost": 2, "cap": 6},
-    {"id": "upgrade.magic_attack", "display_name": "Magic attack", "stat": "magic_attack", "amount": 1, "cost": 2, "cap": 6},
-    {"id": "upgrade.defense", "display_name": "Defense", "stat": "defense", "amount": 1, "cost": 2, "cap": 5},
-    {"id": "upgrade.magic_defense", "display_name": "Magic defense", "stat": "magic_defense", "amount": 1, "cost": 2, "cap": 5},
-    {"id": "upgrade.health", "display_name": "Max health", "stat": "health", "amount": 5, "cost": 2, "cap": 12},
-    {"id": "upgrade.speed", "display_name": "Speed", "stat": "speed", "amount": 1, "cost": 4, "cap": 2}
+    {"id": "upgrade.attack", "display_name": "Attack", "stat": "attack", "amount": 1, "cap": 6},
+    {"id": "upgrade.magic_attack", "display_name": "Magic attack", "stat": "magic_attack", "amount": 1, "cap": 6},
+    {"id": "upgrade.defense", "display_name": "Defense", "stat": "defense", "amount": 1, "cap": 5},
+    {"id": "upgrade.magic_defense", "display_name": "Magic defense", "stat": "magic_defense", "amount": 1, "cap": 5},
+    {"id": "upgrade.health", "display_name": "Max health", "stat": "health", "amount": 5, "cap": 12},
+    {"id": "upgrade.speed", "display_name": "Speed", "stat": "speed", "amount": 1, "cap": 2}
   ],
   "party": [
     {"id":"party.warrior","display_name":"Alden / Warrior","unit":"char.warrior","faction":"party","grid_x":3,"grid_y":9},

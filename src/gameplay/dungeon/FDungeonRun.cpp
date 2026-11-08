@@ -1,6 +1,7 @@
 #include "gameplay/dungeon/FDungeonRun.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -18,6 +19,7 @@
 #include "gameplay/combat/FCombatSheet.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunFlow.h"
@@ -159,6 +161,36 @@ bool IsKnownStatUpgrade(std::string_view stat) {
         || stat == "magic_defense" || stat == "speed";
 }
 
+/// The unit template a run member maps to (`data/dungeon party[].id → unit`, then the content row). The run
+/// keeps placement ids ("party.warrior"); the unit table is keyed by template id ("char.warrior"). Mirrors
+/// how FRewards resolves party skills — a const-registry-safe read for the run HP derivation.
+const gameplay::FUnitContent* RunMemberUnitTemplate(const entt::registry& registry, const FRunMember& member) {
+    const auto* assets = registry.ctx().find<FAssetManager>();
+    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
+    if (assets == nullptr || content == nullptr) return nullptr;
+    const auto digest = assets->digest("data/dungeon");
+    if (!digest) return nullptr;
+    try {
+        for (const auto& row : digest->json().at("party")) {
+            if (row.at("id").get<std::string>() == member.id) {
+                return content->units.find(row.at("unit").get<std::string>());
+            }
+        }
+    } catch (const nlohmann::json::exception& error) {
+        LOG_WARN("Run member max health could not read the dungeon party: {}", error.what());
+    }
+    return nullptr;
+}
+
+/// The unknown-member report is once per id: views call the max-health helper every frame, and a broken
+/// party id must be loud once — not a per-frame flood.
+void ReportUnknownRunMember(std::string_view id) {
+    static std::set<std::string> reported;
+    if (reported.insert(std::string(id)).second) {
+        LOG_ERROR("Run member '{}' has no unit template in the dungeon party; its max HP is unknown.", id);
+    }
+}
+
 std::vector<std::pair<int, int>> PartyCells(const nlohmann::json& party) {
     std::vector<std::pair<int, int>> cells;
     for (const auto& member : party) cells.emplace_back(member.at("grid_x").get<int>(), member.at("grid_y").get<int>());
@@ -211,6 +243,71 @@ int DungeonBalance(entt::registry& registry, const char* key) {
     return DungeonDefinition(registry).at("balance").at(key).get<int>();
 }
 
+const FDungeonRecovery& DungeonRecovery(const entt::registry& registry) {
+    if (const auto* recovery = registry.ctx().find<FDungeonRecovery>()) return *recovery;
+    // A missing block is a wiring error, not a content default: never invent recovery numbers here — an
+    // in-code copy of the data is the double-source the W6 review rejected. Zeroed = no healing.
+    static const FDungeonRecovery kZero;
+    static bool reported = false;
+    if (!reported) {
+        reported = true;
+        LOG_ERROR("FDungeonRecovery is missing: InitializeDungeon did not load the recovery block.");
+    }
+    return kZero;
+}
+
+int KoRecoverFloor(int maxHealth, double fraction) {
+    const int floored = static_cast<int>(std::floor(static_cast<double>(maxHealth) * fraction));
+    return std::max(1, floored);
+}
+
+int DungeonMemberMaxHealth(const entt::registry& registry, const FRunMember& member) {
+    const auto* unit = RunMemberUnitTemplate(registry, member);
+    if (unit == nullptr) {
+        // Unknown member: return an unknown maximum instead of 0 + bonuses. A 0 would make the heal clamp
+        // and the chest cost silently corrupt the run HP (callers treat <= 0 as unknown).
+        ReportUnknownRunMember(member.id);
+        return 0;
+    }
+    int maxHealth = static_cast<int>(unit->maxHealth);
+    maxHealth += member.bonusHealth;
+    if (const auto* growth = registry.ctx().find<FDungeonGrowth>()) {
+        maxHealth += growth->passiveTree.Bonuses(member.allocatedNodes).maxHealth;
+    }
+    return maxHealth;
+}
+
+int DungeonEffectiveHealth(const entt::registry& registry, const FRunMember& member) {
+    const int maxHealth = DungeonMemberMaxHealth(registry, member);
+    if (maxHealth <= 0) return member.health < 0 ? 0 : member.health;  // 알 수 없는 최대: 클램프 금지
+    if (member.health < 0) return maxHealth;                           // 미포착 = 만피 센티넬
+    return std::min(member.health, maxHealth);
+}
+
+int ChestHpLoss(int maxHealth, int effectiveHealth, double fraction) {
+    const int cost = static_cast<int>(std::floor(static_cast<double>(maxHealth) * fraction));
+    return std::min(cost, std::max(0, effectiveHealth - 1));
+}
+
+int ChestHpLossFor(const entt::registry& registry, const FRunMember& member) {
+    const int maxHealth = DungeonMemberMaxHealth(registry, member);
+    if (maxHealth <= 0) return 0;  // 알 수 없는 멤버: 손실 0 (실패는 한 번 로그된다 — 0으로 클램프 금지)
+    return ChestHpLoss(maxHealth, DungeonEffectiveHealth(registry, member),
+                       DungeonRecovery(registry).eventChestHpCostFraction);
+}
+
+int ApplyChestHpCost(entt::registry& registry) {
+    auto& run = registry.ctx().get<FDungeonRun>();
+    int totalLoss = 0;
+    for (auto& member : run.party) {
+        const int loss = ChestHpLossFor(registry, member);
+        if (loss <= 0) continue;
+        member.health = DungeonEffectiveHealth(registry, member) - loss;
+        totalLoss += loss;
+    }
+    return totalLoss;
+}
+
 bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std::string savePath) {
     const auto asset = registry.ctx().get<FAssetManager>().digest("data/dungeon");
     if (!asset) return false;
@@ -223,7 +320,7 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
             return false;
         }
         for (const char* key : {"move_range", "trap_damage", "room_heal", "event_heal", "event_materials",
-                               "camp_heal", "room_materials", "room_experience",
+                               "room_materials", "room_experience",
                                "level_experience", "level_experience_step",
                                "enemy_health_per_depth", "enemy_attack_per_depth"}) {
             const auto& value = data.at("balance").at(key);
@@ -264,10 +361,9 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
             upgrade.displayName = row.at("display_name").get<std::string>();
             upgrade.stat = row.at("stat").get<std::string>();
             upgrade.amount = row.at("amount").get<int>();
-            upgrade.cost = row.at("cost").get<int>();
             upgrade.cap = row.at("cap").get<int>();
             if (upgrade.id.empty() || upgrade.displayName.empty() || !IsKnownStatUpgrade(upgrade.stat)
-                || upgrade.amount < 1 || upgrade.amount > 100 || upgrade.cost < 0 || upgrade.cost > 100
+                || upgrade.amount < 1 || upgrade.amount > 100
                 || upgrade.cap < upgrade.amount || upgrade.cap > 100 || !upgradeIds.insert(upgrade.id).second) {
                 LOG_ERROR("Dungeon stat upgrade '{}' is invalid.", upgrade.id);
                 return false;
@@ -277,6 +373,53 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
         // 재초기화(테스트/디버그)에도 안전하도록 기존 ctx 성장 콘텐츠를 덮어쓴다.
         registry.ctx().erase<FDungeonGrowth>();
         registry.ctx().emplace<FDungeonGrowth>(std::move(growth));
+        // WP-10: 캠프 가격표와 회복 예산 블록. 정수 0–1000 루프 밖의 별도 검증이다(배열·실수 키).
+        // 어느 하나라도 어긋나면 부팅 실패 — 수치를 추측한 캠프 경제로 시작하지 않는다.
+        FCampTables camp;
+        camp.actionsPerCamp = data.at("camp").at("actions_per_camp").get<int>();
+        for (const auto& step : data.at("camp").at("upgrade_cost_steps")) {
+            camp.upgradeCostSteps.push_back(step.get<int>());
+        }
+        for (const auto& step : data.at("camp").at("rune_offer_draw_cost_steps")) {
+            camp.runeOfferDrawCostSteps.push_back(step.get<int>());
+        }
+        camp.runeOfferCampCap = data.at("camp").at("rune_offer_camp_cap").get<int>();
+        camp.specialDiscount = data.at("camp").at("special_discount").get<int>();
+        camp.respecCost = data.at("camp").at("respec_cost").get<int>();
+        if (camp.actionsPerCamp < 0 || camp.runeOfferCampCap < 0 || camp.specialDiscount < 0 ||
+            camp.respecCost < 0 || camp.upgradeCostSteps.empty() || camp.runeOfferDrawCostSteps.empty()) {
+            LOG_ERROR("Dungeon camp block is invalid (negative counters, cap or an empty price curve).");
+            return false;
+        }
+        for (const auto* steps : {&camp.upgradeCostSteps, &camp.runeOfferDrawCostSteps}) {
+            int previous = 0;
+            for (const int step : *steps) {
+                if (step < 1 || step < previous) {
+                    LOG_ERROR("Dungeon camp cost curves must be positive and non-decreasing.");
+                    return false;
+                }
+                previous = step;
+            }
+        }
+        FDungeonRecovery recovery;
+        recovery.koRecoverFraction = data.at("recovery").at("ko_recover_fraction").get<double>();
+        recovery.campAutoHeal = data.at("recovery").at("camp_auto_heal").get<int>();
+        recovery.campHealCost = data.at("recovery").at("camp_heal_cost").get<int>();
+        recovery.campHealPercent = data.at("recovery").at("camp_heal_percent").get<int>();
+        recovery.eventChestHpCostFraction = data.at("recovery").at("event_chest_hp_cost_fraction").get<double>();
+        recovery.freeHealCapFraction = data.at("recovery").at("free_heal_cap_fraction").get<double>();
+        if (!(recovery.koRecoverFraction >= 0.0 && recovery.koRecoverFraction <= 1.0) ||
+            !(recovery.eventChestHpCostFraction >= 0.0 && recovery.eventChestHpCostFraction <= 1.0) ||
+            !(recovery.freeHealCapFraction >= 0.0 && recovery.freeHealCapFraction <= 1.0) ||
+            recovery.campAutoHeal < 0 || recovery.campHealCost < 0 || recovery.campHealPercent < 0 ||
+            recovery.campHealPercent > 100) {
+            LOG_ERROR("Dungeon recovery block is invalid (fractions 0..1, heal percent 0..100).");
+            return false;
+        }
+        registry.ctx().erase<FCampTables>();
+        registry.ctx().emplace<FCampTables>(std::move(camp));
+        registry.ctx().erase<FDungeonRecovery>();
+        registry.ctx().emplace<FDungeonRecovery>(recovery);
         const auto& content = registry.ctx().get<gameplay::FContentRegistry>();
         const auto drops = data.find("rune_drops");
         if (drops == data.end() || !drops->is_array() || drops->empty()) {
@@ -400,6 +543,10 @@ void InstallDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh)
     ClearPreserved(registry);
     registry.ctx().erase<FRunEventLog>();
     registry.ctx().emplace<FRunEventLog>();
+    // WP-10: a new run starts with the camp counters at zero. Continue does NOT pass through here — it
+    // unpacks `run.ext.camp` before installing the run, so the saved curve indices survive.
+    registry.ctx().erase<FCampProgress>();
+    registry.ctx().emplace<FCampProgress>();
     // WP-19a: the run log starts here (before the run's first save, so the save section carries its id).
     BeginRunLog(registry);
 }
@@ -497,12 +644,14 @@ void ApplyRunParty(entt::registry& registry) {
 
 void CaptureRunParty(entt::registry& registry) {
     auto& run = registry.ctx().get<FDungeonRun>();
+    // WP-10 / D-18: the KO floor is data (`recovery.ko_recover_fraction`), max(1, floor(maxHp × fraction)).
+    const double fraction = DungeonRecovery(registry).koRecoverFraction;
     for (const auto entity : registry.view<FPartyMember, FUnitData, FHealth, FSkillLoadout>()) {
         const auto& id = registry.get<FUnitData>(entity).definition.id;
         auto member = std::ranges::find(run.party, id, &FRunMember::id);
         if (member == run.party.end()) continue;
         const auto& health = registry.get<FHealth>(entity);
-        member->health = std::max(health.current, health.max / 3);
+        member->health = std::max(health.current, KoRecoverFloor(health.max, fraction));
         member->skills = registry.get<FSkillLoadout>(entity).slots;
     }
 }
@@ -564,11 +713,15 @@ std::optional<std::string> ValidateDungeonStatUpgrade(
     const auto* run = registry.ctx().find<FDungeonRun>();
     const auto* growth = registry.ctx().find<FDungeonGrowth>();
     if (run == nullptr || growth == nullptr) return "Run state is unavailable.";
+    const auto* camp = registry.ctx().find<FCampTables>();
+    const auto* progress = registry.ctx().find<FCampProgress>();
+    if (camp == nullptr || progress == nullptr) return "Camp content is unavailable.";
     if (run->phase != EDungeonPhase::Camp) return "Stats can be reinforced at camp only.";
     if (memberIndex >= run->party.size()) return "Unknown party member.";
     if (upgradeIndex >= growth->statUpgrades.size()) return "Unknown stat upgrade.";
     const FStatUpgrade& upgrade = growth->statUpgrades[upgradeIndex];
-    if (run->materials < upgrade.cost) return "Not enough reinforcement materials.";
+    // The price is the run-cumulative curve, never a per-row constant (WP-10 §2).
+    if (run->materials < UpgradeCostOf(*camp, *progress)) return "Not enough reinforcement materials.";
     if (DungeonMemberStatBonus(run->party[memberIndex], upgrade.stat) + upgrade.amount > upgrade.cap) {
         return "This stat is at its run cap.";
     }
@@ -579,6 +732,8 @@ std::optional<std::string> UpgradeDungeonStat(
     entt::registry& registry, std::size_t memberIndex, std::size_t upgradeIndex) {
     if (const auto problem = ValidateDungeonStatUpgrade(registry, memberIndex, upgradeIndex)) return problem;
     auto& run = registry.ctx().get<FDungeonRun>();
+    auto& progress = DungeonCampProgress(registry);
+    const int cost = UpgradeCostOf(DungeonCampTables(registry), progress);
     const FStatUpgrade upgrade = registry.ctx().get<FDungeonGrowth>().statUpgrades[upgradeIndex];
     FRunMember& member = run.party[memberIndex];
     if (upgrade.stat == "health") {
@@ -589,10 +744,92 @@ std::optional<std::string> UpgradeDungeonStat(
     else if (upgrade.stat == "defense") member.bonusDefense += upgrade.amount;
     else if (upgrade.stat == "magic_defense") member.bonusMagicDefense += upgrade.amount;
     else if (upgrade.stat == "speed") member.bonusSpeed += upgrade.amount;
-    run.materials -= upgrade.cost;
-    // WP-19a: one line per purchase (the member index rides along; -1 = party-wide/unknown).
+    run.materials -= cost;
+    // The curve index is a stored counter, not a derivation from bonus*/amount: reward/event effects may
+    // move those fields and a derived index would silently drift (WP-10 §1).
+    progress.upgradesTotal += 1;
+    // WP-19a: one line per purchase. The id is the contract name `upgrade.<stat>`; the member index rides
+    // along (0..3, -1 = party-wide/unknown).
     AppendRunEvent(
-        registry, ERunEventKind::CampSpent, upgrade.id, upgrade.cost, static_cast<int>(memberIndex));
+        registry, ERunEventKind::CampSpent, "upgrade." + upgrade.stat, cost, static_cast<int>(memberIndex));
+    SaveDungeonRun(registry);
+    return std::nullopt;
+}
+
+std::optional<std::string> ValidateDungeonCampHeal(const entt::registry& registry) {
+    const auto* run = registry.ctx().find<FDungeonRun>();
+    if (run == nullptr) return "Run state is unavailable.";
+    if (run->phase != EDungeonPhase::Camp) return "The party can be healed at camp only.";
+    const auto& recovery = DungeonRecovery(registry);
+    if (run->materials < recovery.campHealCost) return "Not enough reinforcement materials.";
+    bool anyHealable = false;
+    bool anyBelowMax = false;
+    for (const auto& member : run->party) {
+        if (member.health < 0) continue;  // -1 = unclaimed = full: the sentinel never needs healing
+        const int maxHealth = DungeonMemberMaxHealth(registry, member);
+        if (maxHealth <= 0) continue;  // unknown maximum: cannot prove it needs healing (logged by the helper)
+        const int amount = maxHealth * recovery.campHealPercent / 100;
+        if (amount <= 0) continue;  // percent 0: the purchase would buy nothing
+        anyHealable = true;
+        if (member.health < maxHealth) {
+            anyBelowMax = true;
+            break;
+        }
+    }
+    if (!anyHealable) return "The camp heal would restore nothing.";
+    if (!anyBelowMax) return "The party is already at full health.";
+    return std::nullopt;
+}
+
+std::optional<std::string> PayDungeonCampHeal(entt::registry& registry) {
+    if (const auto problem = ValidateDungeonCampHeal(registry)) return problem;
+    auto& run = registry.ctx().get<FDungeonRun>();
+    const auto& recovery = DungeonRecovery(registry);
+    for (auto& member : run.party) {
+        if (member.health < 0) continue;  // -1 = unclaimed = already full: the sentinel skips paid healing too
+        const int maxHealth = DungeonMemberMaxHealth(registry, member);
+        if (maxHealth <= 0) continue;  // unknown maximum: skip (logged once), never clamp to 0
+        const int amount = maxHealth * recovery.campHealPercent / 100;  // the data rule, no code floor
+        member.health = std::min(member.health + amount, maxHealth);
+    }
+    run.materials -= recovery.campHealCost;
+    AppendRunEvent(registry, ERunEventKind::CampSpent, "heal", recovery.campHealCost, -1);
+    SaveDungeonRun(registry);
+    return std::nullopt;
+}
+
+std::optional<std::string> ValidateDungeonRespec(const entt::registry& registry) {
+    const auto* run = registry.ctx().find<FDungeonRun>();
+    const auto* camp = registry.ctx().find<FCampTables>();
+    if (run == nullptr || camp == nullptr) return "Run state is unavailable.";
+    if (run->phase != EDungeonPhase::Camp) return "Nodes can be reallocated at camp only.";
+    if (run->materials < camp->respecCost) return "Not enough reinforcement materials.";
+    bool anyAllocated = false;
+    for (const auto& member : run->party) {
+        if (!member.allocatedNodes.empty()) {
+            anyAllocated = true;
+            break;
+        }
+    }
+    if (!anyAllocated) return "No allocated passive nodes to reallocate.";
+    return std::nullopt;
+}
+
+std::optional<std::string> RespecDungeonNodes(entt::registry& registry) {
+    if (const auto problem = ValidateDungeonRespec(registry)) return problem;
+    auto& run = registry.ctx().get<FDungeonRun>();
+    const int cost = DungeonCampTables(registry).respecCost;
+    for (auto& member : run.party) {
+        // Only nodes move: bought stat bonuses and the upgrade curve counter are never refunded (WP-10 §6).
+        member.passivePoints += static_cast<int>(member.allocatedNodes.size());
+        member.allocatedNodes.clear();
+        // Clearing a node can lower the run max HP: clamp, or a full-HP member would sit above the new
+        // derivation and break the §4 displayed-equals-applied invariant.
+        const int maxHealth = DungeonMemberMaxHealth(registry, member);
+        if (member.health >= 0 && maxHealth > 0) member.health = std::min(member.health, maxHealth);
+    }
+    run.materials -= cost;
+    AppendRunEvent(registry, ERunEventKind::CampSpent, "respec", cost, -1);
     SaveDungeonRun(registry);
     return std::nullopt;
 }
