@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string_view>
 #include <vector>
 
 #include "ecs/components/FActiveStatuses.h"
@@ -31,6 +32,11 @@ struct FStatusTickResult {
 /// magnitude keeps its sign — `min(0, m - delta)`, so a positive rune delta grows |m| and never flips.
 [[nodiscard]] int EffectiveStatusDuration(const gameplay::FStatusContent& status, int durationDelta = 0);
 [[nodiscard]] int EffectiveStatusMagnitude(const gameplay::FStatusContent& status, int magnitudeDelta = 0);
+
+/// WP-15: true when the unit's boss-phase immune set (FActiveStatuses::immune) blocks `statusId`. Checked
+/// at the top of both application entries — ApplyStatus and TryApplyStatus — BEFORE any roll: immunity is a
+/// central no-op at the application point that consumes no RNG.
+[[nodiscard]] bool IsStatusImmune(const FActiveStatuses& active, std::string_view statusId);
 
 /// 중첩 = 갱신: reapplying refreshes the duration (never stacks a second entry) and takes the latest
 /// magnitude. Rune deltas (§3.3) arrive from FResolvedStatus; this is the only place they are folded

@@ -1,0 +1,6 @@
+{
+  "_comment": "Frozen fixture: no boss is mapped, so every fixture boot stays on the single-phase fallback. The fixture carries its own units (units.json has no enemy.guardian_heart), so tests booting the fixture roots first (fixture first, ship second) would otherwise fall through to the shipped bosses.json and fail its unit validation. Fixture = all fallback.",
+  "schema_version": 1,
+  "map": [],
+  "bosses": []
+}

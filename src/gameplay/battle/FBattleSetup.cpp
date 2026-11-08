@@ -88,6 +88,12 @@ void AttachBossGoals(entt::registry& registry, const FBattlefieldData& battlefie
         goals.phases.push_back(
             FBossPhase{phase.hpAbove, phase.partsGate, phase.bodyImmunities, phase.notes});
     }
+    // WP-15b: the first phase is in force from the first frame (only transitions are telegraphed), so the
+    // body starts with phase 0's immune set. EvaluateBossGoals re-writes it on its first evaluation, which
+    // also catches a body that starts in a later live phase.
+    if (auto* active = registry.try_get<FActiveStatuses>(body); active != nullptr && !goals.phases.empty()) {
+        active->immune = goals.phases.front().bodyImmunities;
+    }
     registry.emplace_or_replace<FBossGoals>(body, std::move(goals));
 
     // Parts: each row claims the LAST `count` enemy placements of its unit (walking the placements backwards)

@@ -131,6 +131,7 @@ void AssignDungeonSprites(entt::registry& registry, std::span<const FUnitPlaceme
         else if (unit.unitTemplateId == "enemy.imp_archer") sprite = EDungeonSprite::ImpArcher;
         else if (unit.unitTemplateId == "enemy.imp_shaman") sprite = EDungeonSprite::ImpShaman;
         else if (unit.unitTemplateId == "enemy.guardian") sprite = EDungeonSprite::Guardian;
+        else if (unit.unitTemplateId == "enemy.guardian_heart") sprite = EDungeonSprite::Guardian;  // WP-15 part (art: WP-23)
         registry.emplace<FUnitArt>(unit.entity, sprite);
     }
 }

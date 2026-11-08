@@ -87,6 +87,12 @@ protected:
     [[nodiscard]] EBtStatus update(FBtContext& ctx) const override;
 };
 
+/// WP-15b condition helper (FAiNodeRegistry's `BossPhaseAtLeast`): true when the actor is a boss body whose
+/// action-side phase (`FBossGoals::behaviorPhase`, promoted only after the transition's round) is at least
+/// `phase` (1-based — the "<name> enters phase K" numbering). A unit without FBossGoals (the fallback
+/// guardian, every ordinary unit) is never at a phase, so the leaf can gate existing profiles safely.
+[[nodiscard]] bool SelfBossPhaseAtLeast(const FBtContext& ctx, int phase);
+
 [[nodiscard]] std::string DescribeFilter(const FSkillFilter& filter);
 
 } // namespace game::ai

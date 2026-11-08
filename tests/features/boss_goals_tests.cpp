@@ -20,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <queue>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -28,8 +29,12 @@
 #include <vector>
 
 #include <nlohmann/json.hpp>
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
 
 #include "core/AssetManager.h"
+#include "core/Logger.h"
+#include "core/events/FEventBus.h"
 #include "ecs/components/FActionPoints.h"
 #include "ecs/components/FActiveStatuses.h"
 #include "ecs/components/FBossGoals.h"
@@ -43,25 +48,39 @@
 #include "ecs/systems/ActionResolverSystem.h"
 #include "ecs/systems/CombatOutcomeSystem.h"
 #include "ecs/systems/FBossGoalSystem.h"
+#include "ecs/systems/TurnFlowSystem.h"
 #include "ecs/systems/TurnSystem.h"
+#include "gameplay/ai/FAiBlackboard.h"
+#include "gameplay/ai/FAiBrain.h"
+#include "gameplay/ai/FAiLeaves.h"
+#include "gameplay/ai/FAiQueries.h"
+#include "gameplay/ai/FAiTuning.h"
+#include "gameplay/ai/FAiWorld.h"
 #include "gameplay/battle/FBattleSetup.h"
 #include "gameplay/combat/FCombatApply.h"
 #include "gameplay/combat/FCombatSheet.h"
 #include "gameplay/combat/FCombatTypes.h"
+#include "gameplay/combat/FEffectHooks.h"
+#include "gameplay/combat/FIntent.h"
 #include "gameplay/combat/FSkillResolver.h"
+#include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/data/FEffectContent.h"
+#include "gameplay/data/FStatusContent.h"
 #include "gameplay/dungeon/FBossContent.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRoomGenerator.h"
 #include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FRunLog.h"
 #include "gameplay/dungeon/FRunSequence.h"
 #include "gameplay/factory/FEntityDefinitions.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/factory/FScene.h"
 #include "gameplay/grid/FGridTerrain.h"
 #include "gameplay/grid/FGridTypes.h"
+#include "states/FEmberBattleState.h"
 
 namespace {
 
@@ -134,10 +153,14 @@ FBossSlot BossSlotOf(const game::FRunSequence& sequence, std::string_view which)
 
 // --- bosses.json builders -----------------------------------------------------------------------
 
-json PhaseRow(int hpAbove, bool partsGate) {
+json PhaseRow(int hpAbove, bool partsGate, std::vector<std::string> bodyImmunities = {}) {
     json phase;
     phase["hp_above"] = hpAbove;
     if (partsGate) phase["gate"] = "parts";
+    if (!bodyImmunities.empty()) {
+        phase["body_immunities"] = json::array();
+        for (auto& statusId : bodyImmunities) phase["body_immunities"].push_back(std::move(statusId));
+    }
     return phase;
 }
 
@@ -176,10 +199,13 @@ json BossCatalog(std::string theme, std::string slot, json boss) {
     return catalog;
 }
 
-/// The 15a canonical workhorse: body `enemy.guardian`, one gated phase at 50%, three `enemy.imp` parts.
+/// The canonical workhorse: body `enemy.guardian`, one gated phase at 50%, three `enemy.imp` parts. Phase 1
+/// ignores the fixture's three non-damage statuses (the WP-15b immune set the phase writes at setup and on
+/// every transition); phase 2 (`hp_above` 0) ignores nothing.
 json TestGuardianBoss() {
     return BossDefinition("boss.test_guardian", "Test Guardian", "enemy.guardian",
-                          {PhaseRow(50, true), PhaseRow(0, false)},
+                          {PhaseRow(50, true, {"status.debuff", "status.freeze", "status.paralyze"}),
+                           PhaseRow(0, false)},
                           {PartRow("enemy.imp", "Test Part", 3)});
 }
 
@@ -208,8 +234,11 @@ struct FTempAssets {
     }
 
     void CopyGameplayData() {
+        // bosses.json is part of the frozen fixture too: the fixture root is first in every boot, and the
+        // shipped catalog names a part unit the fixture's units.json does not carry (an empty fixture
+        // catalog keeps those boots on the single-phase fallback instead of failing validation).
         for (const char* file : {"units.json", "skills.json", "runes.json", "statuses.json", "ai.json",
-                                 "rewards.json", "passive-tree.json", "dungeon.json"}) {
+                                 "rewards.json", "passive-tree.json", "dungeon.json", "bosses.json"}) {
             Copy(file);
         }
     }
@@ -382,6 +411,20 @@ std::vector<game::FBossPhase> PhasesOf(std::vector<std::pair<int, bool>> rows) {
     return phases;
 }
 
+/// Phases with a per-phase body-immunity row (WP-15b): {hp_above, parts gate, status ids the body ignores}.
+std::vector<game::FBossPhase> PhasesWithImmunities(
+    std::vector<std::tuple<int, bool, std::vector<std::string>>> rows) {
+    std::vector<game::FBossPhase> phases;
+    for (auto& [hpAbove, partsGate, immunities] : rows) {
+        game::FBossPhase phase;
+        phase.hpAbove = hpAbove;
+        phase.partsGate = partsGate;
+        phase.bodyImmunities = std::move(immunities);
+        phases.push_back(std::move(phase));
+    }
+    return phases;
+}
+
 /// A body with FBossGoals + N parts, a Battle-phase run and a combat feed. Enough for the gate and phase
 /// rules, which are pure reads of HP + parts + the run phase.
 struct FGateRig {
@@ -395,6 +438,7 @@ struct FGateRig {
         registry.ctx().emplace<game::FCombatLog>();
         body = registry.create();
         registry.emplace<game::FHealth>(body, game::FHealth{maxHealth, maxHealth});
+        registry.emplace<game::FActiveStatuses>(body);
         registry.emplace<game::FTurnParticipant>(body);
         game::FBossGoals goals;
         goals.bossId = "boss.test_guardian";
@@ -404,6 +448,7 @@ struct FGateRig {
         for (int index = 0; index < partCount; ++index) {
             const auto part = registry.create();
             registry.emplace<game::FHealth>(part, game::FHealth{10, 10});
+            registry.emplace<game::FActiveStatuses>(part);
             registry.emplace<game::FBossPart>(part, game::FBossPart{body});
             parts.push_back(part);
         }
@@ -427,6 +472,46 @@ int CountInLog(const entt::registry& registry, const char* needle) {
         if (line.find(needle) != std::string::npos) ++count;
     }
     return count;
+}
+
+/// Captures spdlog output while alive — WP-15b's immunity choke point reports through LOG_INFO (the battle
+/// feed has no line for it), so the block line is only observable here.
+struct FLogCapture {
+    std::ostringstream stream;
+    std::shared_ptr<spdlog::logger> logger;
+
+    FLogCapture() {
+        logger = std::make_shared<spdlog::logger>(
+            "boss-goals-test-capture", std::make_shared<spdlog::sinks::ostream_sink_mt>(stream));
+        logger->set_level(spdlog::level::trace);
+        SetCurrentGameLogger(logger);
+    }
+
+    ~FLogCapture() { SetCurrentGameLogger(nullptr); }
+
+    FLogCapture(const FLogCapture&) = delete;
+    FLogCapture& operator=(const FLogCapture&) = delete;
+
+    [[nodiscard]] std::string Text() const { return stream.str(); }
+};
+
+std::vector<std::string> SortedCopy(std::vector<std::string> values) {
+    std::ranges::sort(values);
+    return values;
+}
+
+/// The unit's WP-15 immune set (sorted, so a JSON row order cannot move an assertion).
+std::vector<std::string> ImmuneSet(const entt::registry& registry, entt::entity unit) {
+    const auto* active = registry.try_get<game::FActiveStatuses>(unit);
+    return active != nullptr ? SortedCopy(active->immune) : std::vector<std::string>{};
+}
+
+bool HoldsStatus(entt::registry& registry, entt::entity unit, std::string_view statusId) {
+    const auto* active = registry.try_get<game::FActiveStatuses>(unit);
+    if (active == nullptr) return false;
+    return std::ranges::any_of(active->effects, [statusId](const game::FStatusEffect& effect) {
+        return effect.statusId == statusId;
+    });
 }
 
 /// A party hero (adjacent to the body) and a gated boss body with its parts — content + grid + turn
@@ -496,6 +581,14 @@ struct FMiniBattle {
         return registry.ctx().get<game::gameplay::FContentRegistry>();
     }
 
+    /// A heart linked to the body, placed where the test needs it (the AI-valuation scenario).
+    entt::entity AddPart(game::FGridPosition cell, int maxHealth = 10) {
+        const auto part = Spawn(cell, false, game::FStats{}, maxHealth, 1, "Test Part");
+        registry.emplace<game::FBossPart>(part, game::FBossPart{body});
+        parts.push_back(part);
+        return part;
+    }
+
     void SetBodyHp(int hp) { registry.get<game::FHealth>(body).current = hp; }
 };
 
@@ -512,6 +605,21 @@ game::FTurnToken StartTurnFor(entt::registry& registry, entt::entity actor) {
         CHECK(runtime.controller.endTurn(registry, *snapshot.currentTurn).has_value());
     }
     throw std::runtime_error("the requested actor never became the active unit");
+}
+
+/// Runs one skill through the real action-queue path (the resolver applies the preview as-is).
+void CastSkill(entt::registry& registry, entt::entity actor, entt::entity target, const std::string& skillId) {
+    game::FActionRequest request;
+    request.actor = actor;
+    request.target = target;
+    request.skillId = skillId;
+    request.cell = registry.get<game::FGridPosition>(target);
+    request.token = StartTurnFor(registry, actor);
+    auto& points = registry.get<game::FActionPoints>(actor);
+    points.skill = points.skillMax;
+    registry.ctx().get<game::FActionQueue>().pending.push_back(request);
+    game::ecs::ActionResolverSystem resolver;
+    resolver.update(registry, 0.f);
 }
 
 // --- run events ---------------------------------------------------------------------------------
@@ -555,6 +663,224 @@ game::FRunResult MustApplyIntent(entt::registry& registry, game::ERunIntent inte
 void SettleRuneOffer(entt::registry& registry) {
     const auto* rewards = registry.ctx().find<game::FRewards>();
     if (rewards != nullptr && rewards->offer.active) CHECK(game::ResolveRuneOffer(registry, 0));
+}
+
+// --- WP-15b: AI / intent / autoplay fixtures -----------------------------------------------------
+
+/// The AI's best option for `actor` under the default filter (value per AP, AP required). The world is
+/// rebuilt per call, so a mutation between two questions is visible.
+struct FAiProbe {
+    entt::registry& registry;
+    const game::gameplay::FContentRegistry& content;
+    game::ai::FAiTuning tuning;
+    entt::entity actor{entt::null};
+
+    [[nodiscard]] std::optional<game::ai::FSkillOption> Best() {
+        const game::ai::FAiWorld world = game::ai::BuildAiWorld(registry, actor, content);
+        game::ai::FAiBlackboard board;
+        game::ai::FBtMemory memory;
+        const game::ai::FSkillFilter filter;
+        const game::ai::FBtContext ctx{registry, content, tuning, world, board, memory, actor,
+                                       game::FTurnToken{1, 1, 1, actor}, false};
+        return game::ai::FindBestOption(ctx, registry.get<game::FGridPosition>(actor), filter, true);
+    }
+
+    /// The phase condition the ai.json fragment guards on, asked of the same actor (WP-15b's leaf).
+    bool PhaseAtLeast(int phase) {
+        const game::ai::FAiWorld world = game::ai::BuildAiWorld(registry, actor, content);
+        game::ai::FAiBlackboard board;
+        game::ai::FBtMemory memory;
+        const game::ai::FBtContext ctx{registry, content, tuning, world, board, memory, actor,
+                                       game::FTurnToken{1, 1, 1, actor}, true};
+        return game::ai::SelfBossPhaseAtLeast(ctx, phase);
+    }
+};
+
+void CollectBtNodes(const json& node, std::vector<const json*>& out) {
+    if (!node.is_object()) return;
+    if (node.contains("type")) out.push_back(&node);
+    if (const auto children = node.find("children"); children != node.end() && children->is_array()) {
+        for (const auto& child : *children) CollectBtNodes(child, out);
+    }
+}
+
+/// The UseSkill node of the ai.json tree that carries a `BossPhaseAtLeast` condition (the content-authored
+/// phase rule — a fragment, or the profile tree itself), or nullptr when the data does not author one.
+const json* PhaseFragmentUseSkill(const json& ai) {
+    const auto scan = [](const json& node) -> const json* {
+        std::vector<const json*> nodes;
+        CollectBtNodes(node, nodes);
+        const bool gatedPhase = std::ranges::any_of(nodes, [](const json* found) {
+            return found->at("type").get<std::string>() == "BossPhaseAtLeast";
+        });
+        if (!gatedPhase) return nullptr;
+        for (const json* found : nodes) {
+            if (found->at("type").get<std::string>() == "UseSkill") return found;
+        }
+        return nullptr;
+    };
+    for (const auto& fragment : ai.at("fragments")) {
+        if (const json* useSkill = scan(fragment.at("node"))) return useSkill;
+    }
+    for (const auto& profile : ai.at("profiles")) {
+        if (const auto tree = profile.find("tree"); tree != profile.end()) {
+            if (const json* useSkill = scan(*tree)) return useSkill;
+        }
+    }
+    return nullptr;
+}
+
+/// The skill the fragment's UseSkill filter resolves to against the actor's own loadout (explicit `skills`
+/// first, then `tags`) — derived from the data, never a hard-coded id.
+std::string ExpectedPhaseSkill(const json& useSkill, const std::vector<std::string>& loadout,
+                               const game::gameplay::FContentRegistry& content) {
+    if (const auto skills = useSkill.find("skills"); skills != useSkill.end()) {
+        for (const auto& id : *skills) {
+            const std::string skillId = id.get<std::string>();
+            if (std::ranges::find(loadout, skillId) != loadout.end()) return skillId;
+        }
+    }
+    if (const auto tags = useSkill.find("tags"); tags != useSkill.end()) {
+        std::vector<std::string> wanted;
+        for (const auto& tag : *tags) wanted.push_back(tag.get<std::string>());
+        for (const auto& skillId : loadout) {
+            const auto* row = content.skills.find(skillId);
+            if (row == nullptr) continue;
+            for (const auto& tag : row->tags) {
+                if (std::ranges::find(wanted, tag) != wanted.end()) return skillId;
+            }
+        }
+    }
+    return {};
+}
+
+/// The bosses.json map row for (theme, slot) — the data authority for a battle's expected boss id.
+std::string MappedBossId(const json& document, std::string_view theme, std::string_view slot) {
+    for (const auto& row : document.at("map")) {
+        if (row.at("theme").get<std::string>() == std::string(theme) &&
+            row.at("slot").get<std::string>() == std::string(slot)) {
+            return row.at("boss").get<std::string>();
+        }
+    }
+    return {};
+}
+
+/// The first floor cell within `range` of `target` that no unit stands on (a scenario input, like the HUD's
+/// own placement of the party).
+std::optional<game::FGridPosition> FreeCellNear(entt::registry& registry, game::FGridPosition target, int range) {
+    std::vector<game::FGridPosition> occupied;
+    for (const auto entity : registry.view<game::FGridPosition>()) {
+        occupied.push_back(registry.get<game::FGridPosition>(entity));
+    }
+    const auto* terrain = registry.ctx().find<game::FGridTerrain>();
+    for (int y = 0; y < game::kGridHeight; ++y) {
+        for (int x = 0; x < game::kGridWidth; ++x) {
+            const game::FGridPosition cell{x, y};
+            if (std::abs(cell.x - target.x) + std::abs(cell.y - target.y) > range) continue;
+            if (std::ranges::find(occupied, cell) != occupied.end()) continue;
+            if (terrain != nullptr && terrain->at(x, y) != game::ETile::Floor) continue;
+            return cell;
+        }
+    }
+    return std::nullopt;
+}
+
+/// The shipped seed played for real: content, sequence and bosses.json from `assets/`, the first mid-boss
+/// slot fielded directly (run depth/room = the sequence's slot) and the whole turn pipeline registered, so
+/// the AI and autoplay tests run the game's own systems headless.
+struct FBossRun {
+    std::string checkpoint;
+    entt::registry registry;
+    std::string runSave;
+    game::ecs::TurnSystem turns;
+    game::ecs::TurnFlowSystem flow;
+    game::ecs::ActionResolverSystem actions;
+    game::ecs::CombatOutcomeSystem outcomes;
+    FEmberBattleState battle;
+    int steps{0};
+
+    explicit FBossRun(const char* stem, std::uint32_t seed) : checkpoint(UniquePath(stem)) {
+        game::FAssetManager::Initialize(registry, ShipAssetRoots());
+        CHECK(game::gameplay::FGameplayServices::Initialize(registry));
+        CHECK(game::InitializeDungeon(registry, checkpoint));
+        runSave = registry.ctx().get<game::FDungeonSave>().path;
+        game::InitializeEventBus(registry);  // the composition root's job; OnEnter does not create one
+        turns.onRegister(registry);
+        game::StartRun(registry, seed, true);
+        auto& run = registry.ctx().get<game::FDungeonRun>();
+        const auto slot = BossSlotOf(registry.ctx().get<game::FRunSequence>(), "mid");
+        run.depth = slot.depth;
+        run.room = slot.room;
+        battle.OnEnter(registry);
+    }
+
+    ~FBossRun() {
+        battle.OnExit(registry);
+        std::error_code error;
+        std::filesystem::remove(checkpoint, error);
+        std::filesystem::remove(runSave, error);
+        std::filesystem::remove(runSave + ".tmp", error);
+    }
+
+    FBossRun(const FBossRun&) = delete;
+    FBossRun& operator=(const FBossRun&) = delete;
+
+    game::FDungeonRun& run() { return registry.ctx().get<game::FDungeonRun>(); }
+
+    entt::entity Body() {
+        for (const auto entity : registry.view<game::FBossGoals>()) return entity;
+        return entt::null;
+    }
+
+    std::vector<entt::entity> Hearts() {
+        std::vector<entt::entity> hearts;
+        const auto body = Body();
+        if (body == entt::null) return hearts;
+        for (const auto [entity, part] : registry.view<const game::FBossPart>().each()) {
+            if (part.body == body) hearts.push_back(entity);
+        }
+        return hearts;
+    }
+
+    void step() {
+        // Test-time acceleration (dungeon_sequence_tests' recipe): the outcome is turn based, so a larger dt
+        // only carries the presentation timers to the same decisions in fewer frames. The frame boundary is
+        // the Engine's own job (FEventBus::beginFrame before any system): without it the frame events pile up
+        // and AccumulateRoomStats counts the same FRoundStarted again every frame.
+        if (auto* bus = registry.ctx().find<game::FEventBus>()) bus->beginFrame();
+        turns.update(registry, .5f);
+        flow.update(registry, .5f);
+        actions.update(registry, .5f);
+        outcomes.update(registry, .5f);
+        ++steps;
+    }
+
+    /// Auto-plays the fielded room to a decision. False = lost (a stall counts as a failure too).
+    bool playBattle(int maxSteps = 6000) {
+        registry.ctx().get<game::FCombatRuntime>().autoPlay = true;
+        while (!registry.ctx().get<game::FBattleOutcome>().resolved && steps < maxSteps) step();
+        const auto& outcome = registry.ctx().get<game::FBattleOutcome>();
+        return outcome.resolved && outcome.victory;
+    }
+};
+
+/// One AI decision for `actor` (a fresh turn serial per call: the brain treats it as a new turn).
+std::optional<game::FBattleAction> Decide(entt::registry& registry, entt::entity actor, std::uint64_t serial,
+                                          bool hostilePartySide) {
+    game::FTurnToken token;
+    token.sessionId = 1;
+    token.roundNumber = serial;
+    token.turnSerial = serial;
+    token.actor = actor;
+    return game::ai::RunBrain(
+        registry, token, hostilePartySide, registry.ctx().get<game::gameplay::FContentRegistry>());
+}
+
+/// The skill id of an AI decision ("" for a move or no decision).
+std::string SkillOf(const std::optional<game::FBattleAction>& action) {
+    if (!action) return {};
+    if (const auto* request = std::get_if<game::FActionRequest>(&*action)) return request->skillId;
+    return {};
 }
 
 // --- room generation helpers (mirroring the fixture's crafted data) ------------------------------
@@ -839,7 +1165,7 @@ void FloorRoundsUp() {
 }
 
 void PhaseHeldWhilePartsLive() {
-    FGateRig rig(110, PhasesOf({{50, true}, {0, false}}), 2);
+    FGateRig rig(110, PhasesWithImmunities({{50, true, {"status.freeze"}}, {0, false, {}}}), 2);
     rig.SetBodyHp(55);  // exactly the floor
     CHECK(game::BossPartsAlive(rig.registry, rig.body) == 2);
     CHECK(game::BossActivePhase(rig.registry, rig.body) == 0);
@@ -847,6 +1173,8 @@ void PhaseHeldWhilePartsLive() {
     // The gate entry does not fire a phase change: the phase only moves when the last part dies.
     game::ecs::EvaluateBossGoals(rig.registry);
     CHECK(rig.Goals().activePhase == 0);
+    // ... and the defense stays the active phase's row while the parts hold the phase (WP-15b).
+    CHECK(ImmuneSet(rig.registry, rig.body) == std::vector<std::string>{"status.freeze"});
 }
 
 void TransitionOnLastPartDeath() {
@@ -1299,6 +1627,426 @@ void GoalCompletionDeterministic() {
     CHECK(leftEvents.front().second == "boss.test_guardian");
 }
 
+// ------------------------------------------------------------------------------------------------
+// WP-15b: immunities (the FStatusRules choke point)
+// ------------------------------------------------------------------------------------------------
+
+void ImmunityBlocksSkillPath() {
+    FMiniBattle battle(110, 50, 0);
+    auto& registry = battle.registry;
+    const std::string statusId = "status.debuff";
+    const auto* definition = battle.Content().statuses.find(statusId);
+    CHECK(definition != nullptr);
+    const auto resolved = game::ResolveSkillSlot(game::FSkillSlot{"skill.debuff", {}}, battle.Content());
+    CHECK(resolved.has_value());
+    registry.get<game::FSkillLoadout>(battle.actor).slots.push_back(game::FSkillSlot{"skill.debuff", {}});
+    registry.get<game::FActiveStatuses>(battle.body).immune = {statusId};
+
+    const auto aim = registry.get<game::FGridPosition>(battle.body);
+    const auto origin = registry.get<game::FGridPosition>(battle.actor);
+
+    // Preview = canon (WP-15b rules): an immune target's preview carries no status, so the resolver has none
+    // to hand to the application point.
+    auto preview = game::PreviewSkill(registry, battle.actor, *resolved, aim, origin);
+    CHECK(preview.has_value());
+    CHECK(preview->targets.size() == 1);
+    CHECK(preview->targets.front().unit == battle.body);
+    CHECK(preview->targets.front().statuses.empty());
+
+    CastSkill(registry, battle.actor, battle.body, "skill.debuff");
+    CHECK(!HoldsStatus(registry, battle.body, statusId));
+
+    // The application point every path shares reports the block once (the resolver even reaching it does not
+    // depend on the preview filter, so the line is pinned here).
+    {
+        FLogCapture capture;
+        game::FBattleRng rng{1234u};
+        CHECK(!game::TryApplyStatus(registry.get<game::FActiveStatuses>(battle.body), *definition, 0, 0, rng));
+        CHECK(!HoldsStatus(registry, battle.body, statusId));
+        CHECK(capture.Text().find("blocked (immune)") != std::string::npos);
+    }
+
+    // The same skill on a non-immune unit applies: the choke point is the immune set, not the skill.
+    registry.get<game::FActiveStatuses>(battle.body).immune.clear();
+    preview = game::PreviewSkill(registry, battle.actor, *resolved, aim, origin);
+    CHECK(preview.has_value());
+    CHECK(preview->targets.front().statuses.size() == 1);
+    CastSkill(registry, battle.actor, battle.body, "skill.debuff");
+    CHECK(HoldsStatus(registry, battle.body, statusId));
+}
+
+void ImmunityBlocksRuneHookPath() {
+    // The rune-hook entry (FEffectHooks' apply_status_self) goes through ApplyStatus, which is the same
+    // choke point — no call-site edit, so an immune body ignores a hook-granted status too.
+    FBoot boot(UniquePath("boss-goals-hook-immune"), TestAssetRoots());
+    CHECK(boot.content);
+    auto& registry = boot.registry;
+    const std::string statusId = "status.debuff";
+
+    const auto field = [&](std::vector<std::string> immune) {
+        const auto unit = registry.create();
+        registry.emplace<game::FHealth>(unit, game::FHealth{20, 20});
+        registry.emplace<game::FActiveStatuses>(unit).immune = std::move(immune);
+        game::gameplay::FHook hook;
+        hook.event = game::gameplay::EHookEvent::OnTurnStart;
+        hook.eventName = "on_turn_start";
+        hook.effect.kind = std::string(game::gameplay::kEffectKindApplyStatusSelf);
+        hook.effect.statusId = statusId;
+        hook.id = "hook.test_immune";
+        game::FActiveHooks hooks;
+        hooks.hooks.push_back(game::FActiveHook{std::move(hook), "skill.test"});
+        registry.emplace<game::FActiveHooks>(unit, std::move(hooks));
+        return unit;
+    };
+
+    const auto immuneUnit = field({statusId});
+    const auto plainUnit = field({});
+    {
+        FLogCapture capture;
+        CHECK(game::FireHooks(registry, game::gameplay::EHookEvent::OnTurnStart,
+                              game::FHookContext{.owner = immuneUnit}) == 1);
+        CHECK(!HoldsStatus(registry, immuneUnit, statusId));
+        CHECK(capture.Text().find("blocked (immune)") != std::string::npos);
+    }
+    CHECK(game::FireHooks(registry, game::gameplay::EHookEvent::OnTurnStart,
+                          game::FHookContext{.owner = plainUnit}) == 1);
+    CHECK(HoldsStatus(registry, plainUnit, statusId));
+}
+
+void ImmunityBeforeRollNoRng() {
+    const auto& content = FixtureContent();
+    const auto* paralyze = content.statuses.find("status.paralyze");
+    CHECK(paralyze != nullptr);
+    CHECK(game::IsOnApplyControl(*paralyze));  // the rolling kind: immunity must skip the roll
+
+    // Every seed: the roll exists (a clean unit would sometimes apply), yet the immune unit consumes nothing.
+    for (std::uint32_t seed = 1; seed <= 64; ++seed) {
+        game::FActiveStatuses active;
+        active.immune = {paralyze->id};
+        game::FBattleRng rng{seed};
+        const std::uint32_t before = rng.state;
+        CHECK(!game::TryApplyStatus(active, *paralyze, 0, 0, rng));
+        CHECK(rng.state == before);
+        CHECK(active.effects.empty());
+    }
+
+    // Same seed twice: an identical outcome and an identical RNG state (immunity is a pure no-op).
+    const auto run = [paralyze](std::uint32_t seed, bool immune) {
+        game::FActiveStatuses active;
+        if (immune) active.immune = {paralyze->id};
+        game::FBattleRng rng{seed};
+        const bool applied = game::TryApplyStatus(active, *paralyze, 0, 0, rng);
+        return std::pair<bool, std::uint32_t>{applied, rng.state};
+    };
+    CHECK(run(9876u, true) == run(9876u, true));
+    CHECK(!run(9876u, true).first);
+    CHECK(run(9876u, true).second == game::FBattleRng{9876u}.state);
+    CHECK(run(9876u, false).second != game::FBattleRng{9876u}.state);  // the control rolls exactly once
+}
+
+void ImmuneSetFromBossPhase() {
+    const auto catalog = BossCatalog(ThemeIds().front(), "mid", TestGuardianBoss());
+    FBattle battle("boss-goals-immune-set", &catalog, "mid");
+    auto& registry = battle.registry;
+    const auto body = battle.BossBody();
+    CHECK(body != entt::null);
+    const auto& goals = registry.get<game::FBossGoals>(body);
+    CHECK(!goals.phases.front().bodyImmunities.empty());
+
+    // Setup writes the active phase's data row: the body ignores exactly those ids.
+    CHECK(ImmuneSet(registry, body) == SortedCopy(goals.phases.front().bodyImmunities));
+    const auto* active = registry.try_get<game::FActiveStatuses>(body);
+    CHECK(active != nullptr);
+    for (const auto& statusId : goals.phases.front().bodyImmunities) {
+        CHECK(game::IsStatusImmune(*active, statusId));
+    }
+
+    // Hearts and escorts ignore nothing (the row is the body's).
+    const auto parts = battle.Parts();
+    CHECK(parts.size() == 3);
+    for (const auto part : parts) CHECK(ImmuneSet(registry, part).empty());
+    for (const auto enemy : battle.Enemies()) {
+        if (enemy != body) CHECK(ImmuneSet(registry, enemy).empty());
+    }
+}
+
+void ImmuneSetUpdatedOnTransition() {
+    FGateRig rig(110, PhasesWithImmunities({{50, true, {"status.freeze"}}, {0, false, {}}}), 2);
+    rig.SetBodyHp(55);
+    game::ecs::EvaluateBossGoals(rig.registry);
+    CHECK(rig.Goals().activePhase == 0);
+    CHECK(ImmuneSet(rig.registry, rig.body) == std::vector<std::string>{"status.freeze"});
+
+    // The last heart dies at the floor: the defense changes AT the transition (phase 2 ignores nothing).
+    rig.KillParts();
+    CHECK(game::BossActivePhase(rig.registry, rig.body) == 1);
+    game::ecs::EvaluateBossGoals(rig.registry);
+    CHECK(rig.Goals().activePhase == 1);
+    CHECK(ImmuneSet(rig.registry, rig.body).empty());
+}
+
+// ------------------------------------------------------------------------------------------------
+// WP-15b: the telegraph contract (defense now, action next round)
+// ------------------------------------------------------------------------------------------------
+
+void CommittedIntentSurvivesTransition() {
+    const auto catalog = BossCatalog(ThemeIds().front(), "mid", TestGuardianBoss());
+    FBattle battle("boss-goals-intent-transition", &catalog, "mid");
+    auto& registry = battle.registry;
+    const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
+
+    // One round commit through the event bus (the shape TurnSystem queues for FRoundStarted).
+    game::InitializeEventBus(registry);
+    auto& bus = registry.ctx().get<game::FEventBus>();
+    bus.beginFrame();
+    game::FTurnSnapshot round;
+    round.state = game::ETurnState::Running;
+    round.sessionId = 7;
+    round.roundNumber = 1;
+    bus.queueFrame<game::FRoundStarted>(game::FRoundStarted{round});
+    game::CommitEnemyIntents(registry, content);
+
+    const auto body = battle.BossBody();
+    CHECK(body != entt::null);
+    auto* store = registry.ctx().find<game::FIntentStore>();
+    CHECK(store != nullptr);
+    const auto committedEntry = store->intents.find(body);
+    CHECK(committedEntry != store->intents.end());
+    const game::FIntent committed = committedEntry->second;
+
+    // Mid-round transition: the last heart dies at the body's floor.
+    const auto floor = game::BossGateFloor(registry, body);
+    CHECK(floor.has_value());
+    registry.get<game::FHealth>(body).current = *floor;
+    for (const auto part : battle.Parts()) (void)game::ApplyDamageToUnit(registry, part, 100000);
+    CHECK(game::BossActivePhase(registry, body) == 1);
+    game::ecs::EvaluateBossGoals(registry);
+    CHECK(registry.get<game::FBossGoals>(body).activePhase == 1);
+
+    // The declared intent is neither replaced nor re-aimed by the transition ...
+    const auto after = store->intents.find(body);
+    CHECK(after != store->intents.end());
+    CHECK(after->second.skillId == committed.skillId);
+    CHECK(after->second.aim.x == committed.aim.x && after->second.aim.y == committed.aim.y);
+    CHECK(after->second.target == committed.target);
+    CHECK(after->second.mode == committed.mode);
+    CHECK(after->second.expectedAtCommit == committed.expectedAtCommit);
+    // ... and still validates against the live world (only WP-11's own rules may invalidate it).
+    const auto evaluation = game::EvaluateIntent(registry, body, content);
+    CHECK(evaluation.verdict != game::EIntentVerdict::Invalidated);
+}
+
+void PhaseBehaviorTakesEffectNextRound() {
+    FGateRig rig(110, PhasesWithImmunities({{50, true, {"status.freeze"}}, {0, false, {}}}), 2);
+    auto& stats = rig.registry.ctx().emplace<game::FRoomBattleStats>();
+    stats.rounds = 4;
+    rig.SetBodyHp(55);
+    game::ecs::EvaluateBossGoals(rig.registry);  // first evaluation: phase 0
+    rig.KillParts();
+    game::ecs::EvaluateBossGoals(rig.registry);  // the transition lands mid-round 4
+
+    auto& goals = rig.Goals();
+    CHECK(goals.activePhase == 1);
+    CHECK(goals.phaseRound == 4);
+    CHECK(goals.behaviorPhase == 0);  // action changes only from the next round's plan
+
+    // More evaluations in the same round: still 0.
+    game::ecs::EvaluateBossGoals(rig.registry);
+    CHECK(rig.Goals().behaviorPhase == 0);
+
+    // The counter moves past the transition round: the phase behavior is promoted.
+    stats.rounds = 5;
+    game::ecs::EvaluateBossGoals(rig.registry);
+    CHECK(rig.Goals().behaviorPhase == 1);
+    CHECK(rig.Goals().activePhase == 1);
+}
+
+void PhaseGuardSelectsSkill() {
+    // The phase rule lives in the SHIPPED ai.json (the content task authors it); the expected skill is derived
+    // from that document against the boss's own loadout — never a hard-coded id.
+    const auto ai = ReadJsonFile("assets/data/ai.json");
+    const json* useSkill = PhaseFragmentUseSkill(ai);
+    CHECK(useSkill != nullptr);
+
+    FBossRun run("boss-goals-phase-skill", 5u);
+    auto& registry = run.registry;
+    const auto body = run.Body();
+    CHECK(body != entt::null);
+    const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
+
+    std::vector<std::string> loadout;
+    for (const auto& slot : registry.get<game::FSkillLoadout>(body).slots) loadout.push_back(slot.skillId);
+    const std::string expected = ExpectedPhaseSkill(*useSkill, loadout, content);
+    if (expected.empty()) {
+        throw std::runtime_error(
+            "ai.json's BossPhaseAtLeast tree has no `skills`/`tags` filter this test can derive a skill from; "
+            "author the phase UseSkill with one of them");
+    }
+
+    // Clear the field down to the body vs. one adjacent hero, so the decision is a skill (not an approach).
+    // Collect first: ApplyDamageToUnit mutates the registry, and a view must not be iterated across that.
+    std::vector<entt::entity> others;
+    for (const auto entity : registry.view<game::FHealth>()) {
+        if (entity == body || registry.all_of<game::FPartyMember>(entity)) continue;
+        others.push_back(entity);
+    }
+    for (const auto entity : others) (void)game::ApplyDamageToUnit(registry, entity, 100000);
+    entt::entity hero = entt::null;
+    for (const auto entity : registry.view<game::FPartyMember, game::FGridPosition>()) {
+        hero = entity;
+        break;
+    }
+    CHECK(hero != entt::null);
+    const auto free = FreeCellNear(registry, registry.get<game::FGridPosition>(body), 1);
+    CHECK(free.has_value());
+    registry.get<game::FGridPosition>(hero) = *free;
+
+    auto& goals = registry.get<game::FBossGoals>(body);
+    registry.get<game::FActiveStatuses>(body).effects.clear();
+    auto& points = registry.get<game::FActionPoints>(body);
+    // Rooted for this decision: the question is which SKILL the phase fragment picks, not where the boss
+    // walks — see the fragment's Succeeder[Engage] (it declines and the sequence falls through to UseSkill).
+    points.move = 0;
+    points.skill = points.skillMax;
+
+    // The leaf the fragment guards on: false in phase 1's behavior, true once promoted.
+    FAiProbe leaf{registry, content, {}, body};
+    goals.behaviorPhase = 0;
+    CHECK(!leaf.PhaseAtLeast(2));
+    const auto phaseOneDecision = Decide(registry, body, 1, true);
+
+    goals.behaviorPhase = 1;
+    CHECK(leaf.PhaseAtLeast(2));
+    const auto phaseTwoDecision = Decide(registry, body, 2, true);
+
+    // The phase fragment (first in the selector) forces its skill once promoted ...
+    CHECK(SkillOf(phaseTwoDecision) == expected);
+    // ... and is not taken before that (the normal fight plans something else — if the two ever collide the
+    // fragment is indistinguishable from the default plan and must be re-authored).
+    CHECK(SkillOf(phaseOneDecision) != expected);
+}
+
+// ------------------------------------------------------------------------------------------------
+// WP-15b: AI valuation through the gate
+// ------------------------------------------------------------------------------------------------
+
+void AiValuationGateAware() {
+    // One heart already lives (far away), so the parts gate holds the body at its floor.
+    FMiniBattle battle(110, 50, 1);
+    auto& registry = battle.registry;
+    FAiProbe probe{registry, battle.Content(), {}, battle.actor};
+    probe.tuning.focusPercent = 0;  // the value is exactly the landed HP (no wounded-target bonus)
+
+    // At the floor the body is worth 0 → the option drops out entirely.
+    battle.SetBodyHp(55);
+    const auto floor = game::BossGateFloor(registry, battle.body);
+    CHECK(floor.has_value());
+    CHECK(*floor == 55);
+    CHECK(!probe.Best().has_value());
+
+    // A heart beside the caster is the better target: the shielded body contributes nothing.
+    const auto heart = battle.AddPart({2, 3});
+    const auto onHeart = probe.Best();
+    CHECK(onHeart.has_value());
+    CHECK(onHeart->target == heart);
+    CHECK(onHeart->value > 0);
+
+    // Above the floor only the gate's allowance counts (current - floor), never a kill.
+    registry.get<game::FGridPosition>(heart) = game::FGridPosition{0, 0};
+    battle.SetBodyHp(62);
+    CHECK(game::BossGateFloor(registry, battle.body).has_value());  // the heart still holds the gate
+    const auto onBody = probe.Best();
+    CHECK(onBody.has_value());
+    CHECK(onBody->target == battle.body);
+    CHECK(onBody->value == 62 - 55);
+    CHECK(!onBody->kills);
+
+    // The gate gone (no heart alive) the same body is a kill again — the cap is the only thing softening it.
+    for (const auto part : battle.parts) (void)game::ApplyDamageToUnit(registry, part, 100000);
+    CHECK(!game::BossGateFloor(registry, battle.body).has_value());
+    const auto withoutGate = probe.Best();
+    CHECK(withoutGate.has_value());
+    CHECK(withoutGate->target == battle.body);
+    CHECK(withoutGate->kills);
+}
+
+// ------------------------------------------------------------------------------------------------
+// WP-15b: the shipped seed played for real
+// ------------------------------------------------------------------------------------------------
+
+void AutoplayKillsPartsFirst() {
+    const auto bosses = ReadJsonFile("assets/data/bosses.json");
+    for (const std::uint32_t seed : {1u, 2u, 3u}) {
+        FBossRun run("boss-goals-autoplay", seed);
+        auto& registry = run.registry;
+        const auto body = run.Body();
+        CHECK(body != entt::null);
+        const auto hearts = run.Hearts();
+        CHECK(!hearts.empty());
+
+        // The seeded map row is the authority for the reported id (no literal boss id in the test).
+        const auto* sequence = game::FindRunSequence(registry);
+        CHECK(sequence != nullptr);
+        auto& state = run.run();
+        const auto position = sequence->PositionOf(state.depth - 1);
+        const std::string theme = sequence->themes[position.theme].id;
+        const std::string expectedBoss = MappedBossId(bosses, theme, "mid");
+        CHECK(!expectedBoss.empty());
+
+        std::vector<int> heartDiedAt(hearts.size(), -1);
+        int bodyDiedAt = -1;
+        registry.ctx().get<game::FCombatRuntime>().autoPlay = true;
+        while (!registry.ctx().get<game::FBattleOutcome>().resolved && run.steps < 6000) {
+            run.step();
+            // Sampled every frame: while any heart lives the body never dips under its floor.
+            const auto floor = game::BossGateFloor(registry, body);
+            if (floor && game::BossUnitAlive(registry, body) && game::BossPartsAlive(registry, body) > 0) {
+                CHECK(registry.get<game::FHealth>(body).current >= *floor);
+            }
+            for (std::size_t index = 0; index < hearts.size(); ++index) {
+                if (heartDiedAt[index] < 0 && !game::BossUnitAlive(registry, hearts[index])) {
+                    heartDiedAt[index] = run.steps;
+                }
+            }
+            if (bodyDiedAt < 0 && !game::BossUnitAlive(registry, body)) bodyDiedAt = run.steps;
+        }
+
+        const auto& outcome = registry.ctx().get<game::FBattleOutcome>();
+        CHECK(outcome.resolved && outcome.victory);
+
+        int lastHeart = -1;
+        for (const int died : heartDiedAt) {
+            CHECK(died >= 0);  // every heart died
+            lastHeart = std::max(lastHeart, died);
+        }
+        CHECK(lastHeart >= 0);
+        CHECK(bodyDiedAt > lastHeart);  // ... before the body
+
+        const auto events = RunEvents(registry, game::ERunEventKind::BossDefeated);
+        CHECK(events.size() == 1);
+        CHECK(events.front().id == expectedBoss);  // the seeded id, exactly once
+
+        std::cout << "  seed " << seed << ": boss " << expectedBoss << ", hearts " << hearts.size()
+                  << ", steps " << run.steps << ", body died at frame " << bodyDiedAt << " (last heart "
+                  << lastHeart << ")\n";
+    }
+}
+
+void BossPartsAutoCompleteBudget() {
+    // Report only: the round count is a tuning metric (the cap is 60), never a pass/fail threshold. Only a
+    // loss or a stall at the cap fails the test.
+    for (const std::uint32_t seed : {1u, 2u}) {
+        FBossRun run("boss-goals-budget", seed);
+        CHECK(run.Body() != entt::null);
+        const bool victory = run.playBattle();
+        const auto* stats = run.registry.ctx().find<game::FRoomBattleStats>();
+        const int rounds = stats != nullptr ? stats->rounds : 0;
+        std::cout << "  seed " << seed << ": rounds " << rounds << " / " << game::kMaxBattleRounds
+                  << ", steps " << run.steps << ", hearts " << run.Hearts().size() << '\n';
+        CHECK(victory);
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -1346,5 +2094,16 @@ int main() {
         {"FinalBossDoesNotEndRun", FinalBossDoesNotEndRun},
         {"BossPartsSpawnInDocument", BossPartsSpawnInDocument},
         {"GoalCompletionDeterministic", GoalCompletionDeterministic},
+        {"ImmunityBlocksSkillPath", ImmunityBlocksSkillPath},
+        {"ImmunityBlocksRuneHookPath", ImmunityBlocksRuneHookPath},
+        {"ImmunityBeforeRollNoRng", ImmunityBeforeRollNoRng},
+        {"ImmuneSetFromBossPhase", ImmuneSetFromBossPhase},
+        {"ImmuneSetUpdatedOnTransition", ImmuneSetUpdatedOnTransition},
+        {"CommittedIntentSurvivesTransition", CommittedIntentSurvivesTransition},
+        {"PhaseBehaviorTakesEffectNextRound", PhaseBehaviorTakesEffectNextRound},
+        {"PhaseGuardSelectsSkill", PhaseGuardSelectsSkill},
+        {"AiValuationGateAware", AiValuationGateAware},
+        {"AutoplayKillsPartsFirst", AutoplayKillsPartsFirst},
+        {"BossPartsAutoCompleteBudget", BossPartsAutoCompleteBudget},
     });
 }

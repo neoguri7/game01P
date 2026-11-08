@@ -35,11 +35,25 @@ int EffectiveStatusMagnitude(const gameplay::FStatusContent& status, int magnitu
                                 : std::max(0, status.magnitude + magnitudeDelta);
 }
 
+bool IsStatusImmune(const FActiveStatuses& active, std::string_view statusId) {
+    for (const std::string& id : active.immune) {
+        if (id == statusId) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void ApplyStatus(
     FActiveStatuses& active,
     const gameplay::FStatusContent& status,
     int durationDelta,
     int magnitudeDelta) {
+    if (IsStatusImmune(active, status.id)) {
+        // WP-15: immunity is decided at the single application point — a complete no-op, no state change.
+        LOG_INFO("status '{}' blocked (immune).", status.id);
+        return;
+    }
     const int duration = EffectiveStatusDuration(status, durationDelta);
     const int magnitude = EffectiveStatusMagnitude(status, magnitudeDelta);
     for (FStatusEffect& effect : active.effects) {
@@ -74,6 +88,12 @@ bool TryApplyStatus(
     int durationDelta,
     int magnitudeDelta,
     FBattleRng& rng) {
+    if (IsStatusImmune(active, status.id)) {
+        // WP-15: checked BEFORE any roll — immunity consumes no RNG (same seed reproduces), and the
+        // non-control path never reaches ApplyStatus's own check (this returned first).
+        LOG_INFO("status '{}' blocked (immune).", status.id);
+        return false;
+    }
     if (!IsOnApplyControl(status)) {
         ApplyStatus(active, status, durationDelta, magnitudeDelta); // 빙결/dot/stat/turn_start: 굴림 없음
         return true;

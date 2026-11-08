@@ -187,10 +187,13 @@ std::optional<FSkillPreview> PreviewSkill(
             entry.lethal = entry.healthAfter == 0;
         }
 
-        // 부여 목록: 리졸버가 실제로 적용하는 것과 같다 — 정의가 있는 상태만, lethal이면 없음.
+        // 부여 목록: 리졸버가 실제로 적용하는 것과 같다 — 정의가 있는 상태만, lethal이면 없음. WP-15b: 면역
+        // 대상은 TryApplyStatus가 차단하므로 프리뷰 목록에서도 뺀다(프리뷰 = 실제 적용).
         if (!entry.lethal) {
+            const auto* targetActive = registry.try_get<FActiveStatuses>(target);
             for (const FResolvedStatus& status : resolved.statuses) {
-                if (content->statuses.find(status.statusId) != nullptr) {
+                if (content->statuses.find(status.statusId) != nullptr &&
+                    (targetActive == nullptr || !IsStatusImmune(*targetActive, status.statusId))) {
                     entry.statuses.push_back(status);
                 }
             }

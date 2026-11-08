@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <queue>
 
+#include "ecs/components/FActiveStatuses.h"
+#include "ecs/components/FBossGoals.h"
 #include "gameplay/ai/FAiBlackboard.h"
 #include "gameplay/ai/FAiTuning.h"
 #include "gameplay/combat/FCombatQuery.h"
@@ -74,7 +76,10 @@ struct FEffect {
         return effect;
     }
     if (skill.power > 0) {
-        const int damage = ComputeSkillDamage(self.stats, self.attackModifier, skill, unit.stats);
+        // WP-15b: the parts gate caps the real hit — the landed number (and `kills`) follows the cap, so a
+        // body held at its floor is worth 0 and the option drops out unless a status adds value.
+        const int damage = BossBodyDamageCap(
+            ctx.registry, unit.entity, ComputeSkillDamage(self.stats, self.attackModifier, skill, unit.stats));
         const int dealt = std::min(damage, unit.hp);
         effect.value += dealt;
         if (damage >= unit.hp) {
@@ -189,6 +194,11 @@ void ForEachOption(
 } // namespace
 
 int ValueOfStatus(const FBtContext& ctx, const FResolvedStatus& status, const FUnitView& target, bool targetIsAlly) {
+    // WP-15b: an immune target receives nothing — FStatusRules no-ops the application, so it is worth 0.
+    if (const auto* active = ctx.registry.try_get<FActiveStatuses>(target.entity);
+        active != nullptr && IsStatusImmune(*active, status.statusId)) {
+        return 0;
+    }
     const gameplay::FStatusContent* definition = ctx.content.statuses.find(status.statusId);
     if (definition == nullptr) {
         return 0;

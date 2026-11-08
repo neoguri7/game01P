@@ -5,8 +5,10 @@
 #include <entt/entt.hpp>
 
 #include "core/Logger.h"
+#include "ecs/components/FActiveStatuses.h"
 #include "ecs/components/FBossGoals.h"
 #include "gameplay/combat/FCombatTypes.h"
+#include "gameplay/dungeon/FRunLog.h"
 
 namespace game::ecs {
 namespace detail {
@@ -21,6 +23,16 @@ inline void AnnounceBossLine(entt::registry& registry, const std::string& line) 
     }
 }
 
+/// WP-15b: mirrors the body's phase immune set into FActiveStatuses::immune. Called whenever `activePhase`
+/// is (re-)cached — defense changes (the immune set) apply at the transition, not a round later.
+inline void WriteBossImmunities(entt::registry& registry, entt::entity body, const FBossGoals& goals, int phase) {
+    auto* active = registry.try_get<FActiveStatuses>(body);
+    if (active == nullptr) {
+        return;
+    }
+    active->immune = goals.phases[static_cast<std::size_t>(phase)].bodyImmunities;
+}
+
 } // namespace detail
 
 /// WP-15 evaluation helper — deliberately NOT a registered ISystem (CombatOutcomeSystem calls it before its
@@ -31,7 +43,13 @@ inline void AnnounceBossLine(entt::registry& registry, const std::string& line) 
 ///    A killing blow only updates the cache (no "enters phase" for the blow that ends the fight).
 /// The cached `activePhase` is never read by rules — the gate and the phase functions derive the live phase,
 /// so no frame order can make two readers disagree.
+/// WP-15b adds the transition's staged effects: every (re-)cache writes the body's immune set (defense
+/// applies immediately) and records the room round of the transition; the action-side cache `behaviorPhase`
+/// is promoted only once the round counter has moved past that round (telegraph contract — a committed or
+/// same-round action is never re-aimed).
 inline void EvaluateBossGoals(entt::registry& registry) {
+    const auto* stats = registry.ctx().find<FRoomBattleStats>();
+    const int rounds = stats != nullptr ? stats->rounds : 0; // no run stats (probes) = no round boundary yet
     for (const entt::entity body : registry.view<FBossGoals>()) {
         auto& goals = registry.get<FBossGoals>(body);
         const int phase = BossActivePhase(registry, body);
@@ -39,6 +57,8 @@ inline void EvaluateBossGoals(entt::registry& registry) {
 
         if (goals.activePhase < 0) {
             goals.activePhase = phase;
+            goals.phaseRound = rounds;
+            detail::WriteBossImmunities(registry, body, goals, phase);
             if (const auto floor = BossGateFloor(registry, body)) {
                 detail::AnnounceBossLine(
                     registry,
@@ -46,13 +66,20 @@ inline void EvaluateBossGoals(entt::registry& registry) {
                         " part(s): it cannot fall below " + std::to_string(*floor) +
                         " HP while they stand.");
             }
-            continue;
+        } else if (phase != goals.activePhase) {
+            goals.activePhase = phase;
+            goals.phaseRound = rounds;
+            detail::WriteBossImmunities(registry, body, goals, phase);
+            if (BossUnitAlive(registry, body)) {
+                detail::AnnounceBossLine(registry, goals.name + " enters phase " + std::to_string(phase + 1) + ".");
+            }
         }
 
-        if (phase == goals.activePhase) continue;
-        goals.activePhase = phase;
-        if (BossUnitAlive(registry, body)) {
-            detail::AnnounceBossLine(registry, goals.name + " enters phase " + std::to_string(phase + 1) + ".");
+        // WP-15b telegraph contract: ACTION changes (phase skill choice, the AI phase guard) apply from the
+        // NEXT round — promote once the room round counter has moved past the transition's round. Absent run
+        // stats stay 0, so a probe never promotes on a cached transition alone.
+        if (goals.behaviorPhase < goals.activePhase && rounds > goals.phaseRound) {
+            goals.behaviorPhase = goals.activePhase;
         }
     }
 }

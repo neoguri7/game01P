@@ -35,6 +35,13 @@ struct FBossGoals {
     /// the live phase (BossActivePhase) so no frame order can make them disagree.
     int activePhase{-1};
     bool gateBlockLogged{false}; ///< the "first blocked hit" line is written once per battle
+    /// Telegraph contract (WP-15 §전이): defense/rule changes (immune set, gate floor, phase index) apply at the
+    /// transition; ACTION changes (phase skill choice, AI guard) apply from the next round. `phaseRound` is the
+    /// room round counter (FRoomBattleStats::rounds) when `activePhase` last changed; EvaluateBossGoals promotes
+    /// `behaviorPhase = activePhase` once the counter has moved past it. The AI leaf BossPhaseAtLeast reads
+    /// `behaviorPhase`, never the live phase — a committed or same-round action is never re-aimed.
+    int behaviorPhase{0};
+    int phaseRound{0};
 };
 
 /// A boss part: an ordinary enemy unit whose life gates its body.
