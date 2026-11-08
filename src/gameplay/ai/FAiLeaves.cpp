@@ -4,6 +4,7 @@
 #include <limits>
 
 #include "ecs/components/FActionPoints.h"
+#include "ecs/components/FBossGoals.h"
 #include "gameplay/ai/FAiBlackboard.h"
 #include "gameplay/ai/FAiTuning.h"
 #include "gameplay/combat/FCombatQuery.h"
@@ -114,6 +115,11 @@ std::string DescribeFilter(const FSkillFilter& filter) {
     if (filter.selfOnly) add("self");
     if (filter.minHits > 1) add("hits>=" + std::to_string(filter.minHits));
     return out.empty() ? "any" : out;
+}
+
+bool SelfBossPhaseAtLeast(const FBtContext& ctx, int phase) {
+    const auto* goals = ctx.registry.try_get<FBossGoals>(ctx.actor);
+    return goals != nullptr && goals->behaviorPhase + 1 >= phase;
 }
 
 std::string FUseSkill::detail() const { return DescribeFilter(filter_); }

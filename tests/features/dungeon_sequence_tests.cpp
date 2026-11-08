@@ -24,6 +24,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -45,6 +46,7 @@
 #include "gameplay/combat/FCombatSheet.h"
 #include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FBossContent.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FDungeonSave.h"
@@ -203,7 +205,7 @@ struct FTempAssets {
     /// Everything FGameplayServices + InitializeDungeon read; the dungeon is overwritten per test.
     void CopyGameplayData() {
         for (const char* file : {"units.json", "skills.json", "runes.json", "statuses.json", "ai.json",
-                                 "rewards.json", "passive-tree.json", "dungeon.json"}) {
+                                 "rewards.json", "passive-tree.json", "dungeon.json", "bosses.json"}) {
             Copy(file);
         }
     }
@@ -589,13 +591,24 @@ void BootProbeCoversTuples() {
         const auto& probe = boot.registry.ctx().get<game::FDungeonBootProbe>();
         const auto* sequence = game::FindRunSequence(boot.registry);
         CHECK(sequence != nullptr);
-        std::vector<std::pair<std::string, std::string>> tuples;
+        // WP-15: the probe key also carries the resolved boss (bosses.json (theme, slot) mapping, else the
+        // generation.boss_unit fallback) — a mapped boss with parts is a different generation class.
+        const auto* catalog = game::FindBossCatalog(boot.registry);
+        CHECK(catalog != nullptr);
+        const std::string fallbackBoss =
+            game::DungeonDefinition(boot.registry).at("generation").at("boss_unit").get<std::string>();
+        std::vector<std::tuple<std::string, std::string, std::string>> tuples;
         for (int index = 0; index < sequence->TotalDungeons(); ++index) {
             const auto position = sequence->PositionOf(index);
             for (int ordinal = 0; ordinal < sequence->BattleCountAt(position); ++ordinal) {
                 const auto* slot = sequence->BattleSlotAt(position, ordinal);
                 CHECK(slot != nullptr);
-                const std::pair<std::string, std::string> tuple{slot->family, slot->boss};
+                std::string boss;
+                if (!slot->boss.empty()) {
+                    const auto* def = catalog->Resolve(sequence->themes[position.theme].id, slot->boss);
+                    boss = def != nullptr ? def->id : fallbackBoss;
+                }
+                const std::tuple<std::string, std::string, std::string> tuple{slot->family, slot->boss, boss};
                 if (std::ranges::find(tuples, tuple) == tuples.end()) tuples.push_back(tuple);
             }
         }

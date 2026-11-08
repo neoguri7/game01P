@@ -78,6 +78,21 @@
       "skills": ["skill.cleave", "skill.strike"]
     },
     {
+      "id": "enemy.guardian_heart",
+      "display_name": "Guardian heart",
+      "sprite": "art/guardian",
+      "max_health": 10,
+      "speed": 2,
+      "move_ap": 0,
+      "skill_ap": 2,
+      "attack": 1,
+      "magic_attack": 3,
+      "defense": 2,
+      "magic_defense": 2,
+      "ai": "ai.part",
+      "skills": ["skill.bolt"]
+    },
+    {
       "id": "enemy.imp",
       "display_name": "Imp",
       "sprite": "art/imp",

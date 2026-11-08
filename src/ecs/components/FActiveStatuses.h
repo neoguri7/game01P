@@ -22,6 +22,11 @@ struct FStatusEffect {
 
 struct FActiveStatuses {
     std::vector<FStatusEffect> effects;
+    /// WP-15: status ids this unit currently ignores — the boss body's active phase `body_immunities`
+    /// (written by FBattleSetup for the initial phase and by EvaluateBossGoals on every transition). Read
+    /// through IsStatusImmune (FStatusRules), the single choke point every application path goes through.
+    /// Unit-level immunity fields (units.json) are a later work package (WP-14/23).
+    std::vector<std::string> immune;
 };
 
 } // namespace game
