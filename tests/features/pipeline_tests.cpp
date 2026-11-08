@@ -128,6 +128,16 @@ void CheckPreviewEqualsResolution(
     const auto resolved = game::ResolveSkillSlot(slot, content);
     CHECK(resolved.has_value());
 
+    // WP-22: the BuildLoadout fallback caps a default loadout at the pool's first four entries; a scenario
+    // may name a pool skill beyond the cap (e.g. the mage's firebolt), so equip the slot explicitly before
+    // the resolver looks it up.
+    {
+        auto& slots = registry.get<game::FSkillLoadout>(actor).slots;
+        if (std::ranges::find(slots, slot.skillId, &game::FSkillSlot::skillId) == slots.end()) {
+            slots.push_back(slot);
+        }
+    }
+
     const auto actorCell = registry.get<game::FGridPosition>(actor);
     const int skillApBefore = registry.get<game::FActionPoints>(actor).skill;
     std::vector<std::pair<entt::entity, int>> healthSnapshot;

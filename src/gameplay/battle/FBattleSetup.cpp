@@ -20,6 +20,13 @@
 namespace game {
 namespace {
 
+/// WP-22: the fallback loadout is capped to four skills — the HUD hotkeys, the 4-slot bar and the forest
+/// skill_slots are all 4 (W7 review, 4-slot hard limit). units.json `skills` is the authored POOL; the
+/// first four entries in pool order are the default loadout. The placement.skills override (prep screen,
+/// W5 test injections, captured run loadouts) is deliberately NOT capped here — it carries the run-scope
+/// loadout exactly as authored.
+inline constexpr std::size_t kDefaultLoadoutSlots = 4;
+
 [[nodiscard]] FSkillLoadout BuildLoadout(
     const FUnitPlacement& placement, const gameplay::FUnitContent& unit) {
     FSkillLoadout loadout;
@@ -28,6 +35,9 @@ namespace {
         return loadout;
     }
     for (const std::string& skillId : unit.skillIds) {
+        if (loadout.slots.size() >= kDefaultLoadoutSlots) {
+            break;
+        }
         loadout.slots.push_back(FSkillSlot{skillId, {}});
     }
     return loadout;
