@@ -28,6 +28,7 @@
 #include "gameplay/grid/FGridTerrain.h"
 #include "presentation/FBattleAnim.h"
 #include "presentation/FDungeonArt.h"
+#include "presentation/FSettings.h"
 #include "presentation/FUiFrame.h"
 #include "presentation/FUiTheme.h"
 
@@ -652,26 +653,46 @@ void Journal(entt::registry& registry, const FUiLayout& layout) {
     ImGui::EndTooltip();
 }
 
-// The controls stay out of the way behind a small help mark.
-void Hints(const FUiLayout& layout) {
+// The controls stay out of the way behind a small help mark; the right half is the battle-speed toggle
+// (WP-12, no new zone: the hints zone is split in place).
+void Hints(entt::registry& registry, const FUiLayout& layout) {
     const float u = layout.scale;
     const FRect& zone = layout.zones.hints;
     ImDrawList* draw = ImGui::GetWindowDrawList();
     ui::DrawRecess(draw, Min(zone), Max(zone));
+    const FRect ask{zone.x, zone.y, zone.w * .5f, zone.h};
+    const FRect speed{zone.x + zone.w * .5f, zone.y, zone.w * .5f, zone.h};
     const float size = 22.f * u;
-    Label(draw, {zone.x + (zone.w - LabelWidth(size, "?")) * .5f, zone.y + (zone.h - size) * .5f}, size, pal::kMuted, "?");
-    if (!ImGui::IsMouseHoveringRect(Min(zone), Max(zone))) return;
-    ImGui::BeginTooltip();
-    ImGui::TextUnformatted("WASD move  |  1-4 skill");
-    ImGui::TextUnformatted("Space: end turn");
-    ImGui::TextColored({.35f, .88f, 1.f, 1.f}, "Cyan");
-    ImGui::SameLine(0.f, 0.f);
-    ImGui::TextUnformatted(" reach  ");
-    ImGui::SameLine(0.f, 0.f);
-    ImGui::TextColored({1.f, .43f, .35f, 1.f}, "Red");
-    ImGui::SameLine(0.f, 0.f);
-    ImGui::TextUnformatted(" hit");
-    ImGui::EndTooltip();
+    Label(draw, {ask.x + (ask.w - LabelWidth(size, "?")) * .5f, ask.y + (ask.h - size) * .5f}, size, pal::kMuted, "?");
+    if (ImGui::IsMouseHoveringRect(Min(ask), Max(ask))) {
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted("WASD move  |  1-4 skill");
+        ImGui::TextUnformatted("Space: end turn");
+        ImGui::TextColored({.35f, .88f, 1.f, 1.f}, "Cyan");
+        ImGui::SameLine(0.f, 0.f);
+        ImGui::TextUnformatted(" reach  ");
+        ImGui::SameLine(0.f, 0.f);
+        ImGui::TextColored({1.f, .43f, .35f, 1.f}, "Red");
+        ImGui::SameLine(0.f, 0.f);
+        ImGui::TextUnformatted(" hit");
+        ImGui::EndTooltip();
+    }
+
+    // 관례 a: an ImGui button click may call the preference setter immediately; only the snapshot and the
+    // drawing are const. Presentation dt changes, the rules clock does not.
+    const char* label = CurrentSettings(registry).animSpeed >= kAnimSpeedFast ? "2x" : "1x";
+    ImGui::SetCursorScreenPos(Min(speed));
+    ImGui::PushStyleColor(ImGuiCol_Button, kClear);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kClear);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, kClear);
+    ImGui::PushStyleColor(ImGuiCol_Text, pal::kGoldBrightV);
+    if (ImGui::Button(label, Size(speed))) {
+        ToggleAnimSpeed(registry);
+    }
+    ImGui::PopStyleColor(4);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Battle speed: %s", CurrentSettings(registry).animSpeed >= kAnimSpeedFast ? "2x" : "1x");
+    }
 }
 
 // The picture sits under an ImGui button with a clear face, so the label still reaches ImGui's text log.
@@ -847,7 +868,7 @@ void EmberCombatHudSystem::render(entt::registry& registry) {
     SkillSlots(registry, *layout, snapshot, *outcome, playerTurn, selectedSkill, content);
     UnitReadout(registry, *layout, snapshot, *outcome, playerTurn);
     Journal(registry, *layout);
-    Hints(*layout);
+    Hints(registry, *layout);
     if (playerTurn && EndTurnButton(registry, *layout, queue.pending.empty())) {
         runtime.requests.push_back(FEndTurn{*snapshot.currentTurn});
     }

@@ -7,7 +7,8 @@
 //
 // Covered: turn ribbon marker, lethal-first order, same-cell collapse, preview==PreviewSkill,
 // per-frame damage recalculation, always-on numbers for damage intents only, invalid reason, party threat
-// aggregation, reach cells == the pathfinder construction and HUD submits through SubmitBattleCommand.
+// aggregation, reach cells == the pathfinder construction, HUD submits through SubmitBattleCommand, and
+// the battle-speed toggle leaving rules state untouched.
 
 #define GAME01P_TEST_SUPPORT_CHECK
 #include "../TestSupport.h"
@@ -22,6 +23,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -60,6 +62,7 @@
 #include "gameplay/grid/FGridSelection.h"
 #include "gameplay/grid/FGridTerrain.h"
 #include "gameplay/grid/FGridTypes.h"
+#include "presentation/FSettings.h"
 #include "presentation/FUiFrame.h"
 #include "states/FEmberBattleState.h"
 
@@ -213,6 +216,41 @@ struct FCombatInfoBattle {
 // ---------------------------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------------------------
+
+/// What the rules state looked like — for ToggleKeepsRules ("byte-identical").
+struct FRulesState {
+    std::uint64_t sessionId{0};
+    std::uint64_t roundNumber{0};
+    std::uint64_t turnSerial{0};
+    entt::entity actor{entt::null};
+    // id, hp, max, move, moveMax, skill, skillMax
+    std::vector<std::tuple<std::uint64_t, int, int, int, int, int, int>> units;
+    std::size_t queued{0};
+    std::size_t intents{0};
+    bool operator==(const FRulesState&) const = default;
+};
+
+FRulesState CaptureRules(FCombatInfoBattle& fixture) {
+    FRulesState state;
+    const game::FTurnSnapshot turn = fixture.snapshot();
+    state.sessionId = turn.sessionId;
+    state.roundNumber = turn.roundNumber;
+    if (turn.currentTurn) {
+        state.turnSerial = turn.currentTurn->turnSerial;
+        state.actor = turn.currentTurn->actor;
+    }
+    for (const entt::entity unit : fixture.everyone) {
+        if (!fixture.registry.all_of<game::FHealth>(unit)) continue;
+        const auto& health = fixture.registry.get<game::FHealth>(unit);
+        const auto* points = fixture.registry.try_get<game::FActionPoints>(unit);
+        state.units.emplace_back(static_cast<std::uint64_t>(entt::to_integral(unit)), health.current, health.max,
+                                 points != nullptr ? points->move : 0, points != nullptr ? points->moveMax : 0,
+                                 points != nullptr ? points->skill : 0, points != nullptr ? points->skillMax : 0);
+    }
+    state.queued = fixture.queue().pending.size();
+    state.intents = fixture.store() != nullptr ? fixture.store()->intents.size() : 0;
+    return state;
+}
 
 /// One crafted intent: the store exists (CommitEnemyIntents created it); the geometry is set by the test.
 void SetIntent(FCombatInfoBattle& fixture, entt::entity enemy, const FIntent& intent) {
@@ -819,6 +857,29 @@ void SubmitPathSites() {
     CHECK(viewSource.find("SubmitHudAction") != std::string::npos);
 }
 
+// ---------------------------------------------------------------------------------------------
+// 8. Battle-speed toggle changes presentation only
+// ---------------------------------------------------------------------------------------------
+
+void ToggleKeepsRules() {
+    FCombatInfoBattle fixture;
+    OpenBattle(fixture);
+    fixture.place(fixture.party("party.warrior"), {5, 5});
+    fixture.place(fixture.party("party.archer"), {7, 5});
+    fixture.place(fixture.enemies()[0], {5, 3});
+    fixture.skills(fixture.enemies()[0], {"skill.strike"});
+    fixture.frame(0.1f);
+
+    const FRulesState before = CaptureRules(fixture);
+    CHECK(game::CurrentSettings(fixture.registry).animSpeed == game::kAnimSpeedNormal);  // absent = 1x
+    game::ToggleAnimSpeed(fixture.registry);
+    CHECK(fixture.registry.ctx().get<game::FSettings>().animSpeed == game::kAnimSpeedFast);
+    CHECK(CaptureRules(fixture) == before);
+    game::ToggleAnimSpeed(fixture.registry);
+    CHECK(fixture.registry.ctx().get<game::FSettings>().animSpeed == game::kAnimSpeedNormal);
+    CHECK(CaptureRules(fixture) == before);
+}
+
 }  // namespace
 
 int main() {
@@ -836,5 +897,6 @@ int main() {
         {"IncomingDamageAggregated", IncomingDamageAggregated},
         {"ReachCellsMatchPathfinder", ReachCellsMatchPathfinder},
         {"SubmitPathSites", SubmitPathSites},
+        {"ToggleKeepsRules", ToggleKeepsRules},
     });
 }
