@@ -430,6 +430,146 @@ FWrapProbe MeasureFitsWrap(entt::registry& registry, const std::string& longRune
     return probe;
 }
 
+// --- the real-frame click driver (the ClickSelectsSkill pattern) ---------------------------------
+
+/// The ImGui ID the reward modal gives a button with no intervening PushID: a window's ID stack starts at
+/// its root ID (imgui.cpp: `window->IDStack.push_back(window->ID)`), and GetID(str) is ImHashStr(str, 0,
+/// seed) (imgui.cpp `ImGuiWindow::GetID`). GetIDWithSeed is the window-free spelling of that hash;
+/// locating the button on screen with DebugLocateItem then proves the ID really resolved to the item.
+ImGuiID ModalButtonId(const ImGuiWindow& window, const char* label) {
+    return ImGui::GetIDWithSeed(label, nullptr, window.ID);
+}
+
+/// The same for a card button: DrawRuneOfferCard wraps its widgets in PushID(index), which is
+/// ImHashData(&index, sizeof(int), seed) (imgui.cpp `ImGuiWindow::GetID(int)`).
+ImGuiID CardButtonId(const ImGuiWindow& window, int index, const char* label) {
+    const ImGuiID cardSeed = ImGui::GetIDWithSeed(index, window.ID);
+    return ImGui::GetIDWithSeed(label, nullptr, cardSeed);
+}
+
+/// Renders the reward modal through ONE persistent ImGui context, frame by frame, and presses buttons with
+/// real ImGui mouse input events. The trickle sequence (position frame, press frame, release frame, settle
+/// frame) is ClickSelectsSkill's proven pattern (hud_legibility_tests.cpp:644): queued events are applied
+/// over different frames, and the hovered window is decided from the previous frame's window list. The
+/// button's geometry comes from ImGui itself, never from production code: DebugLocateItem makes the next
+/// frame's ItemAdd draw the located item's rect — expanded by 3px, DEBUG_LOCATE_ITEM_COLOR green — into
+/// the frame's foreground draw list (imgui.cpp `DebugLocateItemResolveWithLastItem`), and the test reads
+/// those vertices back so the click lands on the item's centre.
+struct FRewardModalDriver {
+    explicit FRewardModalDriver(entt::registry& registryRef) : registry(registryRef) {
+        surface.reset(SDL_CreateSurface(1280, 800, SDL_PIXELFORMAT_RGBA8888));
+        CHECK(surface != nullptr);
+        renderer.reset(SDL_CreateSoftwareRenderer(surface.get()));
+        CHECK(renderer != nullptr);
+
+        auto* window = registry.ctx().find<game::FEngineWindowState>();
+        if (window == nullptr) window = &registry.ctx().emplace<game::FEngineWindowState>();
+        window->width = 1280;
+        window->height = 800;
+        auto* resources = registry.ctx().find<game::FResourceManager>();
+        if (resources == nullptr) resources = &registry.ctx().emplace<game::FResourceManager>();
+        resources->init(renderer.get());
+        CHECK(game::InitializeDungeonArt(registry));
+
+        context.reset(ImGui::CreateContext());
+        auto& io = ImGui::GetIO();
+        io.DisplaySize = {1280, 800};
+        io.DeltaTime = 1.f / 60.f;
+        io.Fonts->Build();
+        if (registry.ctx().find<game::FDungeonUiState>() == nullptr) game::InitializeDungeonUi(registry);
+    }
+
+    ~FRewardModalDriver() { context.reset(); }
+
+    FRewardModalDriver(const FRewardModalDriver&) = delete;
+    FRewardModalDriver& operator=(const FRewardModalDriver&) = delete;
+
+    void Frame() {
+        ImGui::NewFrame();
+        const auto* view = game::FindModalView(registry, game::kRunModalReward);
+        CHECK(view != nullptr);
+        view->render(registry);
+        ImGui::Render();
+    }
+
+    void Warmup(int frames) {
+        for (int frame = 0; frame < frames; ++frame) Frame();
+    }
+
+    /// One frame that also logs its rendered text (the RenderModalLog frame-2 pattern).
+    std::string CaptureFrame() {
+        const std::string logPath = UniquePath("reward-equip-click") + ".log";
+        ImGui::NewFrame();
+        ImGui::LogToFile(0, logPath.c_str());
+        const auto* view = game::FindModalView(registry, game::kRunModalReward);
+        CHECK(view != nullptr);
+        view->render(registry);
+        ImGui::LogFinish();
+        ImGui::Render();
+        const std::string captured = ReadBytes(logPath);
+        std::error_code error;
+        std::filesystem::remove(logPath, error);
+        return captured;
+    }
+
+    /// The reward popup window. BeginPopupModal calls Begin with the real name — the "##Popup_%08x" mangled
+    /// name only applies to the non-modal BeginPopup — so the name lookup is exact.
+    ImGuiWindow* ModalWindow() {
+        ImGuiWindow* window = ImGui::FindWindowByName("Expedition choice");
+        CHECK(window != nullptr);
+        return window;
+    }
+
+    /// Puts the mouse on the centre of the item `id` and presses it (the ClickSelectsSkill sequence).
+    void Click(ImGuiID id) {
+        ImGui::DebugLocateItem(id);
+        ImGui::NewFrame();
+        ImDrawList* foreground = ImGui::GetForegroundDrawList();  // this call resets the list for the frame
+        const int firstNew = foreground->VtxBuffer.Size;
+        const auto* view = game::FindModalView(registry, game::kRunModalReward);
+        CHECK(view != nullptr);
+        view->render(registry);
+        ImGui::Render();
+
+        // The locate rect is an AA-stroked 4-point closed path: the texture-based line path emits two opaque
+        // vertices per corner, the non-texture path one (its fringe vertices carry alpha 0), and the mouse
+        // line follows after the rect (imgui_draw.cpp `AddPolyline`) — so the first corner vertices are the
+        // rect's. The centre is click-safe either way.
+        const bool textured = (foreground->Flags & ImDrawListFlags_AntiAliasedLinesUseTex) != 0 &&
+                              foreground->_FringeScale == 1.f;
+        const int wanted = textured ? 8 : 4;
+        std::vector<ImVec2> corners;
+        for (int at = firstNew; at < foreground->VtxBuffer.Size && static_cast<int>(corners.size()) < wanted; ++at) {
+            const ImDrawVert& vertex = foreground->VtxBuffer[at];
+            if (vertex.col == IM_COL32(0, 255, 0, 255)) corners.push_back(vertex.pos);
+        }
+        // The id matched a visible item — otherwise the locate never resolved and the click below can only miss.
+        CHECK(static_cast<int>(corners.size()) == wanted);
+        ImVec2 min = corners[0];
+        ImVec2 max = corners[0];
+        for (const ImVec2& corner : corners) {
+            min.x = std::min(min.x, corner.x);
+            min.y = std::min(min.y, corner.y);
+            max.x = std::max(max.x, corner.x);
+            max.y = std::max(max.y, corner.y);
+        }
+
+        ImGuiIO& io = ImGui::GetIO();
+        io.AddMousePosEvent((min.x + max.x) * .5f, (min.y + max.y) * .5f);
+        Frame();  // A: the mouse arrives
+        io.AddMouseButtonEvent(0, true);
+        Frame();  // B: press
+        io.AddMouseButtonEvent(0, false);
+        Frame();  // C: release — the click fires here
+        Frame();  // D: idle settle
+    }
+
+    entt::registry& registry;
+    std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> surface{nullptr, &SDL_DestroySurface};
+    FRendererPtr renderer;
+    std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> context{nullptr, &ImGui::DestroyContext};
+};
+
 // ------------------------------------------------------------------------------------------------
 // The equip window (WP-27 §2)
 // ------------------------------------------------------------------------------------------------
@@ -697,21 +837,45 @@ void CardExplainsHooks() {
     FTempAssets assets("reward-hooks");
     assets.CopyGameplayData(true);
     assets.Copy("rewards.json");
-    // The fixture runes plus the five data-authored hook runes (WP-27 §4 reads rune.hooks).
-    auto runes = ReadJsonFile(FixtureDataPath("runes.json"));
-    const json hookRunes = json::array({
-        {{"id", "rune.chain"}, {"display_name", "Chain"}, {"requires_all_tags", json::array({"Projectile"})},
-         {"hooks", json::array({{{"event", "on_hit"}, {"effect", {{"kind", "chain"}, {"amount", 2}, {"distance", 1}}}}})}},
-        {{"id", "rune.frostpath"}, {"display_name", "Frost Path"}, {"requires_all_tags", json::array({"Cold"})},
-         {"hooks", json::array({{{"event", "on_hit"}, {"effect", {{"kind", "apply_status_target"}, {"status_id", "status.locked_move"}}}}})}},
-        {{"id", "rune.combust"}, {"display_name", "Combust"}, {"requires_all_tags", json::array({"Fire"})},
-         {"hooks", json::array({{{"event", "on_kill"}, {"effect", {{"kind", "chain"}, {"amount", 2}, {"distance", 1}}}}})}},
-        {{"id", "rune.guard"}, {"display_name", "Counter Guard"},
-         {"hooks", json::array({{{"event", "on_damage_taken"}, {"effect", {{"kind", "apply_status_target"}, {"status_id", "status.debuff"}}}}})}},
-        {{"id", "rune.impact"}, {"display_name", "Impact"}, {"requires_all_tags", json::array({"Melee"})},
-         {"hooks", json::array({{{"event", "on_hit"}, {"effect", {{"kind", "push"}, {"from", "caster"}, {"distance", 1}}}}})}},
-    });
-    for (const auto& row : hookRunes) runes["runes"].push_back(row);
+
+    // One row per data-authored hook. The fixture runes below are BUILT from these rows and every expected
+    // card line is built from the same params (event, kind, amount, distance, status), so the table is the
+    // single source for both sides. The phrases follow the real dispatch semantics: a chain hook bounces
+    // `amount` damage to exactly ONE nearest same-side unit of the hit unit (FEffectHooks.cpp ApplyChain
+    // :164-202) — never a count of bounces — and the recipient is the event's `other`
+    // (ActionResolverSystem.h:326-335: OnHit = the target, OnKill = the slain enemy, OnDamageTaken = the
+    // attacker, anything else = the other unit). Fixture-authored: no ship runes.json coupling.
+    struct FHookRow {
+        const char* rune;
+        const char* displayName;
+        const char* event;
+        const char* kind;
+        int amount;
+        int distance;
+        const char* statusId;  // apply_status_target only
+    };
+    const FHookRow rows[] = {
+        {"rune.chain", "Chain", "on_hit", "chain", 2, 1, ""},
+        {"rune.combust", "Combust", "on_kill", "chain", 2, 1, ""},
+        {"rune.hail", "Hail", "on_hit", "chain", 3, 2, ""},  // amount != 2, plural "tiles"
+        {"rune.frostpath", "Frost Path", "on_hit", "apply_status_target", 0, 0, "status.locked_move"},
+        {"rune.guard", "Counter Guard", "on_damage_taken", "apply_status_target", 0, 0, "status.debuff"},
+        {"rune.impact", "Impact", "on_hit", "push", 0, 1, ""},
+        {"rune.yank", "Yank", "on_hit", "pull", 0, 2, ""},            // plural "tiles" on the pull branch
+        {"rune.veil", "Veil", "on_room_clear", "chain", 1, 1, ""},    // no typed recipient: "the other unit"
+    };
+
+    json runes = ReadJsonFile(FixtureDataPath("runes.json"));
+    for (const FHookRow& row : rows) {
+        json effect = {{"kind", row.kind}};
+        if (row.amount != 0) effect["amount"] = row.amount;
+        if (row.distance != 0) effect["distance"] = row.distance;
+        if (std::string_view(row.kind) == "push" || std::string_view(row.kind) == "pull") effect["from"] = "caster";
+        if (row.statusId[0] != '\0') effect["status_id"] = row.statusId;
+        json hook = {{"event", row.event}, {"effect", effect}};
+        json rune = {{"id", row.rune}, {"display_name", row.displayName}, {"hooks", json::array({hook})}};
+        runes["runes"].push_back(rune);
+    }
     assets.Write("runes.json", runes);
 
     FBoot boot(UniquePath("reward-hooks"), {assets.root.string(), kShipAssetRoot});
@@ -719,7 +883,8 @@ void CardExplainsHooks() {
     WinRoom(boot);  // the fixture chance 1.0 opens an offer; the candidates below are the card set under test
     auto& rewards = boot.rewards();
     rewards.offer.active = true;
-    rewards.offer.candidates = {"rune.chain", "rune.frostpath", "rune.combust", "rune.guard", "rune.impact"};
+    rewards.offer.candidates.clear();
+    for (const FHookRow& row : rows) rewards.offer.candidates.push_back(row.rune);
 
     const std::string log = RenderModalLog(boot.registry, std::string(game::kRunModalReward));
     const auto& content = boot.registry.ctx().get<game::gameplay::FContentRegistry>();
@@ -727,12 +892,55 @@ void CardExplainsHooks() {
         const auto* row = content.statuses.find(id);
         return row != nullptr && !row->displayName.empty() ? row->displayName : id;
     };
-    CHECK(log.find("On hit: chain x2 (dist 1)") != std::string::npos);
-    CHECK(log.find("On kill: chain x2 (dist 1)") != std::string::npos);
-    CHECK(log.find("On hit: apply " + statusName("status.locked_move")) != std::string::npos);
-    CHECK(log.find("When hit: apply " + statusName("status.debuff")) != std::string::npos);
-    CHECK(log.find("On hit: push 1") != std::string::npos);
+    const auto eventLabel = [](std::string_view event) {
+        if (event == "on_hit") return std::string("On hit");
+        if (event == "on_kill") return std::string("On kill");
+        if (event == "on_damage_taken") return std::string("When hit");
+        return std::string(event);  // HookEventLabel keeps the authored name for the rest
+    };
+    const auto recipient = [](std::string_view event) {
+        if (event == "on_hit") return std::string("the target");
+        if (event == "on_kill") return std::string("the slain enemy");
+        if (event == "on_damage_taken") return std::string("the attacker");
+        return std::string("the other unit");
+    };
+
+    std::vector<std::string> missing;
+    for (const FHookRow& row : rows) {
+        const std::string tiles = row.distance == 1 ? " tile" : " tiles";
+        std::string effect;
+        if (std::string_view(row.kind) == "chain") {
+            // ApplyChain reaches exactly one unit: "{amount} damage to 1 other enemy within N tile(s)".
+            effect = std::to_string(row.amount) + " damage to 1 other enemy within " +
+                     std::to_string(row.distance) + tiles + " of " + recipient(row.event);
+        } else if (std::string_view(row.kind) == "push" || std::string_view(row.kind) == "pull") {
+            effect = std::string(row.kind) + " " + recipient(row.event) + " " +
+                     std::to_string(row.distance) + tiles;
+        } else {
+            effect = "apply " + statusName(row.statusId) + " to " + recipient(row.event);
+        }
+        const std::string expected = eventLabel(row.event) + ": " + effect;
+        if (log.find(expected) == std::string::npos) {
+            missing.push_back(std::string(row.rune) + " expected \"" + expected + "\"");
+        }
+    }
+    for (const std::string& entry : missing) std::cout << "  missing card line: " << entry << '\n';
+    std::cout << "  hook cards checked: " << std::size(rows) << '\n';
+    CHECK(missing.empty());
+
     CHECK(log.find("No numeric change") == std::string::npos);  // a hooked rune never reads as "no change"
+    // The old count-looking form ("chain x2") must be gone: no card carries an " x<digit>" anywhere, and no
+    // card fell back to the unknown-kind "(dist N)" form either.
+    std::optional<std::size_t> countAt;
+    for (std::size_t at = log.find(" x"); at != std::string::npos; at = log.find(" x", at + 1)) {
+        if (at + 2 < log.size() && log[at + 2] >= '0' && log[at + 2] <= '9') {
+            countAt = at;
+            break;
+        }
+    }
+    if (countAt) std::cout << "  count-looking text at " << *countAt << ": " << log.substr(*countAt, 8) << '\n';
+    CHECK(!countAt.has_value());
+    CHECK(log.find("(dist ") == std::string::npos);
     // The status speaks its display name: the raw id would only appear if the card fell back to it.
     CHECK(log.find("status.locked_move") == std::string::npos);
     CHECK(log.find("status.debuff") == std::string::npos);
@@ -838,20 +1046,75 @@ void PickedRuneShowsFitBlock() {
     CHECK(log.find("[ " + skillName + " ]") != std::string::npos);
     // The hover tooltip ("Equip on <member> · <skill>") is hover-only: a non-hover frame never logs it.
     CHECK(log.find("Equip on ") == std::string::npos);
+}
 
-    // Equip through the same call the block's first button makes, on the same first legal pair.
+/// The pick and the fit through REAL ImGui input events on the modal's own buttons. The seeded post-state
+/// cannot reach the paths the button handlers own — the "No rune offer this room." regression lived
+/// exactly there (equip-critic #1), and the click paragraphs below pin the whole chain: pick handler →
+/// fit handler → the next frame's decided line.
+void FitButtonKeepsPickedState() {
+    FBoot boot(UniquePath("equip-fit-click"));
+    RewardWithLoadout(boot);
+    CHECK(boot.rewards().offer.active);
+    CHECK(!boot.rewards().offer.candidates.empty());
+    const std::string picked = boot.rewards().offer.candidates.front();
+
+    FRewardModalDriver driver(boot.registry);
+    driver.Warmup(4);  // the popup window is born and auto-fitted before any event
+    auto& ui = boot.registry.ctx().get<game::FDungeonUiState>();
+    CHECK(ui.pickedRuneId.empty());
+
+    // 1. Pick card 0's "Pick" button for real: the handler records the pick and resolves the offer.
+    driver.Click(CardButtonId(*driver.ModalWindow(), 0, "Pick"));
+    CHECK(ui.pickedRuneId == picked);
+    CHECK(!boot.rewards().offer.active);
+    const auto found = std::ranges::find(boot.run().runes, picked);
+    CHECK(found != boot.run().runes.end());
+    const std::size_t pickedIndex = static_cast<std::size_t>(found - boot.run().runes.begin());
+
+    // The same deterministic first legal pair the block's own walk finds (member asc -> slot asc), and the
+    // names the view will print (MemberName / ContentDisplayName — the shared display-name rule).
+    FEquipSite site;
+    CHECK(FindEquipSite(boot, pickedIndex, site));
+    const auto& content = boot.registry.ctx().get<game::gameplay::FContentRegistry>();
+    const auto& member = boot.run().party[site.member];
+    const std::string memberName = game::MemberName(member);
+    const std::string skillId = member.skills[site.slot].skillId;
+    const std::string skillName = game::ContentDisplayName(content.skills.find(skillId), skillId);
+    const std::string runeName = game::ContentDisplayName(content.runes.find(picked), picked);
+
+    driver.Warmup(3);  // the auto-fit window picks up the FIT RUNE block's height and settles before we locate in it
+
+    // 2. Fit it through the block's first button, for real.
     const std::string originalMessage = boot.run().message;
-    CHECK(!originalMessage.empty());
-    CHECK(!game::EquipDungeonRune(boot.registry, site.member, site.slot, pickedIndex));
-    // The equip path never clobbers the step's own message (the button appends its sentence to it).
-    CHECK(boot.run().message.find(originalMessage) != std::string::npos);
+    const std::string fitLabel =
+        skillName + "##m" + std::to_string(site.member) + "s" + std::to_string(site.slot);
+    driver.Click(ModalButtonId(*driver.ModalWindow(), fitLabel.c_str()));
 
-    // The copy is fitted now and the pick id is still the view's: no block, and the picked line says so.
-    const std::string afterLog = RenderModalLog(boot.registry, std::string(game::kRunModalReward));
+    const std::string fitted = runeName + " fitted to " + memberName + " · " + skillName + ".";
+    CHECK(AnySlotCarries(boot, picked));                        // the rules really equipped it
+    CHECK(ui.pickedRuneId == picked);                           // the pick stays the view's state
+    CHECK(ui.pickedRuneFit == memberName + " · " + skillName);  // the fit is remembered by name
+    CHECK(boot.run().message.starts_with(originalMessage));     // the step's own message is not clobbered
+    CHECK(boot.run().message.ends_with(fitted));                // the confirmation is appended
+
+    // 3. The next rendered frame speaks the fitted state: no no-offer line, no revived block.
+    const std::string afterLog = driver.CaptureFrame();
+    CHECK(afterLog.find("No rune offer this room.") == std::string::npos);
+    CHECK(afterLog.find("Picked: " + runeName + " — fitted to " + memberName + " · " + skillName + ".") !=
+          std::string::npos);
     CHECK(afterLog.find("FIT RUNE") == std::string::npos);
     CHECK(afterLog.find("Equip on:") == std::string::npos);
-    CHECK(afterLog.find("Picked: " + runeName + " — already fitted.") != std::string::npos);
-    CHECK(afterLog.find(originalMessage) != std::string::npos);  // the room text still renders
+
+    // 4. A second unfitted copy of the same rune in the pool must not resurrect the block: the fit state,
+    // not FindUnfittedCopy, decides.
+    CollectRune(boot, picked);
+    const std::string copyLog = driver.CaptureFrame();
+    CHECK(copyLog.find("No rune offer this room.") == std::string::npos);
+    CHECK(copyLog.find("Picked: " + runeName + " — fitted to " + memberName + " · " + skillName + ".") !=
+          std::string::npos);
+    CHECK(copyLog.find("FIT RUNE") == std::string::npos);
+    CHECK(copyLog.find("Equip on:") == std::string::npos);
 }
 
 void RefundPickWithEquippedCopyShowsNoBlock() {
@@ -939,6 +1202,7 @@ int main() {
         {"FitsLineWraps", FitsLineWraps},
         {"CampShowsDisplayNames", CampShowsDisplayNames},
         {"PickedRuneShowsFitBlock", PickedRuneShowsFitBlock},
+        {"FitButtonKeepsPickedState", FitButtonKeepsPickedState},
         {"RefundPickWithEquippedCopyShowsNoBlock", RefundPickWithEquippedCopyShowsNoBlock},
         {"FitBlockZeroLegalFallsBack", FitBlockZeroLegalFallsBack},
     });

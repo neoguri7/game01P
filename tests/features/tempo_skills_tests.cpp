@@ -1153,13 +1153,39 @@ void AiUsesTempoSkills() {
     CHECK(matrix.finished == matrix.battles); // harness sanity only; the effect counts are the report
 }
 
-/// RoundCountDeltaReported: the same six seeds x depth 3 with and without the four WP-16 placements (a temp
-/// root shadows units.json) — rounds and wins before vs after, reported as numbers. Six seeds (the
-/// AiUsesTempoSkills set): after WP-28 T2 raised the shaman's room weight the original three-sample set
-/// (seeds 1-3) stopped producing a firebomb, because the weighted composition consumes the RNG stream
-/// differently and those three rooms fielded no shaman that cast.
+/// RoundCountDeltaReported: the same three seeds x depth 3, once with and once without the four WP-16
+/// placements, reported as numbers (rounds, wins, firebombs). Both runs force the same room composition on
+/// a shadow dungeon.json: the delta isolates the loadout change from composition RNG, and no enemy weight,
+/// room-family or sequence data change can redden the firebomb assertion.
+///
+/// How these rooms are fed (read from src/gameplay/dungeon before writing this test): FAutoBattle enters
+/// through FEmberBattleState::OnEnter -> BuildDungeonBattlefield -> ParseRoomGeneration + BuildRoomDocument,
+/// so `generation.enemies` is the only enemy list behind them. The played slot (shipped sequence: depth 3 ->
+/// theme 0 dungeon 2 "The cinder stair", battle ordinal 0 = {battle, open}) has no enemies of its own —
+/// the family picks the layout only, and the boss flag, the one other enemy-bearing field, is unset on
+/// this ordinal. The shadow pins boss_unit/boss_name to the shaman row anyway, so the composition stays
+/// all-shaman even if a sequence edit later marks this ordinal a boss.
 void RoundCountDeltaReported() {
-    FTempRoot temp{"before-units"};
+    // The shadow dungeon.json, shared by both runs: the ship file with generation.enemies reduced to the
+    // single imp shaman row — its other fields stay as shipped, its weight forced to 1. generation.enemy_count
+    // stays [3, 4] as shipped, so every room fields 3-4 of them (all shamans; nothing else is in the pool).
+    const nlohmann::json shipDungeon = ReadJsonFile("assets/data/dungeon.json");
+    nlohmann::json shamanRow;
+    bool foundShaman = false;
+    for (const nlohmann::json& row : shipDungeon.at("generation").at("enemies")) {
+        if (row.at("unit").get<std::string>() == "enemy.imp_shaman") {
+            shamanRow = row;
+            foundShaman = true;
+        }
+    }
+    CHECK(foundShaman); // the forced composition is built from the shipped shaman row
+    shamanRow["weight"] = 1;
+    nlohmann::json shadowDungeon = shipDungeon;
+    shadowDungeon["generation"]["enemies"] = nlohmann::json::array({shamanRow});
+    shadowDungeon["generation"]["boss_unit"] = shamanRow.at("unit");
+    shadowDungeon["generation"]["boss_name"] = shamanRow.at("display_name");
+
+    FTempRoot beforeTemp{"before-units"};
     nlohmann::json units = ReadJsonFile("assets/data/units.json");
     const std::vector<std::pair<const char*, const char*>> placements{
         {"char.warrior", "skill.shove"},
@@ -1180,23 +1206,31 @@ void RoundCountDeltaReported() {
         }
     }
     CHECK(removed == 4); // the before run must really lack the WP-16 loadouts
-    WriteJsonFile(temp.root / "data" / "units.json", units);
+    WriteJsonFile(beforeTemp.root / "data" / "units.json", units);
+    WriteJsonFile(beforeTemp.root / "data" / "dungeon.json", shadowDungeon);
 
-    const std::vector<std::string> beforeRoots{temp.root.string(), kShipAssetRoot};
-    // WP-28 T2 follow-up (see the test comment): the matrix's six seeds, so the after run provably fires
-    // at least one real firebomb (it is the same deterministic battle set the report above just measured).
-    const std::vector<std::uint32_t> seeds{1u, 2u, 3u, 4u, 5u, 6u};
+    // The after root shadows only the dungeon.json over the shipped assets: same forced composition, ship
+    // loadouts. Seeds back to {1, 2, 3}: the rooms' composition is fixed by construction, so the firebomb
+    // count no longer depends on which units the composition RNG happened to pick.
+    FTempRoot afterTemp{"after-dungeon"};
+    WriteJsonFile(afterTemp.root / "data" / "dungeon.json", shadowDungeon);
+
+    const std::vector<std::string> beforeRoots{beforeTemp.root.string(), kShipAssetRoot};
+    const std::vector<std::string> afterRoots{afterTemp.root.string(), kShipAssetRoot};
+    const std::vector<std::uint32_t> seeds{1u, 2u, 3u};
     const FTempoMatrix before = RunTempoMatrix(beforeRoots, seeds, 3);
-    const FTempoMatrix after = RunTempoMatrix(ShipAssetRoots(), seeds, 3);
-    std::cout << "[report] RoundCountDeltaReported (6 seeds x depth 3): before (no 1-AP tempo skills): wins "
+    const FTempoMatrix after = RunTempoMatrix(afterRoots, seeds, 3);
+    std::cout << "[report] RoundCountDeltaReported (3 seeds x depth 3): before (no 1-AP tempo skills): wins "
               << before.wins << "/" << before.battles << " rounds " << before.totalRounds
               << " firebombs " << before.firebombs
               << " | after: wins " << after.wins << "/" << after.battles << " rounds " << after.totalRounds
               << " firebombs " << after.firebombs << '\n';
     CHECK(before.finished == before.battles);
     CHECK(after.finished == after.battles);
-    // The two runs really differ: the shaman only has its firebomb in the after loadouts. (The party's new
-    // skills are never AI-selected in either run — that is what the AiUsesTempoSkills report shows.)
+    // The two runs really differ by the loadout alone: every enemy in the forced composition is an imp
+    // shaman, the before shadow removed the shaman's firebomb and the ship loadout keeps it — so
+    // `after.firebombs > 0` holds by construction, not by seed selection. (The party's new skills are never
+    // AI-selected in either run — that is what the AiUsesTempoSkills report shows.)
     CHECK(before.firebombs == 0);
     CHECK(after.firebombs > 0);
 }

@@ -39,17 +39,37 @@ std::string StatusName(const gameplay::FContentRegistry* content, const std::str
     return ContentDisplayName(content != nullptr ? content->statuses.find(statusId) : nullptr, statusId);
 }
 
-/// WP-27: one hook's effect text. Known kinds speak the shared kind vocabulary; an unknown kind keeps the
+/// WP-27, WP-27h: one hook's effect text, from the real dispatch semantics. `amount` on a chain hook is
+/// the damage it bounces — exactly ONE other same-side unit of the hit unit catches it (FEffectHooks.cpp
+/// ApplyChain :164-202), never a count of bounces — and every phrase names the event's recipient (`other`,
+/// ActionResolverSystem.h:326-335: OnHit = the target, OnKill = the slain enemy, OnDamageTaken = the
+/// attacker). Reward cards are party-owned, so the chained-to side is "enemy". An unknown kind keeps the
 /// authored name and numbers (a hook is never silently dropped from the card).
-std::string HookEffectText(const gameplay::FEffectSpec& effect, const gameplay::FContentRegistry* content) {
+std::string HookEffectText(const gameplay::FHook& hook, const gameplay::FContentRegistry* content) {
+    const gameplay::FEffectSpec& effect = hook.effect;
+    const char* recipient = "the other unit";
+    switch (hook.event) {
+    case gameplay::EHookEvent::OnHit:
+        recipient = "the target";
+        break;
+    case gameplay::EHookEvent::OnKill:
+        recipient = "the slain enemy";
+        break;
+    case gameplay::EHookEvent::OnDamageTaken:
+        recipient = "the attacker";
+        break;
+    default: break;
+    }
+    const std::string tiles = effect.distance == 1 ? " tile" : " tiles";
     if (effect.kind == kEffectKindChain) {
-        return "chain x" + std::to_string(effect.amount) + " (dist " + std::to_string(effect.distance) + ")";
+        return std::to_string(effect.amount) + " damage to 1 other enemy within " +
+               std::to_string(effect.distance) + tiles + " of " + recipient;
     }
     if (effect.kind == kEffectKindPush || effect.kind == kEffectKindPull) {
-        return effect.kind + " " + std::to_string(effect.distance);
+        return effect.kind + " " + recipient + " " + std::to_string(effect.distance) + tiles;
     }
     if (effect.kind == gameplay::kEffectKindApplyStatusTarget) {
-        return "apply " + StatusName(content, effect.statusId);
+        return "apply " + StatusName(content, effect.statusId) + " to " + recipient;
     }
     std::string text = effect.kind.empty() ? std::string("effect") : effect.kind;
     if (effect.amount != 0) text += " x" + std::to_string(effect.amount);
@@ -96,10 +116,13 @@ bool DrawRuneOfferCard(
     const bool resolved = ui::Button("Pick", {180, 34}) && ResolveRuneOffer(registry, static_cast<int>(index));
     if (resolved) {
         // WP-27: remember the pick so the reward modal can fit it on the spot. Only the Reward phase may
-        // record it — a camp-purchased offer must not leave a stale id for the next reward modal.
+        // record it — a camp-purchased offer must not leave a stale id for the next reward modal. WP-27h: a
+        // new pick supersedes the previous pick's fit state.
         const auto* run = registry.ctx().find<FDungeonRun>();
         if (run != nullptr && run->phase == EDungeonPhase::Reward) {
-            registry.ctx().get<FDungeonUiState>().pickedRuneId = runeId;
+            auto& ui = registry.ctx().get<FDungeonUiState>();
+            ui.pickedRuneId = runeId;
+            ui.pickedRuneFit.clear();
         }
     }
     ImGui::PopID();
@@ -133,7 +156,7 @@ std::string RuneEffectSummary(const gameplay::FRuneContent& rune, const gameplay
     if (!rune.requiresAnyTags.empty()) parts.push_back("Requires any " + Join(rune.requiresAnyTags));
     if (!rune.excludesTags.empty()) parts.push_back("Excludes " + Join(rune.excludesTags));
     for (const gameplay::FHook& hook : rune.hooks) {
-        parts.push_back(HookEventLabel(hook) + ": " + HookEffectText(hook.effect, content));
+        parts.push_back(HookEventLabel(hook) + ": " + HookEffectText(hook, content));
     }
     if (parts.empty()) parts.push_back("No numeric change");
     return Join(parts);
@@ -205,11 +228,13 @@ std::optional<std::size_t> FindUnfittedCopy(const FDungeonRun& run, const std::s
     return std::nullopt;
 }
 
-/// WP-27: the fit-on-the-spot block for the rune just picked in the reward modal. It exists only while an
-/// unfitted copy sits in the collected pool (`run.runes`): a duplicate refund adds no copy, so a pick whose
-/// rune is already fitted shows no block — Continue stays the only action. The (member, skill) buttons come
-/// straight from ValidateDungeonRuneEquip in the deterministic member → slot order; the block never
-/// re-implements the rules, it renders the refusals as-is.
+/// WP-27: the fit-on-the-spot block for the rune just picked in the reward modal. It exists only while
+/// the pick has not been fitted yet AND an unfitted copy sits in the collected pool (`run.runes`): a
+/// duplicate refund adds no copy, so a pick whose rune is already fitted shows no block — Continue stays
+/// the only action. WP-27h: `ui.pickedRuneFit` records the fit this pick already made; a second unfitted
+/// copy of the same rune in the pool must not reopen the block. The (member, skill) buttons come straight
+/// from ValidateDungeonRuneEquip in the deterministic member → slot order; the block never re-implements
+/// the rules, it renders the refusals as-is.
 ///
 /// Layout (WP-27 review): one compact row per member with a legal slot — the member name as a fixed-width
 /// label column, the member's legal skills as text-sized buttons after it. Button widths come from
@@ -217,7 +242,7 @@ std::optional<std::size_t> FindUnfittedCopy(const FDungeonRun& run, const std::s
 /// edge, indented to the label column. The visible "Equip on:" line above the rows reads as one action.
 void DrawPickedRuneFitBlock(entt::registry& registry, FDungeonRun& run, FDungeonUiState& ui,
                             const gameplay::FContentRegistry* content) {
-    if (ui.pickedRuneId.empty()) return;
+    if (ui.pickedRuneId.empty() || !ui.pickedRuneFit.empty()) return;  // nothing picked, or already fitted
     const auto runeIndex = FindUnfittedCopy(run, ui.pickedRuneId);
     if (!runeIndex) return;  // the copy is already fitted: nothing to attach
     ImGui::SeparatorText("FIT RUNE");
@@ -282,7 +307,10 @@ void DrawPickedRuneFitBlock(entt::registry& registry, FDungeonRun& run, FDungeon
                     AppendRunMessage(run, "Cannot fit rune: " + *error);
                 } else {
                     AppendRunMessage(run, runeName + " fitted to " + memberName + " · " + skillName + ".");
-                    ui.pickedRuneId.clear();  // one copy equips once; the block ends
+                    // WP-27h: keep the pick and remember what was fitted. The block ends through its own
+                    // early return, and the modal's decided line reports the fit (a second unfitted copy of
+                    // the same rune in the pool must not reopen the block).
+                    ui.pickedRuneFit = memberName + " · " + skillName;
                     return;
                 }
             }
@@ -326,11 +354,15 @@ void RenderDungeonRewardView(entt::registry& registry) {
             else if (ui.pickedRuneId.empty()) ImGui::TextDisabled("No rune offer this room.");
             else {
                 // WP-27: the offer was just decided — say what was picked instead of claiming there was
-                // none. Only promise a fit while an unfitted copy is really in the pool (a refund of an
-                // already fitted rune adds none): the same lookup the FIT RUNE block uses.
+                // none. WP-27h: a fit this pick already made is reported by name; otherwise only promise a
+                // fit while an unfitted copy is really in the pool (a refund of an already fitted rune adds
+                // none): the same lookup the FIT RUNE block uses.
                 const auto* picked = content != nullptr ? content->runes.find(ui.pickedRuneId) : nullptr;
                 const std::string pickedName = ContentDisplayName(picked, ui.pickedRuneId);
-                if (FindUnfittedCopy(run, ui.pickedRuneId)) {
+                if (!ui.pickedRuneFit.empty()) {
+                    ImGui::TextDisabled(
+                        "Picked: %s — fitted to %s.", pickedName.c_str(), ui.pickedRuneFit.c_str());
+                } else if (FindUnfittedCopy(run, ui.pickedRuneId)) {
                     ImGui::TextDisabled("Picked: %s — fit it now or later at camp.", pickedName.c_str());
                 } else {
                     ImGui::TextDisabled("Picked: %s — already fitted.", pickedName.c_str());
@@ -338,9 +370,9 @@ void RenderDungeonRewardView(entt::registry& registry) {
             }
             DrawRuneOfferForecast(registry);
             // WP-27: the just-picked rune's fit block lives in the offer section and shows while the offer
-            // is already resolved, as long as an unfitted copy sits in the collected pool. A boss "extra"
-            // offer keeps both: the new cards above, the first pick's block below (a second pick just
-            // replaces pickedRuneId).
+            // is already resolved and the pick has no fit yet. A boss "extra" offer keeps both: the new
+            // cards above and the previous pick's still-unfitted block below (a second pick replaces the
+            // pick id and the fit state).
             DrawPickedRuneFitBlock(registry, run, ui, content);
         }
         ImGui::Separator();
@@ -350,7 +382,8 @@ void RenderDungeonRewardView(entt::registry& registry) {
         if (offerOpen) ImGui::TextDisabled("Pick a rune or skip the offer to continue.");
         ImGui::BeginDisabled(offerOpen);
         if (ui::Button("Continue", {-1, 42})) {
-            ui.pickedRuneId.clear();  // WP-27: the fit offer dies with the reward step
+            ui.pickedRuneId.clear();   // WP-27: the fit offer dies with the reward step
+            ui.pickedRuneFit.clear();  // WP-27h: ... and so does its fitted state
             PostRunIntent(registry, ERunIntent::ContinueReward);
             ImGui::CloseCurrentPopup();
         }

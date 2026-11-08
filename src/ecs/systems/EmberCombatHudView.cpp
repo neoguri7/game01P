@@ -43,8 +43,6 @@ using ui::FUiLayout;
 using ui::HudTextPx;
 
 constexpr float kBodySize = 15.f;
-// hud_panel's nine-slice corner, in the picture's own pixels (assets/art/asset_contract.json).
-constexpr float kPanelCorner = 24.f;
 constexpr ImVec4 kClear{0.f, 0.f, 0.f, 0.f};
 
 // WP-12 overlay metrics (design px). Board plates that relate to a cell use the WORLD scale (view->scale)
@@ -128,7 +126,9 @@ ImVec2 Max(const FRect& rect) { return {rect.right(), rect.bottom()}; }
 ImVec2 Size(const FRect& rect) { return {rect.w, rect.h}; }
 
 void DrawHudPanel(entt::registry& registry, ImDrawList* draw, const FRect& rect) {
-    ui::DrawNineSlice(draw, DungeonSkinPiece(registry, EDungeonSprite::HudPanel), Min(rect), Max(rect), kPanelCorner);
+    // The slice size lives in ui::hud beside the frame-band constants the readout budgets use (WP-27h).
+    ui::DrawNineSlice(draw, DungeonSkinPiece(registry, EDungeonSprite::HudPanel), Min(rect), Max(rect),
+                      hud::kPanelCorner);
 }
 
 // Head-and-shoulders crop of a full-body sprite.
@@ -239,15 +239,25 @@ FStatusSummary SummarizeStatuses(entt::registry& registry, entt::entity unit) {
     return summary;
 }
 
+/// The one turn-skip decision (WP-27h): the same IsTurnSkipped/CollectStatuses pair the gems use, so the
+/// readout's SKIP marker and the gem badge can never drift apart. The rule itself lives in FStatusRules.
+bool TurnSkipped(entt::registry& registry, entt::entity unit) {
+    const auto* active = registry.try_get<FActiveStatuses>(unit);
+    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
+    if (active == nullptr || content == nullptr) return false;
+    return IsTurnSkipped(*active, CollectStatuses(*active, *content));
+}
+
 /// One gem per status (kind shape + colour, capped) plus the decided turn-loss marker. `bottom` puts the row
-/// at the card's lower edge (the portrait well's top-right is taken by the threat plate).
+/// at the card's lower edge (the portrait well's top-right is taken by the threat plate); `drawSkip` lets the
+/// unit readout place SKIP at the head of its summary row instead (WP-27h), clear of the name.
 void DrawStatusGems(entt::registry& registry, ImDrawList* draw, entt::entity unit, ImVec2 min, ImVec2 max, float u,
-                    bool bottom = false) {
+                    bool bottom = false, bool drawSkip = true) {
     const auto* active = registry.try_get<FActiveStatuses>(unit);
     const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
     if (active == nullptr || active->effects.empty() || content == nullptr) return;
     const std::vector<const gameplay::FStatusContent*> definitions = CollectStatuses(*active, *content);
-    if (IsTurnSkipped(*active, definitions)) {
+    if (drawSkip && IsTurnSkipped(*active, definitions)) {
         Label(draw, {min.x + 4.f * u, min.y + 4.f * u}, HudTextPx(hud::kStatusSummaryPx, u, EHudText::Zone), kLethalText,
               "SKIP");
     }
@@ -488,18 +498,34 @@ void UnitReadout(entt::registry& registry, const FUiLayout& layout, const FTurnS
     Label(draw, numberAt, numberPx, IM_COL32(245, 232, 205, 255), numbers);
 
     const float rowY = zone.y + 52.f * u;
-    // WP-12: status badges on the readout (count / next tick / skip marker; details and the tick chance in
-    // the tooltip). The readout is wide enough for the joined summary on one line.
-    DrawStatusGems(registry, draw, actor, {left, zone.y + 8.f * u}, {left + width, zone.y + 20.f * u}, u);
+    // WP-12: status badges on the readout (count / next tick; details and the tick chance in the tooltip).
+    // WP-27h: the readout draws the decided SKIP itself, at the head of the summary row, so it can never
+    // cover the name (the old gems-row marker did at every scale).
+    DrawStatusGems(registry, draw, actor, {left, zone.y + 8.f * u}, {left + width, zone.y + 20.f * u}, u, false,
+                   false);
     const FStatusSummary statusSummary = SummarizeStatuses(registry, actor);
-    if (!statusSummary.empty()) {
-        const std::string joined = statusSummary.joined();
-        Label(draw, {left, zone.y + 68.f * u}, HudTextPx(hud::kStatusSummaryPx, u, EHudText::Zone), pal::kMuted,
-              joined.c_str());
+    const bool skipped = TurnSkipped(registry, actor);
+    if (!statusSummary.empty() || skipped) {
+        // WP-27h: the row sits at +63u so its ink stays inside the panel picture's inner rect; the frame
+        // band is fixed SCREEN px (kPanelFrameXPx/YPx), never scaled by u. The clip keeps a long joined
+        // summary off the right frame at both text scales.
+        draw->PushClipRect({zone.x + hud::kPanelFrameXPx, zone.y + hud::kPanelFrameYPx},
+                           {zone.right() - hud::kPanelFrameXPx, zone.bottom() - hud::kPanelFrameYPx}, true);
+        const float summaryPx = HudTextPx(hud::kStatusSummaryPx, u, EHudText::Zone);
+        float summaryX = left;
+        if (skipped) {
+            Label(draw, {summaryX, zone.y + 63.f * u}, summaryPx, kLethalText, "SKIP");
+            summaryX += LabelWidth(summaryPx, "SKIP") + 6.f * u;
+        }
+        if (!statusSummary.empty()) {
+            const std::string joined = statusSummary.joined();
+            Label(draw, {summaryX, zone.y + 63.f * u}, summaryPx, pal::kMuted, joined.c_str());
+        }
+        draw->PopClipRect();
     }
     if (!playerTurn) {
         if (!statusSummary.empty() &&
-            ImGui::IsMouseHoveringRect({left, zone.y + 62.f * u}, {left + width, zone.bottom()})) {
+            ImGui::IsMouseHoveringRect({left, zone.y + 63.f * u}, {left + width, zone.bottom()})) {
             ImGui::SetTooltip("%s", StatusTooltip(registry, actor).c_str());
         }
         Label(draw, {left, rowY}, HudTextPx(hud::kPlanningPx, u, EHudText::Zone), pal::kEnemy, "Planning...");
@@ -517,7 +543,7 @@ void UnitReadout(entt::registry& registry, const FUiLayout& layout, const FTurnS
     gems("M", left, points.move, points.moveMax, pal::kMove);
     gems("S", left + width * .5f, points.skill, points.skillMax, pal::kSkill);
     if (!statusSummary.empty() &&
-        ImGui::IsMouseHoveringRect({left, zone.y + 62.f * u}, {left + width, zone.bottom()})) {
+        ImGui::IsMouseHoveringRect({left, zone.y + 63.f * u}, {left + width, zone.bottom()})) {
         ImGui::SetTooltip("%s", StatusTooltip(registry, actor).c_str());
     }
 }

@@ -20,8 +20,14 @@ struct FDungeonUiState {
     bool newExpeditionFresh{false};    // which "new expedition" button asked
     int selectedGrowthMember{0};
     // WP-27: the rune picked in this reward modal, kept so the same modal can fit it on the spot. View-
-    // owned, never saved: set only on a Reward-phase pick, cleared on equip or Continue.
+    // owned, never saved: set only on a Reward-phase pick, kept after a fit (the modal reports what was
+    // fitted) and cleared on Continue.
     std::string pickedRuneId;
+    // WP-27h: "<Member> · <Skill>" of the fit this pick already made. View-owned, never saved; set by the
+    // FIT RUNE button's success path and cleared with pickedRuneId. Its presence is the modal's "this pick
+    // is decided" state — the FIT RUNE block stays hidden even when a second unfitted copy of the same
+    // rune sits in the collected pool.
+    std::string pickedRuneFit;
 };
 
 // ---------------------------------------------------------------------------------------------
