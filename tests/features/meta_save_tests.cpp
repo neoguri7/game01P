@@ -842,7 +842,9 @@ void LadderCheckpointCappedLikeCheckpointFile() {
 
 void NewCatalogRosterRowsMergeIntoSave() {
     FMetaFixture fixture("roster-merge");
-    const auto catalog = ReadJson("assets/data/roster.json").at("roster");
+    // The catalog this boot actually loaded: the frozen fixture copy (TestAssetRoots). Reading the ship
+    // file here would let a shipped roster edit turn a fixture test red (critic F1).
+    const auto catalog = ReadJson(FixtureDataPath("roster.json")).at("roster");
     CHECK(catalog.size() > 2);
 
     // An older save: only the first two catalog members, with progress the merge must not touch.

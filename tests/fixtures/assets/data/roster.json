@@ -1,0 +1,14 @@
+{
+  "_comment": "WP-20 L1 roster data: identity only (D-9/D-10) - name, trait, medals. No stats or power fields, ever (Q18: 메타는 옵션을 팔고 파워를 팔지 않는다). The four party.* rows are the shipped party (dungeon.json party); the *_stub rows are locked identity placeholders for the WP-21/WP-23 acquisition path (seal unlocks reference party.rogue_stub). English text only: the HUD font has no Hangul.",
+  "schema_version": 1,
+  "roster": [
+    {"id": "party.warrior", "name": "Alden", "trait": "Stubborn", "medals": 0, "enabled": true},
+    {"id": "party.archer", "name": "Rowan", "trait": "Steady", "medals": 0, "enabled": true},
+    {"id": "party.mage", "name": "Mira", "trait": "Curious", "medals": 0, "enabled": true},
+    {"id": "party.healer", "name": "Lumen", "trait": "Patient", "medals": 0, "enabled": true},
+    {"id": "party.rogue_stub", "name": "???", "locked": true},
+    {"id": "party.warden_stub", "name": "???", "locked": true},
+    {"id": "party.channeler_stub", "name": "???", "locked": true},
+    {"id": "party.templar_stub", "name": "???", "locked": true}
+  ]
+}

@@ -813,6 +813,126 @@ void FourSlotsEnforced() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// The rules boundary (critic F3): a hand-built setup cannot smuggle a gated skill or member past
+// ValidateRunSetup / StartDungeonRunFromSetup, whatever the draft editor would have allowed.
+// ---------------------------------------------------------------------------------------------
+
+void SetupWithGatedSkillRefused() {
+    FPrepBoot boot("prep-gated-skill-setup");  // shipped world: the real pools and the shipped gate rows
+    entt::registry& registry = boot.registry;
+    CHECK(boot.InitMeta());  // nothing bought
+
+    game::FPreparationDraft draft = game::MakeDefaultDraft(registry, game::FRunStartRequest{true, -1});
+    CHECK(draft.setup.party.size() == game::kRunPartySize);
+    CHECK(draft.setup.skills.size() == game::kRunPartySize);
+
+    // Derive the gate target from the catalog (no hard-coded id): the first kind=skill unlock row that a
+    // drafted member authors in its unit table. Nothing is bought, so the rules pool hides it.
+    std::size_t memberIndex = game::kRunPartySize;
+    std::string gatedSkill;
+    for (std::size_t i = 0; i < draft.setup.party.size() && memberIndex == game::kRunPartySize; ++i) {
+        const game::gameplay::FUnitContent* unit = game::ResolveRunMemberUnit(registry, draft.setup.party[i]);
+        CHECK(unit != nullptr);
+        for (const game::FMetaUnlockRow& row : game::MetaUnlockCatalog(registry)) {
+            if (row.kind != "skill") continue;
+            if (std::ranges::find(unit->skillIds, row.id) == unit->skillIds.end()) continue;
+            memberIndex = i;
+            gatedSkill = row.id;
+            break;
+        }
+    }
+    CHECK(memberIndex < game::kRunPartySize);
+    CHECK(!gatedSkill.empty());
+    CHECK(!game::HasMetaUnlock(registry, gatedSkill));
+    const std::vector<std::string> pool = game::MemberSkillPool(registry, draft.setup.party[memberIndex]);
+    CHECK(std::ranges::find(pool, gatedSkill) == pool.end());  // the gate hides it from the rules pool
+
+    // Inject the gated skill DIRECTLY into the setup, bypassing SetDraftSkill (which would refuse it). The
+    // rules boundary must refuse it too: a start without the purchase would otherwise open the gate.
+    game::FRunSetup setup = draft.setup;
+    setup.skills[memberIndex][0] = gatedSkill;
+    CHECK(game::ValidateRunSetup(registry, setup).has_value());
+    CHECK(!game::StartDungeonRunFromSetup(registry, kSeed, true, -1, setup));
+    CHECK(!registry.ctx().contains<game::FDungeonRun>());
+    CHECK(!registry.ctx().contains<game::FRunSetupRequest>());  // refused before the carrier is inserted
+
+    // Positive control: the same setup with the purchase in place validates and starts exactly one run.
+    game::GrantMetaUnlock(registry, gatedSkill);
+    CHECK(game::HasMetaUnlock(registry, gatedSkill));
+    CHECK(!game::ValidateRunSetup(registry, setup).has_value());
+    CHECK(game::StartDungeonRunFromSetup(registry, kSeed, true, -1, setup));
+    const auto& run = registry.ctx().get<game::FDungeonRun>();
+    CHECK(run.party.size() == game::kRunPartySize);
+    CHECK(run.party[memberIndex].id == setup.party[memberIndex]);
+    CHECK(std::ranges::any_of(run.party[memberIndex].skills,
+                              [&](const game::FSkillSlot& slot) { return slot.skillId == gatedSkill; }));
+}
+
+void SetupWithGatedMemberRefused() {
+    // The RosterUnlockGatesSelection temp catalogs: a NON-locked roster member with a resolvable unit that
+    // is unlock-gated (cost 5). Shipped content, so the member's real four-skill loadout exists.
+    const char* kRoster = R"({"schema_version": 1, "roster": [
+        {"id": "party.warrior", "name": "Alden", "enabled": true},
+        {"id": "party.archer", "name": "Rowan", "enabled": true},
+        {"id": "party.mage", "name": "Mira", "enabled": true},
+        {"id": "party.healer", "name": "Lumen", "enabled": true},
+        {"id": "party.scout", "name": "Nyx", "trait": "Quick", "enabled": true, "unit": "char.archer"}
+    ]})";
+    const char* kUnlocks = R"({"schema_version": 1, "unlocks": [
+        {"id": "party.scout", "kind": "roster", "cost": 5, "seal_gate": 0}
+    ]})";
+    FPrepBoot boot("prep-gated-member-setup", [&](const std::filesystem::path& data) {
+        WriteTextFile(data / "roster.json", kRoster);
+        WriteTextFile(data / "unlocks.json", kUnlocks);
+    });
+    entt::registry& registry = boot.registry;
+    CHECK(boot.InitMeta());  // nothing bought
+
+    game::FPreparationDraft draft = game::MakeDefaultDraft(registry, game::FRunStartRequest{true, -1});
+    CHECK(draft.setup.party.size() == game::kRunPartySize);
+
+    // Derive the gated member from the catalog (no hard-coded id): a non-locked row outside the draft that
+    // the gate hides. Its unit resolves, so only the purchase stands between it and the party.
+    std::string gatedMember;
+    for (const game::FMetaRosterRow& row : game::MetaRosterCatalog(registry)) {
+        if (row.locked) continue;
+        if (std::ranges::find(draft.setup.party, row.id) != draft.setup.party.end()) continue;
+        if (!game::IsUnlockGated(registry, row.id)) continue;
+        gatedMember = row.id;
+        break;
+    }
+    CHECK(!gatedMember.empty());
+    CHECK(game::ResolveRunMemberUnit(registry, gatedMember) != nullptr);
+    CHECK(!game::IsRosterMemberSelectable(registry, gatedMember));
+
+    // Replace the last authored member with the un-bought one, straight into setup.party (the draft editor
+    // would refuse). Its default loadout is legal, so a refusal cannot be blamed on the slot contract.
+    const std::size_t memberIndex = game::kRunPartySize - 1;
+    game::FRunSetup setup = draft.setup;
+    setup.party[memberIndex] = gatedMember;
+    setup.skills[memberIndex] = game::DefaultMemberLoadout(registry, gatedMember);
+    CHECK(static_cast<int>(setup.skills[memberIndex].size()) ==
+          game::MemberActiveSkillSlots(registry, gatedMember));
+
+    const std::optional<std::string> problem = game::ValidateRunSetup(registry, setup);
+    CHECK(problem.has_value());
+    CHECK(problem->find(gatedMember) != std::string::npos);  // the refusal names the member
+    CHECK(!game::StartDungeonRunFromSetup(registry, kSeed, true, -1, setup));
+    CHECK(!registry.ctx().contains<game::FDungeonRun>());
+    CHECK(!registry.ctx().contains<game::FRunSetupRequest>());
+
+    // Positive control: after the purchase the same setup validates and starts exactly one run.
+    game::GrantMetaUnlock(registry, gatedMember);
+    CHECK(game::HasMetaUnlock(registry, gatedMember));
+    CHECK(game::IsRosterMemberSelectable(registry, gatedMember));
+    CHECK(!game::ValidateRunSetup(registry, setup).has_value());
+    CHECK(game::StartDungeonRunFromSetup(registry, kSeed, true, -1, setup));
+    const auto& run = registry.ctx().get<game::FDungeonRun>();
+    CHECK(run.party.size() == game::kRunPartySize);
+    CHECK(run.party[memberIndex].id == gatedMember);
+}
+
+// ---------------------------------------------------------------------------------------------
 // The start path
 // ---------------------------------------------------------------------------------------------
 
@@ -1260,6 +1380,8 @@ int main() {
         {"LockedStubNotOpenedByUnlock", LockedStubNotOpenedByUnlock},
         {"SkillPoolHidesLockedUnlock", SkillPoolHidesLockedUnlock},
         {"FourSlotsEnforced", FourSlotsEnforced},
+        {"SetupWithGatedSkillRefused", SetupWithGatedSkillRefused},
+        {"SetupWithGatedMemberRefused", SetupWithGatedMemberRefused},
         {"PrepareConsumesCarrierOnly", PrepareConsumesCarrierOnly},
         {"PrepareDoesNotSkipWithExistingRun", PrepareDoesNotSkipWithExistingRun},
         {"PrepareStartsExactlyOneRunFromSetup", PrepareStartsExactlyOneRunFromSetup},
