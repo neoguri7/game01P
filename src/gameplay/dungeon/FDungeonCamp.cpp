@@ -68,6 +68,29 @@ void UnpackCamp(entt::registry& registry, const nlohmann::json& section) {
     registry.ctx().emplace<FCampProgress>(fresh);
 }
 
+/// WP-28 (M1): the camp hoard metric must drop a service only when it cannot be bought at all, never
+/// because the party is poor. The `Validate*` functions are the one definition of "buyable", so they are
+/// run with the purse temporarily raised instead of re-stating their conditions in a second place (a copy
+/// would drift silently). Scoped, restored on destruction, never saved.
+class FFullyFundedRun {
+public:
+    explicit FFullyFundedRun(entt::registry& registry) : run_(registry.ctx().find<FDungeonRun>()) {
+        if (run_ != nullptr) {
+            saved_ = run_->materials;
+            run_->materials = std::numeric_limits<int>::max();
+        }
+    }
+    ~FFullyFundedRun() {
+        if (run_ != nullptr) run_->materials = saved_;
+    }
+    FFullyFundedRun(const FFullyFundedRun&) = delete;
+    FFullyFundedRun& operator=(const FFullyFundedRun&) = delete;
+
+private:
+    FDungeonRun* run_{nullptr};
+    int saved_{0};
+};
+
 } // namespace
 
 const FCampTables& DungeonCampTables(const entt::registry& registry) {
@@ -171,15 +194,61 @@ int CampCheapestTwo(const FCampPrices& prices) {
     return sorted[0] + sorted[1];
 }
 
+int CampCheapestTwoPurchasable(entt::registry& registry, int* purchasableCount) {
+    if (purchasableCount != nullptr) *purchasableCount = 0;
+    const auto* run = registry.ctx().find<FDungeonRun>();
+    const auto* progress = registry.ctx().find<FCampProgress>();
+    if (run == nullptr || progress == nullptr || run->phase != EDungeonPhase::Camp) return 0;
+
+    const FCampPrices prices = CampPricesOf(registry);
+    std::vector<int> costs;
+
+    // Reinforcement: count the purchases still legal within the run caps, floor((cap - bonus)/amount).
+    // The validator's condition (`bonus + amount > cap` rejects) answers one purchase; the second price
+    // entry needs "would a second purchase also be legal", which only the sequence count can say. Direct
+    // arithmetic chosen over a hypothetical purchase mutation of the live run.
+    int purchases = 0;
+    if (const auto* growth = registry.ctx().find<FDungeonGrowth>()) {
+        for (const FRunMember& member : run->party) {
+            for (const FStatUpgrade& upgrade : growth->statUpgrades) {
+                if (upgrade.amount <= 0) continue;
+                const int headroom = upgrade.cap - DungeonMemberStatBonus(member, upgrade.stat);
+                if (headroom >= upgrade.amount) purchases += headroom / upgrade.amount;
+            }
+        }
+    }
+    if (purchases >= 1) costs.push_back(prices.upgrade);
+    if (purchases >= 2) costs.push_back(prices.nextUpgrade);
+
+    {
+        // Heal/respec/offer gate on affordability only through the validators, so the raised purse keeps the
+        // metric about availability. (PeekRuneCandidates inside the offer validator consumes nothing.)
+        const FFullyFundedRun funded{registry};
+        if (!ValidateDungeonCampHeal(registry).has_value()) costs.push_back(prices.heal);
+        if (!ValidateDungeonRespec(registry).has_value()) costs.push_back(prices.respec);
+        if (!ValidateCampRuneOfferPurchase(registry).has_value()) costs.push_back(prices.offer);
+    }
+
+    if (purchasableCount != nullptr) *purchasableCount = static_cast<int>(costs.size());
+    if (costs.empty()) return 0;                 // no division by zero in the log's hoard_ratio
+    if (costs.size() == 1) return costs.front(); // fewer than two: the sum of what exists
+    std::sort(costs.begin(), costs.end());
+    return costs[0] + costs[1];
+}
+
 void LogCampEntryReport(entt::registry& registry) {
     const auto* run = registry.ctx().find<FDungeonRun>();
     const auto* tables = registry.ctx().find<FCampTables>();
     if (run == nullptr || tables == nullptr) return;
     const FCampPrices prices = CampPricesOf(registry);
-    const int cheapestTwo = CampCheapestTwo(prices);
+    // WP-28 (M1): the denominator counts only the services that are buyable at all (respec without
+    // allocated nodes, an offer with no legal pool / used-up cap and a heal with nothing to restore are
+    // not part of a minimal camp visit); affordability is deliberately ignored — see the function.
+    int purchasable = 0;
+    const int cheapestTwo = CampCheapestTwoPurchasable(registry, &purchasable);
     const double hoard = cheapestTwo > 0 ? static_cast<double>(run->materials) / cheapestTwo : 0.0;
-    LOG_INFO("[camp] hoard_ratio={:.2f} materials={} cheapest_two={} basket={} upgrades={} draws={}", hoard,
-             run->materials, cheapestTwo, CampBasketTotal(prices),
+    LOG_INFO("[camp] hoard_ratio={:.2f} materials={} cheapest_two={} purchasable={} basket={} upgrades={} draws={}",
+             hoard, run->materials, cheapestTwo, purchasable, CampBasketTotal(prices),
              FindCampProgress(registry) != nullptr ? FindCampProgress(registry)->upgradesTotal : 0u,
              FindCampProgress(registry) != nullptr ? FindCampProgress(registry)->runeDrawsTotal : 0u);
 }

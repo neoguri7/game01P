@@ -7,6 +7,7 @@
 #include "core/Logger.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FRunSeed.h"
 #include "states/FEmberBattleState.h"
 #include "states/FEmberTitleState.h"
 
@@ -27,6 +28,8 @@ FStateTransition FEmberPreparationState::Update(entt::registry& Registry, float 
         LOG_ERROR("Preparation found a run already installed; returning to the title instead of starting a second run.");
         return {EStateChangeKind::Root, std::string(kEmberTitleId)};
     }
-    game::StartRun(Registry, static_cast<std::uint32_t>(SDL_GetTicks()), fresh);
+    // WP-28 A3: GAME01P_SEED overrides the ticks seed; a retry-from-checkpoint in the same process
+    // advances by one (see FRunSeed.h).
+    game::StartRun(Registry, game::ResolveRunSeed(static_cast<std::uint32_t>(SDL_GetTicks())), fresh);
     return {EStateChangeKind::Root, std::string(kEmberBattleId)};
 }

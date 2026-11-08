@@ -21,6 +21,7 @@
 #include "gameplay/grid/FGridTypes.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FRunSeed.h"
 #include "presentation/FBattleAnim.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
@@ -71,7 +72,8 @@ void FEmberBattleState::OnEnter(entt::registry& Registry)
     scene->Load();
 
     if (!Registry.ctx().contains<game::FDungeonRun>()) {
-        game::StartDungeonRun(Registry, static_cast<std::uint32_t>(SDL_GetTicks()));
+        // WP-28 A3: GAME01P_SEED overrides the ticks seed; a retry in the same process advances by one.
+        game::StartDungeonRun(Registry, game::ResolveRunSeed(static_cast<std::uint32_t>(SDL_GetTicks())));
     }
     const auto document = game::BuildDungeonBattlefield(Registry);
     const auto battlefield = game::FEntityFactory::CreateBattlefield(*scene, document);

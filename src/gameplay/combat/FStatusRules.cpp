@@ -27,7 +27,12 @@ int EffectiveStatusDuration(const gameplay::FStatusContent& status, int duration
 }
 
 int EffectiveStatusMagnitude(const gameplay::FStatusContent& status, int magnitudeDelta) {
-    return std::max(0, status.magnitude + magnitudeDelta);
+    // WP-28 A1 sign rule: a non-negative magnitude keeps its clamp at 0 (buff/burn/freeze 0/paralyze chance
+    // are byte-identical); a negative magnitude is a weakening status and keeps its sign — a rune delta
+    // moves |m| in the status's own direction and never crosses 0 (`+delta` strengthens a debuff:
+    // min(0, m - delta)). Without this the -2 debuff row stored 0 and did nothing anywhere.
+    return status.magnitude < 0 ? std::min(0, status.magnitude - magnitudeDelta)
+                                : std::max(0, status.magnitude + magnitudeDelta);
 }
 
 void ApplyStatus(

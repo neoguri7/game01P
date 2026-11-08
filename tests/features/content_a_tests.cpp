@@ -73,6 +73,7 @@
 #include "gameplay/data/FEngineContent.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FRewards.h"
+#include "gameplay/dungeon/FRunSequence.h"
 #include "gameplay/factory/FEntityDefinitions.h"
 #include "gameplay/grid/FBattlefieldData.h"
 #include "gameplay/grid/FGridTerrain.h"
@@ -640,11 +641,15 @@ struct FIgnitionSimResult {
 /// A pure, seeded, deterministic Monte Carlo model of the rune-offer economy. Fixed assumptions (all read
 /// from ship data, none typed in):
 ///  * offer chance and pity threshold and card count — rewards.json (0.7 / 2 / 3)
-///  * boss room offer guaranteed (boss_offer = "guaranteed")
-///  * monster rooms per dungeon = 2, plus 1 boss room — the v1 flow: FRunFlow.cpp kBossRoom = 2, rooms
-///    0..2 (dungeon.json carries no room sequence yet; WP-08 moves this number to data). STALE after the
-///    WP-08 merge (v2: 3 battles per dungeon, no boss in d1/d2, first boss d3 — FRunSequence::IsBossBattle):
-///    re-read the structure from FRunSequence and re-run these numbers in the post-W7 tuning round.
+///  * battles and boss slots per dungeon — the shipped dungeon.json v2 sequence (WP-28 A4): for dungeon
+///    d, `PositionOf(d - 1)` + `BattleCountAt` + `IsBossBattle`; the themes cycle after the last authored
+///    dungeon. The sequence's event slots between battles offer no runes.
+///  * a boss battle opens a forced offer iff `boss_offer != "none"` (ship "guaranteed"); with "none" the
+///    boss room opens nothing and never rolls chance/pity (FRewards::RollRoomOffer parity). "extra"'s
+///    second offer after the first decision is not modelled (no ship value uses it).
+///  * D-7 start support does NOT force the first offer here: FRunFlow::StartRunAt seeds the pity streak
+///    only for a run starting below the checkpoint (startIndex > 0), and this sim models a fresh start
+///    (index 0) — the first monster room rolls chance/pity like every other.
 ///  * candidate pool = every rune the CAPPED DEFAULT party can equip on its base skill alone
 ///    (FRewards::RuneFitsSkills semantics, mirrored with the real ValidateSkillSlot). Since the M-FUN S2
 ///    pool reorder the defaults carry Fire (firebolt), Cold (frost_lance) and Lightning (static), so all
@@ -658,6 +663,7 @@ struct FIgnitionSimResult {
 ///  * 24-rune content pool, camp purchases ignored, cap = 10 dungeons
 FIgnitionSimResult RunIgnitionSim(
     const game::gameplay::FContentRegistry& content,
+    const game::FRunSequence& sequence,
     const std::vector<const game::gameplay::FSkillContent*>& defaults,
     const FOfferConfig& config, int runs, int dungeonCap, std::uint32_t seed) {
     const auto weightOf = [](const game::gameplay::FRuneContent& rune) {
@@ -823,11 +829,19 @@ FIgnitionSimResult RunIgnitionSim(
         };
 
         for (int dungeon = 1; dungeon <= dungeonCap && !established; ++dungeon) {
-            for (int room = 0; room < 2 && !established; ++room) { // the two monster rooms
+            // WP-28 A4: the structure is the shipped v2 sequence, not a constant. PositionOf wraps into
+            // the themes' cycle; every battle ordinal is either a boss slot (a forced offer when the data
+            // allows one, never a chance/pity roll) or a monster room (chance/pity).
+            const game::FRunSequence::FPosition position = sequence.PositionOf(dungeon - 1);
+            const int battles = sequence.BattleCountAt(position);
+            for (int ordinal = 0; ordinal < battles && !established; ++ordinal) {
+                if (sequence.IsBossBattle(position, ordinal)) {
+                    if (bossGuaranteed) {
+                        attemptOffer(dungeon, true);
+                    }
+                    continue;
+                }
                 attemptOffer(dungeon, false);
-            }
-            if (bossGuaranteed && !established) {
-                attemptOffer(dungeon, true); // boss_offer guaranteed/extra both open one offer
             }
         }
         if (established) {
@@ -845,6 +859,13 @@ FIgnitionSimResult RunIgnitionSim(
 void IgnitionTimingSimulated() {
     const game::gameplay::FContentRegistry content = ShipContent();
     const FOfferConfig config = ReadOfferConfig();
+    // WP-28 A4: the loop structure is the shipped v2 sequence (dungeon.json themes), never a constant.
+    std::string sequenceError;
+    const std::optional<game::FRunSequence> sequence =
+        game::FRunSequence::Load(ReadJsonFile("assets/data/dungeon.json"), sequenceError);
+    if (!sequence.has_value()) {
+        throw std::runtime_error("the shipped dungeon.json v2 sequence was rejected: " + sequenceError);
+    }
 
     std::vector<const game::gameplay::FSkillContent*> defaults;
     for (const std::string_view unitId : {"char.warrior", "char.archer", "char.mage", "char.healer"}) {
@@ -858,8 +879,8 @@ void IgnitionTimingSimulated() {
     constexpr int kRuns = 2000;
     constexpr int kDungeonCap = 10;
     constexpr std::uint32_t kSeed = 0xC0FFEEu;
-    const FIgnitionSimResult first = RunIgnitionSim(content, defaults, config, kRuns, kDungeonCap, kSeed);
-    const FIgnitionSimResult second = RunIgnitionSim(content, defaults, config, kRuns, kDungeonCap, kSeed);
+    const FIgnitionSimResult first = RunIgnitionSim(content, *sequence, defaults, config, kRuns, kDungeonCap, kSeed);
+    const FIgnitionSimResult second = RunIgnitionSim(content, *sequence, defaults, config, kRuns, kDungeonCap, kSeed);
 
     std::vector<int> sorted = first.firstDungeon;
     std::ranges::sort(sorted);
@@ -876,7 +897,21 @@ void IgnitionTimingSimulated() {
     }
     std::cout << "[report] IgnitionTimingSimulated: " << first.runs << " runs x " << kDungeonCap
               << " dungeons; chance " << config.chance << " pity " << config.pityThreshold << " count "
-              << config.count << " boss '" << config.bossOffer << "'; monster rooms/dungeon 2 + boss 1\n";
+              << config.count << " boss '" << config.bossOffer << "'\n";
+    std::cout << "[report]   sequence (battles per dungeon, boss kind):";
+    for (int dungeon = 1; dungeon <= kDungeonCap; ++dungeon) {
+        const game::FRunSequence::FPosition position = sequence->PositionOf(dungeon - 1);
+        const int battles = sequence->BattleCountAt(position);
+        std::string bossKind;
+        for (int ordinal = 0; ordinal < battles; ++ordinal) {
+            if (!sequence->IsBossBattle(position, ordinal)) continue;
+            const game::FRunRoomSlot* slot = sequence->BattleSlotAt(position, ordinal);
+            bossKind = slot != nullptr && slot->boss == "final" ? "_final" : "_mid";
+            break;
+        }
+        std::cout << " d" << dungeon << ':' << battles << bossKind;
+    }
+    std::cout << '\n';
     std::cout << "[report]   first-engine by dungeon:";
     for (const auto& [dungeon, count] : byDungeon) {
         std::cout << " d" << dungeon << ':' << count; 
@@ -974,8 +1009,9 @@ void GuardWeakensAttacker() {
     CHECK(r.get<game::FHealth>(fixture.actor).current == actorHpBefore);  // the hook never touches HP
     const game::FStatusEffect* debuff = FindStatus(r, fixture.actor, "status.debuff");
     CHECK(debuff != nullptr);
-    // The stored magnitude is not asserted because of the known clamp in EffectiveStatusMagnitude
-    // (reported in the w7-content-a lane report) — a later fix must not break this test.
+    // WP-28 A1: the sign fix landed — the authored -2 now survives EffectiveStatusMagnitude (it used to
+    // clamp to 0 and do nothing), so a real magnitude assertion is back.
+    CHECK(debuff->magnitude == -2);
     CHECK(debuff->turnsRemaining == 3);
     CHECK(FindStatus(r, fixture.foe, "status.debuff") == nullptr); // the victim is not the target
     CHECK(CountLines(Log(r).lines, "rune:rune.guard on_damage_taken -> apply_status_target") == 1);

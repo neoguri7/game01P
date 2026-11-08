@@ -232,8 +232,11 @@ int ValueOfStatus(const FBtContext& ctx, const FResolvedStatus& status, const FU
             worth = target.threat * ControlTickChance(magnitude, definition->chanceCap) / 100 * gain;
         } else {
             // Stat statuses add `magnitude` to every attack; a unit that never attacks gains nothing.
-            worth = target.canDamage ? magnitude * gain : 0;
-            goodForTarget = true;
+            // WP-28 A1: a negative magnitude is a weakening status — worth |magnitude| to the caster
+            // (goodForTarget = false), the mirror of the buff branch. The old clamp read it as 0.
+            const int magnitudeStrength = magnitude < 0 ? -magnitude : magnitude;
+            worth = target.canDamage ? magnitudeStrength * gain : 0;
+            goodForTarget = magnitude > 0;
         }
     }
     const int signedWorth = goodForTarget == targetIsAlly ? worth : -worth;
