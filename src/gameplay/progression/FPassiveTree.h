@@ -55,6 +55,10 @@ struct FPassiveNode {
 [[nodiscard]] const FPassiveNode* PassiveExclusiveConflict(
     const std::vector<FPassiveNode>& nodes, const std::vector<std::string>& allocated, std::string_view nodeId);
 
+/// CanAllocate가 거부하는 첫 이유 (트리 규칙만 — 포인트·전투 중·멤버 비활성은 호출자 몫).
+/// 보유 중인 단일 랭크 노드(maxRanks 1)는 MaxRank다 — 별도 "이미 보유" 값은 없다.
+enum class EAllocationBlocker { None, UnknownNode, Root, MaxRank, Exclusive, NotAdjacent };
+
 /// 그래프(방향 엣지 + 무방향 할당 인접)·랭크·배타·캡을 담는 불변 콘텐츠 (design §6, v2).
 /// 할당 상태는 캐릭터(run member)가 들고 있고, 이 형은 그 상태를 해석만 한다.
 struct FPassiveTree {
@@ -69,9 +73,14 @@ struct FPassiveTree {
 
     [[nodiscard]] const FPassiveNode* Find(std::string_view nodeId) const;
 
+    /// CanAllocate가 거부하는 첫 이유 — 판정 순서: 미지 → 루트 → 랭크 상한 → 배타 → (rank ≥ 1이면 허용) → 인접.
+    /// None이면 트리 규칙상 할당 가능하다 (포인트·전투 중·멤버 비활성은 호출자 몫).
+    [[nodiscard]] EAllocationBlocker Blocker(const std::vector<std::string>& allocated, std::string_view nodeId) const;
+
     /// v2 할당 규칙: 노드 존재·루트 아님; rank < maxRanks; 배타 충돌 없음; 그리고
     /// (무방향 인접 노드가 루트이거나 allocated) 또는 rank ≥ 1 (보유 노드 재할당 = 자기 인접).
     /// 포인트 보유 여부는 호출자(런)가 판단한다.
+    /// = Blocker(allocated, nodeId) == EAllocationBlocker::None.
     [[nodiscard]] bool CanAllocate(const std::vector<std::string>& allocated, std::string_view nodeId) const;
 
     /// allocated의 모든 등장을 합산하고(반복 = 중복 합산, 미지 id는 건너뛴다), 각 스탯을 캡이 있으면 클램프한다.

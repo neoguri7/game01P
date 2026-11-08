@@ -145,6 +145,7 @@ void DrawPassiveProgression(
         .rootNodeId = run.tree.rootNodeId,
         .allocated = &member.allocatedNodes,
         .points = member.passivePoints,
+        .blocker = [&](std::string_view nodeId) { return run.tree.Blocker(member.allocatedNodes, nodeId); },
         .canAllocate = [&](std::string_view nodeId) { return run.CanAllocatePassiveNode(member.placementId, nodeId); },
         .allocate = [&](std::string_view nodeId) { (void)run.AllocatePassiveNode(member.placementId, nodeId); },
     });
