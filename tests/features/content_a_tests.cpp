@@ -642,11 +642,13 @@ struct FIgnitionSimResult {
 ///  * offer chance and pity threshold and card count — rewards.json (0.7 / 2 / 3)
 ///  * boss room offer guaranteed (boss_offer = "guaranteed")
 ///  * monster rooms per dungeon = 2, plus 1 boss room — the v1 flow: FRunFlow.cpp kBossRoom = 2, rooms
-///    0..2 (dungeon.json carries no room sequence yet; WP-08 moves this number to data)
+///    0..2 (dungeon.json carries no room sequence yet; WP-08 moves this number to data). STALE after the
+///    WP-08 merge (v2: 3 battles per dungeon, no boss in d1/d2, first boss d3 — FRunSequence::IsBossBattle):
+///    re-read the structure from FRunSequence and re-run these numbers in the post-W7 tuning round.
 ///  * candidate pool = every rune the CAPPED DEFAULT party can equip on its base skill alone
-///    (FRewards::RuneFitsSkills semantics, mirrored with the real ValidateSkillSlot). The second-stage
-///    runes of an element the capped loadout does not carry (Ember/Frostbite/Shock/Frostpath/Combust on
-///    Fire/Cold/Lightning) are therefore NOT offerable — the sim reports that honestly.
+///    (FRewards::RuneFitsSkills semantics, mirrored with the real ValidateSkillSlot). Since the M-FUN S2
+///    pool reorder the defaults carry Fire (firebolt), Cold (frost_lance) and Lightning (static), so all
+///    24 runes are offerable — pinned by EveryRuneIsOfferLegalForStartingParty.
 ///  * draw: weighted (runes.json drop_weight) without repeat from the unowned pool, then at most one
 ///    owned duplicate card (FRewards::CandidatesFor semantics)
 ///  * pick policy (greedy): a rune that completes an owned engine pair first, else any engine piece,
@@ -1233,8 +1235,8 @@ void PlacementOverrideUnchanged() {
         placement.cell = game::FGridPosition{5, 6};
         placement.entity = entity;
         placement.unitTemplateId = "char.mage";
-        for (const std::string& skillId : {"skill.bolt", "skill.fog", "skill.heal", "skill.buff",
-                                           "skill.debuff", "skill.firebolt"}) {
+        for (const std::string& skillId : {"skill.bolt", "skill.firebolt", "skill.frost_lance", "skill.fog",
+                                           "skill.heal", "skill.buff"}) {
             placement.skills.push_back(Slot(skillId));
         }
         battlefield.units.push_back(placement);
@@ -1242,8 +1244,8 @@ void PlacementOverrideUnchanged() {
 
         const auto& slots = registry.get<game::FSkillLoadout>(entity).slots;
         CHECK(slots.size() == 6);
-        const std::vector<std::string> expected{"skill.bolt", "skill.fog", "skill.heal", "skill.buff",
-                                                "skill.debuff", "skill.firebolt"};
+        const std::vector<std::string> expected{"skill.bolt", "skill.firebolt", "skill.frost_lance",
+                                                "skill.fog", "skill.heal", "skill.buff"};
         for (std::size_t index = 0; index < slots.size(); ++index) {
             CHECK(slots[index].skillId == expected[index]);
         }
@@ -1504,6 +1506,60 @@ void DefaultBattleLoadoutNeverExceedsFour() {
     }
 }
 
+/// EveryRuneIsOfferLegalForStartingParty: M-FUN gate S2 — the reward-offer gate (FRewards::RuneFitsSkills)
+/// judges each rune ALONE against the BASE tags of the party's battle-loadout skills, so the capped
+/// first-4 defaults must keep every one of the 24 runes offerable. Both PartySkills windows are covered:
+/// pre-capture (empty run party -> the definition party's whole pools) and post-capture (the captured
+/// first-4 battle loadout the room-1 reward roll sees).
+void EveryRuneIsOfferLegalForStartingParty() {
+    FDungeonHarness harness{11u, "offer-legal"};
+    auto& registry = harness.registry;
+    const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
+
+    const auto checkWindow = [&](std::string_view window, bool primary) {
+        int legal = 0;
+        std::vector<std::string> unreachable;
+        for (const game::gameplay::FRuneContent& rune : content.runes.rows) {
+            if (game::RuneFittingSkillNames(registry, rune.id).empty()) {
+                unreachable.push_back(rune.id);
+            } else {
+                ++legal;
+            }
+        }
+        if (primary) {
+            std::cout << "[report] offer-legal runes: ";
+        } else {
+            std::cout << "[report] offer-legal runes (" << window << "): ";
+        }
+        std::cout << legal << '/' << content.runes.rows.size();
+        for (const std::string& id : unreachable) {
+            std::cout << ' ' << id;
+        }
+        std::cout << '\n';
+        CHECK(static_cast<std::size_t>(legal) == content.runes.rows.size());
+    };
+
+    // Pre-capture window: a fresh run carries no slots, so the fallback reads the whole pools.
+    for (const game::FRunMember& member : registry.ctx().get<game::FDungeonRun>().party) {
+        CHECK(member.skills.empty());
+    }
+    checkWindow("pre-capture fallback", false);
+
+    // Post-capture window: enter the first battle (the first-4 default loadout), capture like
+    // ResolveRoomVictory does after room 1, and judge against exactly that state.
+    {
+        FEmberBattleState battle;
+        battle.OnEnter(registry);
+        CHECK(registry.ctx().find<game::FCombatRuntime>() != nullptr);
+        game::CaptureRunParty(registry);
+        battle.OnExit(registry);
+    }
+    for (const game::FRunMember& member : registry.ctx().get<game::FDungeonRun>().party) {
+        CHECK(member.skills.size() == 4); // the capped default loadout is what offers are judged on
+    }
+    checkWindow("post-capture", true);
+}
+
 /// One full-dungeon auto-run for the report. `uncapped` injects each member's WHOLE pool into
 /// FDungeonRun.party before the first battle — the exact path a captured loadout takes
 /// (FEmberBattleState::OnEnter calls ApplyRunParty → ApplyBattleStart, which copies run.party[i].skills
@@ -1631,6 +1687,7 @@ int main() {
         {"PullMovesTargetAdjacent", PullMovesTargetAdjacent},
         {"BraceSelfResolves", BraceSelfResolves},
         {"DefaultBattleLoadoutNeverExceedsFour", DefaultBattleLoadoutNeverExceedsFour},
+        {"EveryRuneIsOfferLegalForStartingParty", EveryRuneIsOfferLegalForStartingParty},
         {"NewLoadoutsNeedNoAiWork", NewLoadoutsNeedNoAiWork},
         {"CappedLoadoutReport", CappedLoadoutReport},
     });
