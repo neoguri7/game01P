@@ -21,6 +21,7 @@
 #include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FRunLog.h"
 #include "gameplay/dungeon/FSaveSections.h"
 #include "gameplay/dungeon/FRoomGenerator.h"
 #include "gameplay/factory/FEntityDefinitions.h"
@@ -399,6 +400,8 @@ void InstallDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh)
     ClearPreserved(registry);
     registry.ctx().erase<FRunEventLog>();
     registry.ctx().emplace<FRunEventLog>();
+    // WP-19a: the run log starts here (before the run's first save, so the save section carries its id).
+    BeginRunLog(registry);
 }
 
 void StartDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh) {
@@ -474,6 +477,12 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
     if (!config) return nlohmann::json::object();
     auto document = BuildRoomDocument(data, *config, run.seed, run.depth, run.room);
     run.roomName = document.at("name").get<std::string>();
+    // WP-19a: a saved-phase continue (Reward/Event/Camp/Defeat) also builds the field but must not record a
+    // battle that will not happen; only a real Battle phase writes dungeon_enter/room_start.
+    if (run.phase == EDungeonPhase::Battle) {
+        LogDungeonEnter(registry);
+        LogRoomStart(registry);
+    }
     return document;
 }
 
@@ -581,6 +590,9 @@ std::optional<std::string> UpgradeDungeonStat(
     else if (upgrade.stat == "magic_defense") member.bonusMagicDefense += upgrade.amount;
     else if (upgrade.stat == "speed") member.bonusSpeed += upgrade.amount;
     run.materials -= upgrade.cost;
+    // WP-19a: one line per purchase (the member index rides along; -1 = party-wide/unknown).
+    AppendRunEvent(
+        registry, ERunEventKind::CampSpent, upgrade.id, upgrade.cost, static_cast<int>(memberIndex));
     SaveDungeonRun(registry);
     return std::nullopt;
 }

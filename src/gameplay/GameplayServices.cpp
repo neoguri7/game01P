@@ -8,6 +8,7 @@
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FRewardSection.h"
 #include "gameplay/dungeon/FRewards.h"
+#include "gameplay/dungeon/FRunLog.h"
 #include "gameplay/dungeon/FSaveSections.h"
 
 #include <tracy/Tracy.hpp>
@@ -66,6 +67,7 @@ bool FGameplayServices::Initialize(entt::registry& registry) {
     }
     RegisterRewardSection(registry);
     // [WP-19a]
+    InitializeRunLog(registry);
     // [WP-25]
 
     // keep last: every Register*Effects anchor is above this line

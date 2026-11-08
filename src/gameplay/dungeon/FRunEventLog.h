@@ -19,7 +19,8 @@ enum class ERunEventKind {
     BossDefeated,
     RunEnded,
     RewardPicked,
-    CampSpent
+    CampSpent,
+    EventChosen
 };
 
 /// The recent-events ring size. Only the last 64 events are kept; a consumer that needs history reads
@@ -33,6 +34,9 @@ struct FRunEvent {
     int room{0};
     std::string id;
     int amount{0};
+    /// Which party member the event belongs to. -1 = party-wide / unknown (the forward-compatible default
+    /// WP-10's camp purchases and WP-19a's camp lines rely on).
+    int member{-1};
 };
 
 /// Per-run: a new run (start or continue) gets a fresh log, so the log never survives a run on purpose.
@@ -52,7 +56,8 @@ struct FRunEventListeners {
 /// registration order. An append while a listener is delivering is a re-entrancy bug: it is logged and
 /// dropped (the caller's event is not appended). A throwing listener is logged and the next listener
 /// still runs. A run with no log gets one (depth/room are 0 while no run exists).
-void AppendRunEvent(entt::registry& registry, ERunEventKind kind, std::string id = {}, int amount = 0);
+void AppendRunEvent(
+    entt::registry& registry, ERunEventKind kind, std::string id = {}, int amount = 0, int member = -1);
 
 /// Registers a listener. The listener vector lives in the registry context and survives a run restart.
 void RegisterRunEventListener(entt::registry& registry, std::function<void(const FRunEvent&)> listener);

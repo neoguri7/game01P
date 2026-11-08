@@ -15,6 +15,7 @@
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FRunEventLog.h"
 
 namespace game {
 namespace {
@@ -334,14 +335,17 @@ bool ResolveRuneOffer(entt::registry& registry, int pickedIndex) {
     const FRewardTables& tables = rewards->tables;
     if (pickedIndex < 0) {
         run->materials += tables.skipRefundMaterials;
+        AppendRunEvent(registry, ERunEventKind::RewardPicked, {}, tables.skipRefundMaterials);
         LOG_INFO("Rune offer skipped: +{} material(s).", tables.skipRefundMaterials);
     } else {
         const std::string runeId = rewards->offer.candidates[static_cast<std::size_t>(pickedIndex)];
         if (IsOwned(*run, runeId) && tables.duplicatePolicy == kRewardDuplicatePolicyRefund) {
             run->materials += tables.duplicateRefundMaterials;
+            AppendRunEvent(registry, ERunEventKind::RewardPicked, runeId, tables.duplicateRefundMaterials);
             LOG_INFO("Rune '{}' is already owned: +{} material(s).", runeId, tables.duplicateRefundMaterials);
         } else {
             run->runes.push_back(runeId);
+            AppendRunEvent(registry, ERunEventKind::RewardPicked, runeId, 0);
             LOG_INFO("Rune '{}' collected.", runeId);
         }
     }

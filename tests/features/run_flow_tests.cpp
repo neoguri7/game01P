@@ -170,16 +170,24 @@ void TransitionTableWalks() {
     CHECK(result.has_value() && result->exit == game::ERunExit::NextRoom);
     CHECK(run.phase == game::EDungeonPhase::Battle && run.depth == 2 && run.room == 0 && run.advanceRequested);
 
-    // The walk recorded one event per victory in order: three RoomCleared, then DungeonCleared at the camp.
+    // The walk recorded each victory, each offer decision and the shrine choice in order, then the dungeon
+    // clear at the camp.
     const auto& log = registry.ctx().get<game::FRunEventLog>();
-    CHECK(log.tail.size() == 4u);
-    CHECK(log.nextSeq == 5);
+    CHECK(log.tail.size() == 8u);
+    CHECK(log.nextSeq == 9);
     CHECK(log.tail[0].kind == game::ERunEventKind::RoomCleared && log.tail[0].seq == 1);
-    CHECK(log.tail[1].kind == game::ERunEventKind::RoomCleared && log.tail[1].seq == 2);
-    CHECK(log.tail[2].kind == game::ERunEventKind::RoomCleared && log.tail[2].seq == 3);
-    CHECK(log.tail[3].kind == game::ERunEventKind::DungeonCleared && log.tail[3].seq == 4);
-    CHECK(log.tail[3].depth == 1);  // DungeonCleared carries the depth that was cleared
-    CHECK(log.tail[3].room == 2);
+    CHECK(log.tail[1].kind == game::ERunEventKind::RewardPicked && log.tail[1].seq == 2);
+    CHECK(!log.tail[1].id.empty() && log.tail[1].amount == 0);
+    CHECK(log.tail[2].kind == game::ERunEventKind::EventChosen && log.tail[2].seq == 3);
+    CHECK(log.tail[2].id == "event.quiet_shrine" && log.tail[2].amount == 1);
+    CHECK(log.tail[3].kind == game::ERunEventKind::RoomCleared && log.tail[3].seq == 4);
+    CHECK(log.tail[4].kind == game::ERunEventKind::RewardPicked && log.tail[4].seq == 5);
+    CHECK(log.tail[4].id.empty() && log.tail[4].amount == 1);
+    CHECK(log.tail[5].kind == game::ERunEventKind::RoomCleared && log.tail[5].seq == 6);
+    CHECK(log.tail[6].kind == game::ERunEventKind::RewardPicked && log.tail[6].seq == 7);
+    CHECK(log.tail[7].kind == game::ERunEventKind::DungeonCleared && log.tail[7].seq == 8);
+    CHECK(log.tail[7].depth == 1);  // DungeonCleared carries the depth that was cleared
+    CHECK(log.tail[7].room == 2);
 }
 
 /// The transition table has one writer: only FRunFlow.cpp assigns a run's phase. Documented exceptions:
@@ -850,10 +858,16 @@ void LegacyWrappersMatchRunFlow() {
         CHECK(a.party[index].skills.size() == b.party[index].skills.size());
     }
 
-    // The saved run is the same run; only the wall-clock timestamp differs.
+    // The saved run is the same run; only the wall-clock timestamp differs. The `log` section is the run's
+    // per-run file identity (WP-19a: log_id + run_started_at), not run state — two independent runs must
+    // not compare by it.
     const auto savedLegacy = ReadJsonFile(legacy.runSave);
     const auto savedFlow = ReadJsonFile(flow.runSave);
-    CHECK(savedLegacy["run"] == savedFlow["run"]);
+    auto legacyRun = savedLegacy["run"];
+    auto flowRun = savedFlow["run"];
+    legacyRun["ext"].erase("log");
+    flowRun["ext"].erase("log");
+    CHECK(legacyRun == flowRun);
 
     // The 2-argument form (fresh defaults to false) must keep compiling; it starts at checkpoint+1.
     FBoot defaulted(UniquePath("run-flow-legacy-default"));

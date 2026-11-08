@@ -21,6 +21,9 @@ namespace {
 /// The boss room of a dungeon (the third room): the same index the room generator marks as the boss fight.
 constexpr int kBossRoom = 2;
 
+/// The one event choice a run room offers today (WP-17 shrine). Named here because the run log records it.
+constexpr const char* kQuietShrineEventId = "event.quiet_shrine";
+
 // ---------------------------------------------------------------------------------------------
 // Run event log (WP-02a): the log lives in FRunEventLog.h; the append/register/shutdown functions
 // live here because the ownership table gives FRunEventLog.h no translation unit of its own.
@@ -113,6 +116,8 @@ std::expected<FRunResult, std::string> ChooseEvent(entt::registry& registry, boo
     if (run->phase != EDungeonPhase::Event) return WrongPhase(run->phase);
     if (rest) RestoreParty(registry, DungeonBalance(registry, "event_heal"));
     else run->materials += DungeonBalance(registry, "event_materials");
+    // WP-19a: the choice is recorded before the room advances, so the line names the event room.
+    AppendRunEvent(registry, ERunEventKind::EventChosen, kQuietShrineEventId, rest ? 0 : 1);
     ++run->room;
     Advance(registry);
     return SaveAfterTransition(registry, FRunResult{ERunExit::NextRoom, {}});
@@ -174,7 +179,7 @@ std::expected<FRunResult, std::string> LeaveRun(entt::registry& registry) {
 // Run event log
 // ---------------------------------------------------------------------------------------------
 
-void AppendRunEvent(entt::registry& registry, ERunEventKind kind, std::string id, int amount) {
+void AppendRunEvent(entt::registry& registry, ERunEventKind kind, std::string id, int amount, int member) {
     auto* listeners = registry.ctx().find<FRunEventListeners>();
     if (listeners != nullptr && listeners->delivering) {
         // Re-entrant append during delivery: a listener that appends would mutate the event stream the
@@ -189,6 +194,7 @@ void AppendRunEvent(entt::registry& registry, ERunEventKind kind, std::string id
     event.seq = log->nextSeq++;
     event.id = std::move(id);
     event.amount = amount;
+    event.member = member;
     if (const auto* run = registry.ctx().find<FDungeonRun>()) {
         event.depth = run->depth;
         event.room = run->room;
