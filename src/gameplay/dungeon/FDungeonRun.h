@@ -24,8 +24,11 @@ struct FMenuRequest {
 
 /// The start intent carried from the title/runEnd screen to the preparation step. `fresh` means "ignore
 /// the checkpoint and start at depth 1"; the preparation state consumes it exactly once (WP-02b).
+/// `startCleared` (WP-08/D-21): the cleared index the run should start at (< 0 = the checkpoint/fresh
+/// rule). The consumer is WP-21's start-dungeon choice — nothing reads it yet.
 struct FRunStartRequest {
     bool fresh{false};
+    int startCleared{-1};
 };
 
 struct FRunMember {
@@ -119,19 +122,34 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath = {}
 /// Installs a new run in the registry: seed, depth from the checkpoint, the definition party, and a fresh
 /// per-run event log. It does not save — FRunFlow::StartRun saves after the install.
 void InstallDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh);
+/// WP-08/D-21: installs a run starting at `clearedIndex` (clamped to [0, checkpoint.cleared] — the
+/// checkpoint never goes down). Applies the D-7 start-support materials scaled by the clamped index.
+void InstallDungeonRunAt(entt::registry& registry, std::uint32_t seed, int clearedIndex);
 /// Writes the current run to its save slot. A no-op without a run or a configured slot.
 bool SaveDungeonRun(entt::registry& registry);
 /// Removes the save: the expedition was lost or ended on purpose.
 void DeleteDungeonSave(entt::registry& registry);
 /// Replaces the registry's run with the saved one. On failure the run is untouched and `FDungeonSave::error` says why.
+/// WP-08 resume rule: a saved phase=event whose gap no longer carries an event slot (content changed under
+/// an old save) advances exactly like a reward step with no event. Runs inside this call, after install.
 [[nodiscard]] bool ContinueDungeonRun(entt::registry& registry);
-/// Legacy new-run entry point (kept until WP-08 moves the callers): delegates to FRunFlow::StartRun, which
-/// installs the run and saves it.
+/// WP-08/D-21: a new run starting at `clearedIndex` cleared dungeons (clamped to the checkpoint). The only
+/// new-run entry point for a start-dungeon choice (WP-21); StartRun(seed, fresh) delegates here with 0
+/// (fresh) or the checkpoint's cleared count. The body lives in FRunFlow.cpp — the run phase machine's
+/// single writer (TransitionTableSingleWriter).
+void StartRunAt(entt::registry& registry, std::uint32_t seed, int clearedIndex);
+/// WP-08 resume normalization (see ContinueDungeonRun): no-op unless the installed run is saved at
+/// phase=event and the sequence no longer has an event slot in that gap. The body lives in FRunFlow.cpp
+/// for the same single-writer reason.
+void NormalizeResumedRunPhase(entt::registry& registry);
+/// Legacy new-run entry point (kept for its many call sites; the move to the flow entry points is a later
+/// separate WP): delegates to FRunFlow::StartRun, which installs the run and saves it.
 void StartDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh = false);
 [[nodiscard]] nlohmann::json BuildDungeonBattlefield(entt::registry& registry);
 void ApplyRunParty(entt::registry& registry);
 void CaptureRunParty(entt::registry& registry);
-/// Legacy wrappers (kept until WP-08 moves the callers): each delegates to FRunFlow and logs the error.
+/// Legacy wrappers (kept for their many call sites; the move is a later separate WP): each delegates to
+/// FRunFlow and logs the error.
 void CompleteDungeonBattle(entt::registry& registry, bool victory);
 /// 방 클리어 성장 안내(Reward)를 닫고 이벤트/다음 방/캠프로 진행한다.
 void ContinueDungeonReward(entt::registry& registry);

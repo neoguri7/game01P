@@ -13,6 +13,7 @@
 
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FRunSequence.h"
 
 namespace game {
 namespace {
@@ -261,7 +262,9 @@ std::expected<FDungeonRun, std::string> DungeonRunFromJson(
     FDungeonRun run;
     const auto seed = ReadNumber(data, "seed", 1, std::numeric_limits<std::uint32_t>::max());
     const auto depth = ReadNumber(data, "depth", 1, 1000);
-    const auto room = ReadNumber(data, "room", 0, 2);
+    // WP-08: `room` is the battle ordinal of the dungeon at `depth - 1`; the slot cap is the static upper
+    // bound (the sequence-specific bound is dynamic and lives in ParseSavedRun, which owns the registry).
+    const auto room = ReadNumber(data, "room", 0, kMaxDungeonSlots - 1);
     const auto cleared = ReadNumber(data, "cleared", 0, 999);
     const auto materials = ReadNumber(data, "materials", 0, kMaxCount);
     const auto roomName = ReadText(data, "room_name", true);

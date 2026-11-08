@@ -2,8 +2,10 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -30,7 +32,25 @@ struct FRoomGenConfig {
     FIntRange enemyCount;
     FIntRange obstacleCount;
     FIntRange trapCount;
+    /// Room template family (WP-08): "open", "open_variant" (light), or "corridor" / "cover" / "split"
+    /// (heavy). Missing/invalid names are refused by the sequence loader, so generation never sees one; the
+    /// default keeps hand-built configs (tests) working. Deliberately the last member: pre-family aggregate
+    /// initializers keep their meaning.
+    std::string family{"open"};
 };
+
+/// The spawn band: every family keeps enemies inside these rows (the header contract, tested).
+inline constexpr int kRoomEnemyFirstRow = 1;
+inline constexpr int kRoomEnemyLastRow = 3;
+
+/// A family's strength (D-23): light families may open normal monster rooms, heavy ones are reserved for
+/// elite/boss rooms and stay gated by data until the elite gate lands (WP-14).
+enum class EFamilyStrength { Light, Heavy };
+
+/// The family -> strength table. The family set is generator code, not data: an unknown name is an error
+/// (nullopt), the loader refuses it at boot.
+[[nodiscard]] std::optional<EFamilyStrength> FamilyStrengthOf(std::string_view family);
+[[nodiscard]] std::string_view FamilyStrengthName(EFamilyStrength strength);
 
 struct FRoomRequest {
     std::uint32_t seed{1};
@@ -56,9 +76,30 @@ struct FGeneratedRoom {
     std::vector<FGeneratedEnemy> enemies;
 };
 
-/// Deterministic for a given config and request. Enemies spawn in the top rows (away from the party),
-/// obstacles and traps are scattered in the middle, and walls never disconnect any unit.
-/// The room is an open map: nothing is placed on the outermost ring of cells, so the grid edge is the only boundary.
+/// The emergent shape of a generated room (WP-08b, Smith & Whitehead): measured, never authored. A pure
+/// function of the room + the party cells — no registry, no live terrain.
+struct FRoomMetrics {
+    int walls{0};              ///<'#' cells.
+    int traps{0};              ///<'^' cells.
+    double reachableRatio{0};  ///< Cells reachable from the party (walls block) / non-wall cells.
+    int minPath{0};            ///< BFS steps from the party to the farthest enemy; other units block, the
+                               ///< target itself does not. -1 = an enemy is unreachable (a broken room).
+    int coverCells{0};         ///< Wall cells that block line of sight between at least one party member
+                               ///< and one enemy (the game's supercover LoS rule).
+};
+
+/// Measures the emergent shape of a room. `partyCells` must lie on walkable cells (the caller's contract).
+[[nodiscard]] FRoomMetrics MeasureRoom(const FGeneratedRoom& room,
+                                       std::span<const std::pair<int, int>> partyCells);
+
+/// Deterministic for a given config and request. Enemies spawn in the top rows (away from the party) in
+/// every family — the spawn band (kRoomEnemyFirstRow..kRoomEnemyLastRow) is a fixed contract no layout
+/// moves. `open` (light) scatters wall clusters and traps through the middle band, the classic layout;
+/// `open_variant` (light) keeps the same wall budget but anchors the walls at the clutter-band corners,
+/// the traps at the centre and the spawns on the flanks; the heavy families (`corridor`, `cover`, `split`)
+/// build fixed structures that are not bound by `obstacleCount` and are reserved for elite/boss rooms
+/// (loader-enforced, D-23). Every family keeps the invariants: the outer ring stays empty, walls never
+/// disconnect any unit, and no unit spawns on a wall or trap.
 [[nodiscard]] FGeneratedRoom GenerateRoom(const FRoomGenConfig& config, const FRoomRequest& request);
 
 } // namespace game::gameplay

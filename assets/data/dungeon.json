@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "passive_tree": "data/passive-tree",
   "rune_drops": ["rune.fire", "rune.range", "rune.swift", "rune.leech", "rune.power", "rune.cold"],
   "balance": {
@@ -47,6 +47,108 @@
     {"id":"party.mage","display_name":"Mira / Mage","unit":"char.mage","faction":"party","grid_x":6,"grid_y":9},
     {"id":"party.healer","display_name":"Lumen / Healer","unit":"char.healer","faction":"party","grid_x":7,"grid_y":9}
   ],
+  "themes": [
+    {
+      "id": "theme.ember_crypt",
+      "name": "Ember Crypt",
+      "dungeons": [
+        {
+          "name": "The broken gate",
+          "rooms": [
+            {"type": "battle", "family": "open"},
+            {"type": "event", "event_pool": "common"},
+            {"type": "battle", "family": "open_variant"},
+            {"type": "battle", "family": "open"}
+          ]
+        },
+        {
+          "name": "Hall of echoes",
+          "rooms": [
+            {"type": "battle", "family": "open"},
+            {"type": "event", "event_pool": "common"},
+            {"type": "battle", "family": "open_variant"},
+            {"type": "battle", "family": "open"}
+          ]
+        },
+        {
+          "name": "The cinder stair",
+          "rooms": [
+            {"type": "battle", "family": "open"},
+            {"type": "battle", "family": "open_variant"},
+            {"type": "event", "event_pool": "common"},
+            {"type": "battle", "family": "open", "boss": "mid"}
+          ]
+        },
+        {
+          "name": "Throne of embers",
+          "rooms": [
+            {"type": "battle", "family": "open"},
+            {"type": "event", "event_pool": "common"},
+            {"type": "battle", "family": "open_variant"},
+            {"type": "event", "event_pool": "common"},
+            {"type": "battle", "family": "open", "boss": "final"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "theme.ashen_reach",
+      "name": "Ashen Reach",
+      "dungeons": [
+        {
+          "name": "The sunken vault",
+          "rooms": [
+            {"type": "battle", "family": "open"},
+            {"type": "event", "event_pool": "common"},
+            {"type": "battle", "family": "open_variant"},
+            {"type": "battle", "family": "open"}
+          ]
+        },
+        {
+          "name": "Fallen ward",
+          "rooms": [
+            {"type": "battle", "family": "open"},
+            {"type": "battle", "family": "open_variant"},
+            {"type": "event", "event_pool": "common"},
+            {"type": "battle", "family": "open"}
+          ]
+        },
+        {
+          "name": "Collapsed barracks",
+          "rooms": [
+            {"type": "battle", "family": "open"},
+            {"type": "battle", "family": "open_variant"},
+            {"type": "event", "event_pool": "common"},
+            {"type": "battle", "family": "open", "boss": "mid"}
+          ]
+        },
+        {
+          "name": "Whispering cistern",
+          "rooms": [
+            {"type": "battle", "family": "open"},
+            {"type": "event", "event_pool": "common"},
+            {"type": "battle", "family": "open_variant"},
+            {"type": "event", "event_pool": "common"},
+            {"type": "battle", "family": "open", "boss": "final"}
+          ]
+        }
+      ]
+    }
+  ],
+  "cycles": [
+    {"health_pct": 10, "attack_pct": 10}
+  ],
+  "start_support": {
+    "materials_per_dungeon": 1,
+    "materials_cap": 3,
+    "rune_offers": 1
+  },
+  "run": {
+    "end_on_final_boss": false
+  },
+  "family_rules": {
+    "boss_rooms_allow_heavy": false
+  },
   "generation": {
     "room_names": ["The broken gate", "Hall of echoes", "The sunken vault", "Ashen crypt", "Collapsed barracks", "Whispering cistern", "The cinder stair"],
     "enemies": [

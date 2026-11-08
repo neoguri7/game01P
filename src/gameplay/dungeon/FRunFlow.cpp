@@ -15,12 +15,10 @@
 #include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunEventLog.h"
+#include "gameplay/dungeon/FRunSequence.h"
 
 namespace game {
 namespace {
-
-/// The boss room of a dungeon (the third room): the same index the room generator marks as the boss fight.
-constexpr int kBossRoom = 2;
 
 /// The one event choice a run room offers today (WP-17 shrine). Named here because the run log records it.
 constexpr const char* kQuietShrineEventId = "event.quiet_shrine";
@@ -95,28 +93,36 @@ std::expected<FRunResult, std::string> ContinueReward(entt::registry& registry) 
         LOG_WARN("The rune offer is still open; pick or skip it before continuing.");
         return std::unexpected(std::string("Resolve the rune offer before continuing."));
     }
-    if (run->room == 0) {
+    // WP-08: the step is sequence data now — `room` is the battle ordinal, the gap event after it is the
+    // event slot (if any), and the camp opens after the dungeon's last battle (never a room index).
+    const auto* sequence = FindRunSequence(registry);
+    if (sequence == nullptr) {
+        LOG_ERROR("The dungeon sequence is missing; the reward step cannot advance (see InitializeDungeon).");
+        return std::unexpected(std::string("The dungeon sequence is missing."));
+    }
+    const auto position = sequence->PositionOf(run->depth - 1);
+    if (sequence->GapEvent(position, run->room) != nullptr) {
         run->phase = EDungeonPhase::Event;
         run->message = "A quiet shrine offers shelter, or a sealed cache of reinforcement materials.";
         return SaveAfterTransition(registry, FRunResult{ERunExit::ShowModal, RunModalIdForPhase(EDungeonPhase::Event)});
     }
-    if (run->room == kBossRoom) {
-        run->phase = EDungeonPhase::Camp;
-        run->cleared = run->depth;
-        auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
-        checkpoint.cleared = std::max(checkpoint.cleared, std::min(run->cleared, 999));
-        (void)SaveCheckpoint(registry);
-        RestoreParty(registry, DungeonRecovery(registry).campAutoHeal);
-        run->message = "Dungeon cleared. Checkpoint reached. Rest, fit runes, reinforce stats, then descend.";
-        // WP-10: the entry report (hoard_ratio = materials / cheapest-two) — a tuning metric, not a gate.
-        LogCampEntryReport(registry);
-        // The checkpoint/cleared update is complete; the event is appended before the save.
-        AppendRunEvent(registry, ERunEventKind::DungeonCleared);
-        return SaveAfterTransition(registry, FRunResult{ERunExit::ShowModal, RunModalIdForPhase(EDungeonPhase::Camp)});
+    if (run->room + 1 < sequence->BattleCountAt(position)) {
+        ++run->room;
+        Advance(registry);
+        return SaveAfterTransition(registry, FRunResult{ERunExit::NextRoom, {}});
     }
-    ++run->room;
-    Advance(registry);
-    return SaveAfterTransition(registry, FRunResult{ERunExit::NextRoom, {}});
+    run->phase = EDungeonPhase::Camp;
+    run->cleared = run->depth;
+    auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
+    checkpoint.cleared = std::max(checkpoint.cleared, std::min(run->cleared, 999));
+    (void)SaveCheckpoint(registry);
+    RestoreParty(registry, DungeonRecovery(registry).campAutoHeal);
+    run->message = "Dungeon cleared. Checkpoint reached. Rest, fit runes, reinforce stats, then descend.";
+    // WP-10: the entry report (hoard_ratio = materials / cheapest-two) — a tuning metric, not a gate.
+    LogCampEntryReport(registry);
+    // The checkpoint/cleared update is complete; the event is appended before the save.
+    AppendRunEvent(registry, ERunEventKind::DungeonCleared);
+    return SaveAfterTransition(registry, FRunResult{ERunExit::ShowModal, RunModalIdForPhase(EDungeonPhase::Camp)});
 }
 
 std::expected<FRunResult, std::string> ChooseEvent(entt::registry& registry, bool rest) {
@@ -270,13 +276,60 @@ void PostRunIntent(entt::registry& registry, ERunIntent intent) {
 }
 
 void StartRun(entt::registry& registry, std::uint32_t seed, bool fresh) {
-    InstallDungeonRun(registry, seed, fresh);
+    // D-21: fresh = dungeon 1; otherwise the checkpoint's cleared index (the checkpoint never goes down).
+    StartRunAt(registry, seed, fresh ? 0 : registry.ctx().get<FDungeonCheckpoint>().cleared);
+}
+
+void StartRunAt(entt::registry& registry, std::uint32_t seed, int clearedIndex) {
+    const auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
+    const int index = std::clamp(clearedIndex, 0, std::max(0, checkpoint.cleared));
+    InstallDungeonRunAt(registry, seed, index);
     // A new expedition always starts with a clean offer slate — even when it reuses the previous seed, which
     // is why the reset is unconditional here and not left to the seed-mismatch check.
     ResetRewardsForRun(registry);
+    // WP-08/D-7: the start-support rune offer is forced by seeding the pity streak right after the reset;
+    // it survives the save through the existing `offers` section (no new save field). The materials half of
+    // the support is installed with the run (InstallDungeonRunAt).
+    if (index > 0) {
+        const auto* sequence = FindRunSequence(registry);
+        auto* rewards = registry.ctx().find<FRewards>();
+        if (sequence != nullptr && rewards != nullptr && sequence->startSupport.runeOffers > 0) {
+            if (rewards->tables.pityThreshold <= 0) {
+                LOG_WARN("The start rune offer cannot be forced: rewards.pity_threshold is 0 (off).");
+            } else {
+                rewards->pity = rewards->tables.pityThreshold;  // the next monster-room offer is forced
+            }
+        }
+    }
     if (!SaveDungeonRun(registry)) {
         LOG_ERROR("A new expedition could not be saved.");
     }
+}
+
+void NormalizeResumedRunPhase(entt::registry& registry) {
+    auto* run = registry.ctx().find<FDungeonRun>();
+    if (run == nullptr || run->phase != EDungeonPhase::Event) return;
+    const auto* sequence = FindRunSequence(registry);
+    // A missing sequence is a wiring error (logged by the callers that need it); the resume then keeps its
+    // event modal instead of inventing an advance rule.
+    if (sequence == nullptr) return;
+    const auto position = sequence->PositionOf(run->depth - 1);
+    if (sequence->GapEvent(position, run->room) != nullptr) return;  // the event step still exists
+    // Content changed under this save: the gap after this battle no longer carries an event. Never replay
+    // the cleared battle — advance exactly like a reward step with no event (the offer was already resolved
+    // before the event step was saved).
+    LOG_WARN("Saved event room no longer exists in the dungeon sequence (depth {}, room {}); advancing past it.",
+             run->depth, run->room);
+    run->phase = EDungeonPhase::Reward;
+    if (const auto result = ApplyRunIntent(registry, ERunIntent::ContinueReward); !result) {
+        LOG_WARN("The saved event room could not be advanced past: {}", result.error());
+        return;
+    }
+    // The continue path enters ember.battle itself (FEmberMenuRequest → kEmberBattleId): a pending Advance
+    // would make the battle state root itself a second time, building the room twice and re-logging
+    // dungeon_enter/room_start. The flag is transient (never written to the save), so clearing it in
+    // memory is all that is needed for the resumed state to match the file.
+    if (auto* current = registry.ctx().find<FDungeonRun>()) current->advanceRequested = false;
 }
 
 std::expected<FRunResult, std::string> ResolveRoomVictory(entt::registry& registry, bool victory) {
@@ -311,8 +364,15 @@ std::expected<FRunResult, std::string> ResolveRoomVictory(entt::registry& regist
     run->message = "Room secured. Each member gains " + std::to_string(experienceReward) + " EXP.";
     if (levelsGained > 0) run->message += " Level up: allocate a passive node.";
     // WP-17: the rune is no longer granted here — the room only decides whether to open an offer (the reward
-    // modal's pick/skip owns the grant). Before the save, so a continued run comes back with the same offer.
-    RollRoomOffer(registry, run->room == kBossRoom);
+    // modal's pick/skip owns the grant). WP-08: a boss room is a sequence slot (`boss` mid/final), never a
+    // room index. Before the save, so a continued run comes back with the same offer.
+    bool bossRoom = false;
+    if (const auto* sequence = FindRunSequence(registry)) {
+        bossRoom = sequence->IsBossBattle(sequence->PositionOf(run->depth - 1), run->room);
+    } else {
+        LOG_ERROR("The dungeon sequence is missing; the room cannot tell whether it is a boss room.");
+    }
+    RollRoomOffer(registry, bossRoom);
     LOG_INFO("Dungeon {} room {} cleared. {} EXP per member.", run->depth, run->room + 1, experienceReward);
     AppendRunEvent(registry, ERunEventKind::RoomCleared);  // before the save: a listener's change is saved too
     return SaveAfterTransition(registry, FRunResult{ERunExit::ShowModal, RunModalIdForPhase(EDungeonPhase::Reward)});

@@ -773,8 +773,9 @@ void ShippedDataLoads() {
     CHECK(Mentions(library.fallback().tree->describe(), "Engage"));
     CHECK(Mentions(library.find("ai.boss")->tree->describe(), "Once(enrage)"));
 
-    // The boss room really gives the boss its profile; everything else runs the default.
-    FFixture bossRoom(1, 1, 2);
+    // The boss room really gives the boss its profile; everything else runs the default. WP-08: with the
+    // v2 sequence the first boss is dungeon 3's mid boss (battle ordinal 2) — dungeon 1 has no boss slot.
+    FFixture bossRoom(1, 3, 2);
     int bosses = 0;
     for (const auto entity : bossRoom.registry.view<game::FEnemy, game::ai::FAiBrain>()) {
         if (bossRoom.registry.get<game::ai::FAiBrain>(entity).profileId == "ai.boss") ++bosses;
