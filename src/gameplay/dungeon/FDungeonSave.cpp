@@ -8,6 +8,8 @@
 #include <fstream>
 #include <limits>
 #include <string_view>
+#include <system_error>
+#include <thread>
 
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
@@ -23,6 +25,34 @@ constexpr std::size_t kMaxTextLength = 512;
 using FNumber = std::expected<std::int64_t, std::string>;
 using FText = std::expected<std::string, std::string>;
 using FTextList = std::expected<std::vector<std::string>, std::string>;
+
+// Windows refuses to replace or delete a file while another process holds a handle on it
+// (MoveFileExW(REPLACE_EXISTING) -> ERROR_ACCESS_DENIED even when that handle shares delete;
+// DeleteFileW -> ERROR_SHARING_VIOLATION when it does not). On-access antivirus scans and readers open a
+// freshly written file for a few milliseconds, so a single attempt fails intermittently. Retry those codes
+// with a short backoff: 1+2+4+...+64 ms, then 100 ms steps, ~0.6 s in total and only on the failure path.
+constexpr int kTransientFsAttempts = 12;
+
+bool IsTransientFsError(const std::error_code& code) {
+    if (code == std::errc::permission_denied || code == std::errc::device_or_resource_busy) return true;
+#ifdef _WIN32
+    if (code.category() == std::system_category()) {
+        // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+        return code.value() == 5 || code.value() == 32 || code.value() == 33;
+    }
+#endif
+    return false;
+}
+
+template <typename FOperation>
+void RetryTransientFs(FOperation&& operation, std::error_code& code) {
+    for (int attempt = 0;; ++attempt) {
+        code.clear();
+        operation(code);
+        if (!code || attempt + 1 >= kTransientFsAttempts || !IsTransientFsError(code)) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(std::min(1 << attempt, 100)));
+    }
+}
 
 std::unexpected<std::string> Fail(std::string_view key, std::string_view problem) {
     return std::unexpected(std::string(key) + ": " + std::string(problem));
@@ -316,13 +346,17 @@ bool WriteSaveFile(const std::filesystem::path& path, const nlohmann::json& docu
             return false;
         }
     }
-    std::filesystem::rename(temp, path, code);
+    RetryTransientFs([&](std::error_code& attempt) { std::filesystem::rename(temp, path, attempt); }, code);
     if (code) {
         error = "could not replace " + path.string() + ": " + code.message();
         std::filesystem::remove(temp, code);
         return false;
     }
     return true;
+}
+
+void RemoveSaveFile(const std::filesystem::path& path, std::error_code& code) {
+    RetryTransientFs([&](std::error_code& attempt) { std::filesystem::remove(path, attempt); }, code);
 }
 
 std::expected<nlohmann::json, std::string> ReadSaveFile(const std::filesystem::path& path) {

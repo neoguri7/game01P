@@ -58,7 +58,12 @@ using FSaveMigrationStep = std::function<std::optional<nlohmann::json>(nlohmann:
 
 /// Writes to a sibling temp file and renames it over `path`: in normal operation the target is never a
 /// half-written file. It is not crash-durable (no fsync), so a crash around the rename can still lose it.
+/// A replace that another process briefly blocks (Windows: an on-access scan or a reader holding the target
+/// right after it was written) is retried for up to ~0.6 s before it counts as a failure.
 [[nodiscard]] bool WriteSaveFile(const std::filesystem::path& path, const nlohmann::json& document, std::string& error);
+
+/// Removes a save file with the same transient-lock retry as WriteSaveFile. A missing file is not an error.
+void RemoveSaveFile(const std::filesystem::path& path, std::error_code& code);
 
 /// Reads and parses a save file; a missing or unparsable file comes back as an error message.
 [[nodiscard]] std::expected<nlohmann::json, std::string> ReadSaveFile(const std::filesystem::path& path);
