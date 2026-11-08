@@ -1196,7 +1196,7 @@ void TransitionLoggedOnce() {
 
     // The first evaluation records the phase and announces the guard (one line).
     game::ecs::EvaluateBossGoals(rig.registry);
-    CHECK(CountInLog(rig.registry, "is guarded by") == 1);
+    CHECK(CountInLog(rig.registry, "first!") == 1);
     CHECK(CountInLog(rig.registry, "enters phase 2") == 0);
 
     rig.Kill(rig.parts[0]);
@@ -1290,7 +1290,7 @@ void GatedHitLogsZero() {
         if (line.find("-0 HP") != std::string::npos) ++zeroLines;
     }
     CHECK(zeroLines >= 1);  // the applied number is 0 and the feed says so
-    CHECK(CountInLog(registry, "is shielded") == 1);
+    CHECK(CountInLog(registry, "Shielded!") == 1);
 }
 
 void ContinuedBossRoomShowsAllDefeated() {
@@ -1321,11 +1321,59 @@ void GateBlockedLogOnce() {
     FGateRig rig(110, PhasesOf({{50, true}, {0, false}}), 2);
     for (int hit = 0; hit < 3; ++hit) (void)game::ApplyDamageToUnit(rig.registry, rig.body, 9999);
     CHECK(rig.BodyHp() == 55);
-    CHECK(CountInLog(rig.registry, "is shielded") == 1);  // one-per-battle, not one-per-hit
+    CHECK(CountInLog(rig.registry, "Shielded!") == 1);  // one-per-battle, not one-per-hit
     // After the parts die the gate is gone and no further "shielded" line is written.
     rig.KillParts();
     (void)game::ApplyDamageToUnit(rig.registry, rig.body, 1);
-    CHECK(CountInLog(rig.registry, "is shielded") == 1);
+    CHECK(CountInLog(rig.registry, "Shielded!") == 1);
+}
+
+/// WP-15c (critic F1): the battle feed shows one fixed-width line, so every player-facing boss line built from
+/// the SHIPPED bosses.json must fit kBossFeedLineBudget, lead with the action and name the part. Derived from
+/// the data (no literal names), so a longer authored name fails here instead of truncating on screen.
+void GateGuidanceFitsOneLine() {
+    const auto document = ReadJsonFile("assets/data/bosses.json");
+    CHECK(!document.at("bosses").empty());
+    for (const auto& boss : document.at("bosses")) {
+        game::FBossGoals goals;
+        goals.name = boss.value("name", boss.at("id").get<std::string>());
+        int partCount = 0;
+        if (boss.contains("parts")) {
+            for (const auto& part : boss.at("parts")) partCount += part.at("count").get<int>();
+            if (!boss.at("parts").empty()) {
+                const auto& first = boss.at("parts").front();
+                goals.partName = first.value("name", first.at("unit").get<std::string>());
+            }
+        }
+        for (const auto& phase : boss.at("phases")) {
+            game::FBossPhase row;
+            row.notes = phase.value("notes", std::string{});
+            goals.phases.push_back(row);
+        }
+        for (int alive = 1; alive <= std::max(1, partCount); ++alive) {
+            const auto entry = game::BossGateEntryLine(goals, alive);
+            const auto blocked = game::BossGateBlockedLine(goals, alive);
+            CHECK(entry.size() <= game::kBossFeedLineBudget);
+            CHECK(blocked.size() <= game::kBossFeedLineBudget);
+            CHECK(entry.rfind("Break ", 0) == 0);  // the action comes first
+            CHECK(blocked.find("Break ") != std::string::npos);
+            if (!goals.partName.empty()) {
+                CHECK(entry.find(goals.partName) != std::string::npos);
+                CHECK(blocked.find(goals.partName) != std::string::npos);
+            }
+        }
+        for (int phase = 1; phase < static_cast<int>(goals.phases.size()); ++phase) {
+            const auto line = game::BossPhaseLine(goals, phase);
+            CHECK(line.size() <= game::kBossFeedLineBudget);
+            const auto& notes = goals.phases[static_cast<std::size_t>(phase)].notes;
+            if (!notes.empty()) CHECK(line.find(notes) != std::string::npos);  // F9: the notes are shown
+        }
+    }
+    // Without notes the transition keeps the plain wording.
+    game::FBossGoals plain;
+    plain.name = "Boss";
+    plain.phases.resize(2);
+    CHECK(game::BossPhaseLine(plain, 1) == "Boss enters phase 2.");
 }
 
 void NoFrameOrderDependence() {
@@ -2084,6 +2132,7 @@ int main() {
         {"ContinuedBossRoomShowsAllDefeated", ContinuedBossRoomShowsAllDefeated},
         {"GateLiftsAfterPartsDie", GateLiftsAfterPartsDie},
         {"GateBlockedLogOnce", GateBlockedLogOnce},
+        {"GateGuidanceFitsOneLine", GateGuidanceFitsOneLine},
         {"NoFrameOrderDependence", NoFrameOrderDependence},
         {"SinglePhaseBossUnchanged", SinglePhaseBossUnchanged},
         {"FallbackBossStillAppends", FallbackBossStillAppends},

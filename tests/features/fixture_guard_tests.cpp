@@ -31,7 +31,7 @@
 namespace {
 
 // Every file the fixture set must carry. The comment in each file says why the values are frozen.
-constexpr const char* kFixtureFiles[] = {"dungeon", "units", "skills", "runes", "statuses", "ai", "passive-tree"};
+constexpr const char* kFixtureFiles[] = {"dungeon", "units", "skills", "runes", "statuses", "ai", "passive-tree", "bosses"};
 
 // A named seed keeps the guard run reproducible; the party contract is dungeon.json's "party" array: four
 // playable units (one per class plus the healer), so the fixture cannot silently lose a party member.

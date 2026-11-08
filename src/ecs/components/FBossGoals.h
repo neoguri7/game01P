@@ -42,7 +42,42 @@ struct FBossGoals {
     /// `behaviorPhase`, never the live phase — a committed or same-round action is never re-aimed.
     int behaviorPhase{0};
     int phaseRound{0};
+    /// The first part row's display name (bosses.json `parts[0].name`), named in the player-facing gate
+    /// guidance. Empty for a boss without parts.
+    std::string partName;
 };
+
+// --- player-facing boss lines (WP-15c) -----------------------------------------------------------
+
+/// The battle feed shows ONE line in a fixed-width box: headless captures at 1280x800 and 1920x1080 show 36
+/// characters of average text before the edge clips. Every player-facing boss line puts the action first and
+/// stays within this budget (2 characters of margin for wide glyphs) with the shipped names; the numbers (floor
+/// HP) go to the dev log only.
+inline constexpr std::size_t kBossFeedLineBudget = 34;
+
+/// "Guardian heart x3" — the part named with how many still stand ("its parts" without a part name).
+[[nodiscard]] inline std::string BossPartsLabel(const FBossGoals& goals, int partsAlive) {
+    if (goals.partName.empty()) return "its parts";
+    return goals.partName + " x" + std::to_string(partsAlive);
+}
+
+/// Battle start, while the gate holds: "Break Guardian heart x3 first!".
+[[nodiscard]] inline std::string BossGateEntryLine(const FBossGoals& goals, int partsAlive) {
+    return "Break " + BossPartsLabel(goals, partsAlive) + " first!";
+}
+
+/// The first hit the gate blocks: "Shielded! Break Guardian heart x2".
+[[nodiscard]] inline std::string BossGateBlockedLine(const FBossGoals& goals, int partsAlive) {
+    return "Shielded! Break " + BossPartsLabel(goals, partsAlive);
+}
+
+/// A phase transition: "Stone Guardian: Core exposed" when the phase has notes, else
+/// "Stone Guardian enters phase 2." (`phase` is the 0-based index).
+[[nodiscard]] inline std::string BossPhaseLine(const FBossGoals& goals, int phase) {
+    const auto& notes = goals.phases[static_cast<std::size_t>(phase)].notes;
+    const std::string number = std::to_string(phase + 1);
+    return notes.empty() ? goals.name + " enters phase " + number + "." : goals.name + ": " + notes;
+}
 
 /// A boss part: an ordinary enemy unit whose life gates its body.
 struct FBossPart {
@@ -132,7 +167,7 @@ struct FBossBattle {
     auto& goals = registry.get<FBossGoals>(target);
     if (current - landed <= *floor && !goals.gateBlockLogged) {
         goals.gateBlockLogged = true;
-        const std::string line = goals.name + " is shielded: destroy its parts to break the guard.";
+        const std::string line = BossGateBlockedLine(goals, BossPartsAlive(registry, target));
         if (auto* log = registry.ctx().find<FCombatLog>()) {
             log->push(line);
         } else {

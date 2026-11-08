@@ -60,18 +60,18 @@ inline void EvaluateBossGoals(entt::registry& registry) {
             goals.phaseRound = rounds;
             detail::WriteBossImmunities(registry, body, goals, phase);
             if (const auto floor = BossGateFloor(registry, body)) {
-                detail::AnnounceBossLine(
-                    registry,
-                    goals.name + " is guarded by " + std::to_string(BossPartsAlive(registry, body)) +
-                        " part(s): it cannot fall below " + std::to_string(*floor) +
-                        " HP while they stand.");
+                // WP-15c: the feed shows one short line (action first, names the part); the numbers go to the
+                // dev log only.
+                const int partsAlive = BossPartsAlive(registry, body);
+                detail::AnnounceBossLine(registry, BossGateEntryLine(goals, partsAlive));
+                LOG_INFO("[boss] {} gate: {} part(s) alive, HP floor {}", goals.bossId, partsAlive, *floor);
             }
         } else if (phase != goals.activePhase) {
             goals.activePhase = phase;
             goals.phaseRound = rounds;
             detail::WriteBossImmunities(registry, body, goals, phase);
             if (BossUnitAlive(registry, body)) {
-                detail::AnnounceBossLine(registry, goals.name + " enters phase " + std::to_string(phase + 1) + ".");
+                detail::AnnounceBossLine(registry, BossPhaseLine(goals, phase));
             }
         }
 

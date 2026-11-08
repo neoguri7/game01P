@@ -180,8 +180,8 @@ std::optional<gameplay::FRoomGenConfig> ParseRoomGeneration(
 /// config untouched and returns `config.bossUnit` — the single-phase fallback id (a fallback boss still
 /// produces its BossDefeated with `generation.boss_unit`, the WP-20 cross contract).
 std::string ApplyBossSlot(gameplay::FRoomGenConfig& config, const FBossCatalog* catalog, std::string_view themeId,
-                          const FRunRoomSlot& slot) {
-    if (slot.boss.empty()) return {};
+                          const FRunRoomSlot& slot, bool bossBattle) {
+    if (!bossBattle) return {};  // WP-15c: the caller asks FRunSequence::IsBossBattle, the one boss predicate
     if (catalog != nullptr) {
         if (const FBossDef* def = catalog->Resolve(themeId, slot.boss); def != nullptr) {
             config.bossUnit = def->unit;
@@ -522,7 +522,8 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
                 auto tupleConfig = *config;
                 tupleConfig.family = slot->family;
                 const std::string bossId =
-                    ApplyBossSlot(tupleConfig, bossCatalog, rooms.themes[position.theme].id, *slot);
+                    ApplyBossSlot(tupleConfig, bossCatalog, rooms.themes[position.theme].id, *slot,
+                                  rooms.IsBossBattle(position, ordinal));
                 const std::tuple<std::string, std::string, std::string> tuple{slot->family, slot->boss, bossId};
                 if (std::ranges::find(probedTuples, tuple) != probedTuples.end()) continue;
                 probedTuples.push_back(tuple);
@@ -727,9 +728,11 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
     // WP-08b: the template family comes from the same slot (per-slot by copying the parsed config).
     const FRunRoomSlot* slot = nullptr;
     std::string themeId;
+    bool bossBattle = false;  // WP-15c: FRunSequence::IsBossBattle is the single boss predicate
     if (const auto* sequence = FindRunSequence(registry)) {
         const auto position = sequence->PositionOf(run.depth - 1);
         slot = sequence->BattleSlotAt(position, run.room);
+        bossBattle = sequence->IsBossBattle(position, run.room);
         // The (theme, slot) key of the WP-15 boss mapping; PositionOf clamps to a valid theme.
         if (position.theme < sequence->themes.size()) themeId = sequence->themes[position.theme].id;
     }
@@ -738,7 +741,8 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
     // WP-15: resolve the (theme, slot) mapping into the document and mark the battle in ctx — for every
     // build, the saved-phase continue included. "" = a non-boss slot (no marker).
     const std::string bossId =
-        slot != nullptr ? ApplyBossSlot(slotConfig, FindBossCatalog(registry), themeId, *slot) : std::string{};
+        slot != nullptr ? ApplyBossSlot(slotConfig, FindBossCatalog(registry), themeId, *slot, bossBattle)
+                        : std::string{};
     if (!bossId.empty()) {
         registry.ctx().insert_or_assign<FBossBattle>(FBossBattle{bossId, slot->boss});
     } else {
@@ -760,7 +764,7 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
                  slotConfig.family, strength ? gameplay::FamilyStrengthName(*strength) : "unknown", metrics.walls,
                  metrics.reachableRatio, metrics.minPath, metrics.coverCells, metrics.traps);
         // WP-15: one line per real boss battle; parts = the mapped part rows' summed count (0 = fallback).
-        if (slot != nullptr && !slot->boss.empty()) {
+        if (bossBattle && slot != nullptr) {
             int partCount = 0;
             for (const gameplay::FBossPartSpawn& part : slotConfig.bossParts) partCount += part.count;
             LOG_INFO("[boss] slot={} boss={} parts={}", slot->boss, bossId, partCount);

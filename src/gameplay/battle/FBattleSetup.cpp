@@ -83,6 +83,7 @@ void AttachBossGoals(entt::registry& registry, const FBattlefieldData& battlefie
     FBossGoals goals;
     goals.bossId = def->id;
     goals.name = def->name;
+    if (!def->parts.empty()) goals.partName = def->parts.front().name;  // WP-15c: named in the gate guidance
     goals.phases.reserve(def->phases.size());
     for (const FBossPhaseDef& phase : def->phases) {
         goals.phases.push_back(
