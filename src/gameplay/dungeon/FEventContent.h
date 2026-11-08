@@ -64,9 +64,8 @@ struct FEventTable {
 /// unique non-empty ids, title/body present, 2..4 choices, every effect `kind` non-empty, `check.stat` in
 /// kEventCheckStats, `check.difficulty` in [min, max], unknown keys refused (also inside `check`/`effects`).
 /// **Zero events is valid** (`{"schema_version":1,"events":[]}` is the W9 shipped file). nullopt = unusable
-/// (the reason is logged). A missing file reads as zero authored events + one LOG_WARN (the optional-table
-/// precedent of the engine ignition data): the seed alone is the W9 event content, and content-only test roots
-/// that predate WP-09 carry no events file. A present-but-broken file is unusable.
+/// (the reason is logged). A missing file is unusable too (WP-09h #5, LOG_ERROR → boot stops): zero authored
+/// events is written as `"events": []`, never expressed by a missing file. A present-but-broken file is unusable.
 [[nodiscard]] std::optional<std::vector<FEventDef>> LoadEventDefs(const FAssetManager& assets);
 
 /// LoadEventDefs + installs (replaces) FEventTable. False = boot stops.

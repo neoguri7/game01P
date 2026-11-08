@@ -25,6 +25,11 @@ inline constexpr std::string_view kEventEffectGainMaterials = "gain_materials"; 
 inline constexpr std::string_view kEventEffectGainRuneRandom = "gain_rune_random";   // pool (must be empty in W9)
 inline constexpr std::string_view kEventEffectGainNodePoints = "gain_node_points";   // member?, amount (0 = 1)
 
+/// The authored `amount` ceiling of the flat effects (WP-09h #9): an in-code sanity bound, not balance —
+/// it stops an authored slip (`2147483647`) from overflowing the run counters into negative materials.
+/// `damage_party_pct` keeps its own whole-percent 1..99 bound; seeds are balance-derived, never validated.
+inline constexpr int kEventEffectAmountMax = 999;
+
 /// Registers the six kinds with FEffectScope::Run (applier + parameter validator). Call once under the
 /// [WP-09] anchor; they never fire from a Battle hook (ApplyEffect refuses the scope mismatch).
 void RegisterEventEffects(entt::registry& registry);
@@ -43,6 +48,12 @@ struct FEventOutcome {
 /// the run flow owns those (FRunFlow ChooseEventOption).
 [[nodiscard]] std::optional<FEventOutcome> ApplyEventChoice(entt::registry& registry, const FEventChoice& choice);
 
+/// The one party-restore rule (WP-09h #6), shared by the camp/room restore (`RestoreParty` in FRunFlow) and
+/// the `restore_party_hp` applier: a member at the -1 sentinel (unclaimed = full) is skipped, the gain
+/// clamps to the derived maximum when it is known (<= 0 = unknown: no clamp). Returns the total actually
+/// restored (0 without a run). Callers never restate the clamp formula.
+[[nodiscard]] int RestorePartyHealth(entt::registry& registry, int amount);
+
 /// "+3 materials, party HP -12" — empty when nothing changed.
 [[nodiscard]] std::string DescribeEventOutcome(const FEventOutcome& outcome);
 
@@ -56,21 +67,26 @@ struct FEventOutcome {
 
 /// The party-best stat (pure — no battle entity or FCombatSheet is guaranteed during an event): max over
 /// run.party of base(ResolveRunMemberUnit(registry, member.id)) + DungeonMemberStatBonus(member, stat).
-/// Ties keep party order. A member whose unit cannot be resolved is skipped (one warning per call).
+/// Ties keep party order. A member whose unit cannot be resolved is skipped and warned once per call —
+/// unless `warnUnresolved` is false, the view path (it reads the stat every frame and must not log-spam;
+/// WP-09h #8).
 struct FEventStatReading {
     bool resolved{false};    // false = no run, or no member resolved
     int value{0};
     std::string memberName;  // the best member's display name (id when the name is empty)
 };
-[[nodiscard]] FEventStatReading EventPartyStat(const entt::registry& registry, std::string_view stat);
+[[nodiscard]] FEventStatReading EventPartyStat(const entt::registry& registry, std::string_view stat,
+                                               bool warnUnresolved = true);
 
 /// Gate verdict for one choice. No check: open, empty reason. Otherwise open = best >= difficulty, and the
-/// reason reads "Attack 9 >= 9 (Alden / Warrior)" when open, "Attack 8 < 9" when closed.
+/// reason reads "Attack 9 >= 9 (Alden / Warrior)" when open, "Attack 8 < 9" when closed. `warnUnresolved` is
+/// forwarded to EventPartyStat (the view passes false).
 struct FEventGate {
     bool open{true};
     std::string reason;
 };
-[[nodiscard]] FEventGate EvaluateEventGate(const entt::registry& registry, const FEventChoice& choice);
+[[nodiscard]] FEventGate EvaluateEventGate(const entt::registry& registry, const FEventChoice& choice,
+                                           bool warnUnresolved = true);
 
 /// Per-member HP loss of one damage effect — the same function the applier uses (displayed = applied):
 ///  - damage_party_pct: ChestHpLoss(DungeonMemberMaxHealth, DungeonEffectiveHealth, percent / 100.0)

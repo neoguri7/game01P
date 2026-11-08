@@ -16,9 +16,9 @@ namespace game::dev {
 /// the title's FMenuRequest) — never through ImGui. Battles stay with GAME01P_AUTOPLAY=1. With GAME01P_SEED
 /// the same policy + seed must produce the same run log. Every decision writes one `[autopilot] ...` LOG_INFO.
 /// Timing: the autopilot keeps the engine's wall-clock dt (only `--input-script` fixes dt to 1/60): decisions are
-/// keyed by run state (top id, depth, room, phase), never by frame, so separate-process runs of one seed produce
-/// identical run logs. Wall-time metrics (battle seconds) of a headless run are therefore not comparable with
-/// windowed runs (software rendering is ~9 fps in Debug).
+/// keyed by run state (top id, depth, room, phase, event stage), never by frame, so separate-process runs of one
+/// seed produce identical run logs. Wall-time metrics (battle seconds) of a headless run are therefore not
+/// comparable with windowed runs (software rendering is ~9 fps in Debug).
 
 /// Environment keys (read with std::getenv by the composition root; SDL_getenv caches the environment).
 inline constexpr const char* kAutopilotEnv = "GAME01P_AUTOPILOT";
@@ -34,9 +34,11 @@ inline constexpr std::string_view kDefaultAutopilotPolicy = "reward=card0,event=
 ///                                  2 completes a pair, 1 starts one, 0 otherwise / owned duplicate); highest
 ///                                  score, lowest index on ties; all zeros -> card 0. Applies to the room reward
 ///                                  AND the camp rune offer (both resolve through the same reward rule)
-///   event=first | event=second     the event option (first = shrine rest, second = open the cache)
-///   chest=open | chest=never       open: in EVEN dungeons (run depth % 2 == 0) every event takes the cache
-///                                  option (M-FUN: shrine on odd dungeons, chest on even); never: event= only
+///   event=first | event=second     the event policy index (first = choice 0, second = choice 1); when that
+///                                  choice's gate is shut the first open choice is taken instead; two-stage
+///                                  (choose the option, then continue the result screen)
+///   chest=open | chest=never       open: in EVEN dungeons (run depth % 2 == 0) every event's policy index
+///                                  becomes 1 (M-FUN: shrine on odd dungeons, chest on even); never: event= only
 ///   camp=<spec>                    spec = [offer][+<U>]: "offer" buys the camp rune offer when legal and
 ///                                  affordable (then picks with the reward= rule), +U buys up to U stat
 ///                                  upgrades for party member 0 ONLY, each the first upgrade index that
@@ -61,7 +63,7 @@ struct FAutopilotPolicy {
     int rewardCard{0};
     bool rewardSkip{false};
     bool rewardEngine{false};       // reward=engine (rewardCard stays 0, rewardSkip false)
-    int eventOption{0};             // 0 = rest (first), 1 = loot (second)
+    int eventOption{0};             // the policy event choice index (0 = first, 1 = second)
     bool chestOnEvenDungeons{true};
     bool campBuyOffer{true};
     int campUpgrades{1};
@@ -89,9 +91,11 @@ public:
     /// One call per frame, after the state machine's update and before rendering. `topStateId` is the id of
     /// the state on top of the app-flow stack (catalog ids: "ember.title", "ember.battle", the kRunModal*
     /// ids from FRunFlow.h, "ember.runEnd"). Acts at most once per decision point, keyed by
-    /// (top id, run depth, room, phase): title -> FMenuRequest Start fresh; reward -> resolve the offer by the
-    /// reward rule, then PostRunIntent(ContinueReward); event -> ChooseEventRest/ChooseEventLoot; camp ->
-    /// offer + upgrades, then PostRunIntent(LeaveCamp) (or Finished without `continue`); run end -> Finished.
+    /// (top id, run depth, room, phase, event stage): title -> FMenuRequest Start fresh; reward -> resolve the
+    /// offer by the reward rule, then PostRunIntent(ContinueReward); event -> PostRunIntent(ChooseEventOption,
+    /// <policy index>) — the policy index, or the first open choice when that gate is shut — then
+    /// PostRunIntent(ContinueEvent) once the instance is resolved; camp -> offer + upgrades, then
+    /// PostRunIntent(LeaveCamp) (or Finished without `continue`); run end -> Finished.
     /// The modal host consumes the posted intent on the next update, exactly as for a view button.
     /// WP-00d: after every reward resolve and every camp step (any equip mode) the engines are classified
     /// (FEnginePolicy ClassifyEngines); each engine that just became Armed is recorded once and logged
@@ -124,7 +128,9 @@ private:
     bool acted_{false};               // acted on the current decision point
     std::uint32_t framesSinceAct_{0};
     std::string lastTop_;
-    std::tuple<int, int, int> lastKey_{-1, -1, -1};  // depth, room, phase of the current decision point
+    // depth, room, phase, event stage of the current decision point (WP-09h P2: the stage is 1 while a ctx
+    // FEventInstance is resolved, so the continue after a resolve is a new decision point).
+    std::tuple<int, int, int, int> lastKey_{-1, -1, -1, -1};
     std::vector<FArmedEngineRecord> armedEngines_;   // WP-00d: engines armed this run, in arming order
     bool runEndEnginesLogged_{false};                // WP-00d: the run-end engines line was already emitted
 };

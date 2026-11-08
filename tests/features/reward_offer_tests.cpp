@@ -115,6 +115,9 @@ struct FTempAssets {
     explicit FTempAssets(const char* stem) {
         root = std::filesystem::path("out") / UniqueStem(stem);
         std::filesystem::create_directories(root / "data");
+        // WP-09h #5: the event table is required (a missing events.json fails the boot); this root-only world
+        // keeps zero authored events, as before, so every boot verdict below is about the file it edits.
+        std::ofstream(root / "data" / "events.json") << R"({"schema_version": 1, "events": []})";
     }
 
     ~FTempAssets() {

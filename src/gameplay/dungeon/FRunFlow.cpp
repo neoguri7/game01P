@@ -45,16 +45,9 @@ bool SaveCheckpoint(entt::registry& registry) {
 }
 
 void RestoreParty(entt::registry& registry, int amount) {
-    auto& run = registry.ctx().get<FDungeonRun>();
-    for (auto& member : run.party) {
-        // -1 = unclaimed = already full: a heal never materialises the sentinel. Otherwise the run HP is
-        // clamped to the member's derived max (WP-10 ★4) — the old add-only version could exceed it and
-        // made the chest's "displayed loss = applied loss" contract unprovable.
-        if (member.health < 0) continue;
-        const int maxHealth = DungeonMemberMaxHealth(registry, member);
-        // Unknown maximum (<= 0, logged by the helper): add without clamping — never clamp toward 0.
-        member.health = maxHealth > 0 ? std::min(member.health + amount, maxHealth) : member.health + amount;
-    }
+    // One restore rule: the sentinel skip and the clamp formula live in FEventEffects (WP-09h #6), shared
+    // with the event restore_party_hp applier, so camp/room heals and shrine heals cannot drift apart.
+    (void)RestorePartyHealth(registry, amount);
 }
 
 // Callers save once their own state change is complete, so Advance does not.

@@ -14,6 +14,10 @@
 // The run tests read the FROZEN FIXTURE (TestAssetRoots) and force every room victory — the autopilot is
 // the unit under test, so no assertion may depend on a battle outcome (and therefore on ship balance;
 // critic F1).
+//
+// WP-09h (M1a, review P2): the autopilot's event branch is gate-aware and two-stage — it picks the policy
+// index, falls back to the first open choice when that gate is shut, and continues the resolved result
+// screen on the next decision point (the decision key carries the event stage).
 #define GAME01P_TEST_SUPPORT_CHECK
 #include "../TestSupport.h"
 
@@ -56,6 +60,9 @@
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonSave.h"
+#include "gameplay/dungeon/FEventContent.h"
+#include "gameplay/dungeon/FEventEffects.h"
+#include "gameplay/dungeon/FEventSection.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunFlow.h"
 #include "gameplay/dungeon/FRunLog.h"
@@ -1373,6 +1380,126 @@ void ArmedSlotIgnitesAutoDoesNot() {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// 8. WP-09h (M1a P2): the gate-aware two-stage event policy
+// ---------------------------------------------------------------------------------------------
+
+/// The constructed-event tests need the fixture party at pure base stats: SetupConstructedRun drives a room
+/// victory first, which grants EXP/levels — a stat bonus riding along would open the sealed-cache gate and
+/// make the gate-closed precondition vacuous (review P2's reset note, kept instead of dropping the assert).
+void ResetPartyStatBonuses(game::FDungeonRun& run) {
+    for (auto& member : run.party) {
+        member.bonusHealth       = 0;
+        member.bonusAttack       = 0;
+        member.bonusMagic        = 0;
+        member.bonusDefense      = 0;
+        member.bonusMagicDefense = 0;
+        member.bonusSpeed        = 0;
+    }
+}
+
+/// P2: on the frozen fixture's sealed cache the policy index (0) is gated shut (the party is authored one
+/// point short: attack 8 < 9), so the autopilot picks the FIRST OPEN choice (1) and logs the fallback. The
+/// resolve keeps (depth, room, phase) constant, so only the widened key (event stage) makes the second tick
+/// post ContinueEvent instead of timing out to Stuck. With the gate open (a ctx FRunMember attack bonus) the
+/// policy index 0 itself is chosen; an instance whose id has no def is an immediate Stuck.
+void AutopilotPicksOpenOptionPastGate() {
+    const auto policy = game::dev::ParseAutopilotPolicy("event=first");
+    CHECK(policy.has_value());
+
+    {
+        FHeadlessRunHarness harness{469u, "autopilot-event-gate"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Event);
+        ResetPartyStatBonuses(harness.registry.ctx().get<game::FDungeonRun>());
+        harness.registry.ctx().emplace<game::FEventInstance>(
+            game::FEventInstance{"event.test_sealed_cache", -1, false});
+
+        const auto def = game::FindEventDef(harness.registry, "event.test_sealed_cache");
+        CHECK(def.has_value());
+        CHECK(def->choices.size() >= 2);
+        CHECK(def->choices[0].check.has_value());
+        // Anti-vacuous: the policy index really is shut on the fixture party.
+        CHECK(!game::EvaluateEventGate(harness.registry, def->choices[0]).open);
+
+        const game::FDungeonRun& runBefore = harness.registry.ctx().get<game::FDungeonRun>();
+        const int depth = runBefore.depth;
+        const int room = runBefore.room;
+
+        game::dev::FRunAutopilot pilot{*policy};
+        FLogCapture capture;
+        CHECK(pilot.tick(harness.registry, std::string(game::kRunModalEvent)) == EAutopilotStatus::Running);
+        const auto* request = harness.registry.ctx().find<game::FRunIntentRequest>();
+        CHECK(request != nullptr);
+        CHECK(request->intent == game::ERunIntent::ChooseEventOption);
+        CHECK(request->choice == 1);  // the first open choice, not the shut policy index 0
+        CheckContains(capture.Text(),
+                      std::format("[autopilot] event depth={} room={} choice=1 (gate fallback)", depth, room),
+                      __LINE__);
+
+        // The host order: consume (erase) the request, then apply the intent. The resolve flips only
+        // `resolved` — (depth, room, phase) stay put.
+        harness.registry.ctx().erase<game::FRunIntentRequest>();
+        CHECK(game::ApplyRunIntent(harness.registry, game::ERunIntent::ChooseEventOption, 1).has_value());
+        CHECK(harness.registry.ctx().get<game::FEventInstance>().resolved);
+
+        // Tick 2 is a NEW decision point: the autopilot continues the result screen. Without the event stage
+        // in the key this tick would repeat the choose intent and eventually report Stuck.
+        CHECK(pilot.tick(harness.registry, std::string(game::kRunModalEvent)) == EAutopilotStatus::Running);
+        request = harness.registry.ctx().find<game::FRunIntentRequest>();
+        CHECK(request != nullptr);
+        CHECK(request->intent == game::ERunIntent::ContinueEvent);
+        const int roomBefore = harness.registry.ctx().get<game::FDungeonRun>().room;
+        harness.registry.ctx().erase<game::FRunIntentRequest>();
+        CHECK(game::ApplyRunIntent(harness.registry, game::ERunIntent::ContinueEvent).has_value());
+        const game::FDungeonRun& run = harness.registry.ctx().get<game::FDungeonRun>();
+        CHECK(run.room == roomBefore + 1);
+        CHECK(run.phase == game::EDungeonPhase::Battle);
+
+        // Exactly one EventChosen line, for the open fallback choice (choice 0 was never attempted).
+        const auto eventLines = RunLogEventsOf(harness.registry, "event");
+        CHECK(eventLines.size() == 1);
+        CHECK(eventLines[0].value("event", std::string{}) == "event.test_sealed_cache");
+        CHECK(eventLines[0].value("choice", -1) == 1);
+    }
+    {
+        FHeadlessRunHarness harness{469u, "autopilot-event-open"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Event);
+        ResetPartyStatBonuses(harness.registry.ctx().get<game::FDungeonRun>());
+        harness.registry.ctx().emplace<game::FEventInstance>(
+            game::FEventInstance{"event.test_sealed_cache", -1, false});
+
+        const auto def = game::FindEventDef(harness.registry, "event.test_sealed_cache");
+        CHECK(def.has_value());
+        CHECK(def->choices[0].check.has_value());
+        // Control: the ctx attack bonus guarantees the party best reaches the gate; the policy index 0 wins.
+        harness.registry.ctx().get<game::FDungeonRun>().party[0].bonusAttack += def->choices[0].check->difficulty;
+        CHECK(game::EvaluateEventGate(harness.registry, def->choices[0]).open);
+
+        const game::FDungeonRun& runBefore = harness.registry.ctx().get<game::FDungeonRun>();
+        const int depth = runBefore.depth;
+        const int room = runBefore.room;
+        game::dev::FRunAutopilot pilot{*policy};
+        FLogCapture capture;
+        CHECK(pilot.tick(harness.registry, std::string(game::kRunModalEvent)) == EAutopilotStatus::Running);
+        const auto* request = harness.registry.ctx().find<game::FRunIntentRequest>();
+        CHECK(request != nullptr);
+        CHECK(request->intent == game::ERunIntent::ChooseEventOption);
+        CHECK(request->choice == 0);  // the policy index itself — no fallback
+        CheckContains(capture.Text(),
+                      std::format("[autopilot] event depth={} room={} choice=0", depth, room), __LINE__);
+        CHECK(capture.Text().find("(gate fallback)") == std::string::npos);
+    }
+    {
+        FHeadlessRunHarness harness{469u, "autopilot-event-no-def"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Event);
+        harness.registry.ctx().emplace<game::FEventInstance>(
+            game::FEventInstance{"event.no_such_def", -1, false});
+
+        game::dev::FRunAutopilot pilot{*policy};
+        CHECK(pilot.tick(harness.registry, std::string(game::kRunModalEvent)) == EAutopilotStatus::Stuck);
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -1409,5 +1536,6 @@ int main() {
         {"ClassifyEnginesReasons", ClassifyEnginesReasons},
         {"EnginePolicyIsDeterministic", EnginePolicyIsDeterministic},
         {"ArmedSlotIgnitesAutoDoesNot", ArmedSlotIgnitesAutoDoesNot},
+        {"AutopilotPicksOpenOptionPastGate", AutopilotPicksOpenOptionPastGate},
     });
 }
