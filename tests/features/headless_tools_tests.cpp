@@ -2,9 +2,18 @@
 // dummy video driver + software renderer — into ImGui and into the game's FInputState (the click-timing
 // rule keeps a HUD press out of the grid) — plus `expect state`, the autopilot policy parser, and the run
 // autopilot driving a seeded run through reward/event/camp into dungeon 2 (twice, identical run-log events;
-// plus an equip=auto drive that fits a picked rune). The run tests read the FROZEN FIXTURE
-// (TestAssetRoots) and force every room victory — the autopilot is the unit under test, so no assertion may
-// depend on a battle outcome (and therefore on ship balance; critic F1).
+// plus an equip=auto drive that fits a picked rune).
+//
+// WP-00d tests (review P6): the engine-completing policy (equip=engine / reward=engine) on CONSTRUCTED run
+// state — rule order (complete > start > fallback), host rejection (1-socket shove, power-0 cell fog),
+// socket reservations, camp consolidation and its refusal, pre-resolve card scoring (an owned duplicate is
+// a refund, score 0), arm classification reasons, determinism of two full drives, and the armed-slot →
+// ignition bridge via CheckEngineIgnition (the drive itself cannot ignite: ForceRoomVictory resolves rooms
+// without resolving actions, so OnHit never fires there).
+//
+// The run tests read the FROZEN FIXTURE (TestAssetRoots) and force every room victory — the autopilot is
+// the unit under test, so no assertion may depend on a battle outcome (and therefore on ship balance;
+// critic F1).
 #define GAME01P_TEST_SUPPORT_CHECK
 #include "../TestSupport.h"
 
@@ -16,8 +25,12 @@
 #include <filesystem>
 #include <format>
 #include <iostream>
+#include <memory>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <entt/entt.hpp>
@@ -25,15 +38,25 @@
 #include <imgui_internal.h>
 #include <nlohmann/json.hpp>
 #include <SDL3/SDL.h>
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
 
 #include "core/AssetManager.h"
 #include "core/EngineState.h"
 #include "core/InputState.h"
+#include "core/Logger.h"
+#include "dev/FEnginePolicy.h"
 #include "dev/FInputScript.h"
 #include "dev/FRunAutopilot.h"
+#include "ecs/components/FActiveStatuses.h"
+#include "ecs/components/FFaction.h"
+#include "ecs/components/FSkillLoadout.h"
 #include "gameplay/GameplayServices.h"
+#include "gameplay/combat/FEngineIgnition.h"
+#include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonSave.h"
+#include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunFlow.h"
 #include "gameplay/dungeon/FRunLog.h"
 #include "imgui/backends/imgui_impl_sdl3.h"
@@ -47,7 +70,10 @@
 
 namespace {
 
+using game::dev::EAutopilotEquip;
 using game::dev::EAutopilotStatus;
+using game::dev::EEngineArm;
+using game::dev::EEngineRule;
 using game::dev::EScriptCommand;
 using game::dev::EScriptError;
 using game::dev::FInputScript;
@@ -498,7 +524,8 @@ void ParsesAutopilotPolicy() {
     CHECK(defaults->campBuyOffer);
     CHECK(defaults->campUpgrades == 1);
     CHECK(defaults->campContinue);
-    CHECK(!defaults->equipAuto);  // WP-27: off unless written (the default keeps the M-FUN behaviour)
+    CHECK(defaults->equip == EAutopilotEquip::Off);  // WP-27: off unless written (the default keeps the M-FUN design)
+    CHECK(!defaults->rewardEngine);                  // WP-00d: reward=engine is opt-in too
 
     // continue is present only when written; tokens left out take the default policy's value.
     const auto custom = game::dev::ParseAutopilotPolicy("reward=skip,event=second,chest=never,camp=+2");
@@ -509,7 +536,7 @@ void ParsesAutopilotPolicy() {
     CHECK(!custom->campBuyOffer);
     CHECK(custom->campUpgrades == 2);
     CHECK(!custom->campContinue);
-    CHECK(!custom->equipAuto);
+    CHECK(custom->equip == EAutopilotEquip::Off);
 
     // Whitespace around tokens is trimmed; camp=offer+1 buys the offer and one upgrade.
     const auto spaced = game::dev::ParseAutopilotPolicy(" reward=card1 , camp=offer+1 , continue ");
@@ -519,13 +546,32 @@ void ParsesAutopilotPolicy() {
     CHECK(spaced->campUpgrades == 1);
     CHECK(spaced->campContinue);
 
-    // WP-27: equip=auto | equip=off only.
+    // WP-27 → WP-00d: equip=off | auto | engine (the bool became the policy enum).
     const auto equipAuto = game::dev::ParseAutopilotPolicy("equip=auto");
     CHECK(equipAuto.has_value());
-    CHECK(equipAuto->equipAuto);
+    CHECK(equipAuto->equip == EAutopilotEquip::Auto);
     const auto equipOff = game::dev::ParseAutopilotPolicy("equip=off");
     CHECK(equipOff.has_value());
-    CHECK(!equipOff->equipAuto);
+    CHECK(equipOff->equip == EAutopilotEquip::Off);
+    const auto equipEngine = game::dev::ParseAutopilotPolicy("equip=engine");
+    CHECK(equipEngine.has_value());
+    CHECK(equipEngine->equip == EAutopilotEquip::Engine);
+
+    // WP-00d: reward=engine — the pre-resolve card rule; rewardCard/Skip keep their defaults.
+    const auto rewardEngine = game::dev::ParseAutopilotPolicy("reward=engine");
+    CHECK(rewardEngine.has_value());
+    CHECK(rewardEngine->rewardEngine);
+    CHECK(!rewardEngine->rewardSkip);
+    CHECK(rewardEngine->rewardCard == 0);
+    CHECK(rewardEngine->equip == EAutopilotEquip::Off);
+
+    // The full engine policy text the wave-QA script builds (review P5) parses into the expected fields.
+    const auto enginePolicy = game::dev::ParseAutopilotPolicy(
+        "reward=engine,event=first,chest=open,camp=offer+1,continue,equip=engine");
+    CHECK(enginePolicy.has_value());
+    CHECK(enginePolicy->rewardEngine);
+    CHECK(enginePolicy->equip == EAutopilotEquip::Engine);
+    CHECK(enginePolicy->campContinue && enginePolicy->campBuyOffer && enginePolicy->campUpgrades == 1);
 
     const auto expectPolicyError = [](const std::string& text) {
         const auto parsed = game::dev::ParseAutopilotPolicy(text);
@@ -537,8 +583,10 @@ void ParsesAutopilotPolicy() {
     expectPolicyError("reward=cardX");              // bad reward value
     expectPolicyError("camp=offer+x");              // bad camp spec
     expectPolicyError("");                          // empty policy
-    expectPolicyError("equip=yes");                 // bad equip value
-    expectPolicyError("equip=auto,equip=off");      // duplicate token
+    expectPolicyError("equip=yes");                  // bad equip value
+    expectPolicyError("equip=engines");              // bad equip value (review P6)
+    expectPolicyError("equip=auto,equip=off");       // duplicate token
+    expectPolicyError("reward=engine,reward=card0");  // duplicate token (both write `reward`)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -834,6 +882,497 @@ void AutopilotStopsAtRoomLimit() {
     CHECK(pilot.tick(harness.registry, nextTop) == EAutopilotStatus::Finished);
 }
 
+// ---------------------------------------------------------------------------------------------
+// 7. WP-00d: the engine-completing rune policy — equip=engine / reward=engine (review P6 spec)
+// ---------------------------------------------------------------------------------------------
+
+/// Captures spdlog output while alive with the message-only pattern (`%v`) — one line per LOG_ call, so
+/// the `[autopilot]` decision lines compare as exact strings (camp_tests' FLogCapture + the pattern pin).
+struct FLogCapture {
+    std::ostringstream stream;
+    std::shared_ptr<spdlog::logger> logger;
+
+    FLogCapture() {
+        logger = std::make_shared<spdlog::logger>(
+            "engine-policy-capture", std::make_shared<spdlog::sinks::ostream_sink_mt>(stream));
+        logger->set_level(spdlog::level::trace);
+        logger->set_pattern("%v");
+        SetCurrentGameLogger(logger);
+    }
+
+    ~FLogCapture() { SetCurrentGameLogger(nullptr); }
+
+    [[nodiscard]] std::string Text() const { return stream.str(); }
+};
+
+/// The captured lines containing `needle` (the capture is one message per newline-terminated line).
+[[nodiscard]] std::vector<std::string> LinesContaining(const std::string& text, std::string_view needle) {
+    std::vector<std::string> lines;
+    std::istringstream input{text};
+    std::string line;
+    while (std::getline(input, line)) {
+        if (line.find(needle) != std::string::npos) lines.push_back(line);
+    }
+    return lines;
+}
+
+/// CHECK a capture contains `needle`, printing the whole capture first when it does not (diagnostics must
+/// land before the throwing CHECK — nothing after a failed CHECK in the same case runs).
+void CheckContains(const std::string& text, std::string_view needle, int line) {
+    if (text.find(needle) != std::string::npos) return;
+    std::cout << "[report] expected '" << needle << "' in captured log:\n" << text << '\n';
+    game_test::Check(false, "captured log contains the expected line", line);
+}
+
+/// The WP-00d fixture layout for constructed states — m0 warrior, m1 archer, m2 mage, m3 healer (the
+/// fixture party contract), every slot empty: each test attaches exactly the runes it needs.
+[[nodiscard]] std::vector<game::FSkillSlot> FixtureMemberSkills(std::size_t memberIndex) {
+    switch (memberIndex) {
+        case 0:
+            return {{"skill.strike", {}}, {"skill.cleave", {}}, {"skill.lunge", {}}};
+        case 1:
+            return {{"skill.arrow", {}}, {"skill.volley", {}}, {"skill.snipe", {}}};
+        case 2:
+            return {{"skill.bolt", {}}, {"skill.fog", {}}, {"skill.heal", {}},
+                    {"skill.buff", {}}, {"skill.debuff", {}}, {"skill.firebolt", {}}};
+        default:
+            return {{"skill.heal", {}}, {"skill.bolt", {}}, {"skill.buff", {}}};
+    }
+}
+
+/// Constructed-state recipe (review P6): boot, force ONE room victory (the party capture reads the real
+/// battle entities), then OVERWRITE the run state — explicit fixture layout, empty pool, wanted phase,
+/// closed offer. Every test sets its own offer/pool/slot runes; nothing depends on the offer RNG.
+void SetupConstructedRun(FHeadlessRunHarness& harness, game::EDungeonPhase phase) {
+    harness.ForceRoomVictory();
+    auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+    CHECK(run.party.size() == 4);
+    for (std::size_t memberIndex = 0; memberIndex < run.party.size(); ++memberIndex) {
+        run.party[memberIndex].skills = FixtureMemberSkills(memberIndex);
+    }
+    run.runes.clear();
+    run.phase = phase;
+    harness.registry.ctx().get<game::FRewards>().offer = game::FRuneOffer{};
+}
+
+/// One reward decision: opens `candidates` as the offer and ticks once on the reward modal with
+/// `policyText` (the tick resolves the pick and fits it under the policy; the posted ContinueReward intent
+/// stays on the context — the modal host is not needed for the state assertions).
+void RewardTick(FHeadlessRunHarness& harness, std::string_view policyText,
+                const std::vector<std::string>& candidates) {
+    harness.registry.ctx().get<game::FRewards>().offer = game::FRuneOffer{true, candidates};
+    const auto policy = game::dev::ParseAutopilotPolicy(policyText);
+    CHECK(policy.has_value());
+    game::dev::FRunAutopilot pilot{*policy};
+    CHECK(pilot.tick(harness.registry, std::string(game::kRunModalReward)) == EAutopilotStatus::Running);
+}
+
+/// The rune ids fitted in one run member slot.
+[[nodiscard]] std::vector<std::string> SlotRunes(const game::FDungeonRun& run, std::size_t member,
+                                                 std::size_t slot) {
+    return run.party[member].skills[slot].runeIds;
+}
+
+/// Every fitted rune plus the pool — the consolidation refusal's byte-identical comparison.
+[[nodiscard]] std::string LoadoutSignature(const game::FDungeonRun& run) {
+    std::string signature;
+    for (std::size_t member = 0; member < run.party.size(); ++member) {
+        for (std::size_t slot = 0; slot < run.party[member].skills.size(); ++slot) {
+            signature += std::format("{}:{}=", member, slot);
+            for (const std::string& rune : run.party[member].skills[slot].runeIds) {
+                signature += rune + ',';
+            }
+            signature += ';';
+        }
+    }
+    signature += "pool=";
+    for (const std::string& rune : run.runes) signature += rune + ',';
+    return signature;
+}
+
+/// The run-log events of one `t` type (the ignition bridge reads `engine_ignition`, the camp test `loadout`).
+[[nodiscard]] std::vector<nlohmann::json> RunLogEventsOf(const entt::registry& registry, std::string_view type) {
+    std::vector<nlohmann::json> events;
+    const auto* log = registry.ctx().find<game::FRunLog>();
+    if (log == nullptr) return events;
+    for (const auto& event : log->events) {
+        if (event.is_object() && event.value("t", std::string{}) == std::string{type}) {
+            events.push_back(event);
+        }
+    }
+    return events;
+}
+
+/// `loadout` events with this action and rune id (the camp move's remove + equip pair).
+[[nodiscard]] int CountLoadoutEvents(const std::vector<nlohmann::json>& events, std::string_view action,
+                                     std::string_view runeId) {
+    int count = 0;
+    for (const auto& event : events) {
+        if (event.value("action", std::string{}) == std::string{action} &&
+            event.value("rune", std::string{}) == std::string{runeId}) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+/// Test 2: rule 1 completes a half-pair in place. (a) fire on m0 s0 Strike → ember completes there;
+/// (b) fire on m3 s1 Bolt proves the policy differs from plain auto (which fits the first legal socket,
+/// m2 s5 Firebolt — not the half pair).
+void EnginePolicyCompletesHalfPair() {
+    {
+        FHeadlessRunHarness harness{469u, "engine-complete-strike"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[0].skills[0].runeIds = {"rune.fire"};
+        FLogCapture capture;
+        RewardTick(harness, "reward=card0,camp=none,equip=engine", {"rune.ember"});
+        CHECK((SlotRunes(run, 0, 0) == std::vector<std::string>{"rune.fire", "rune.ember"}));
+        CHECK(run.runes.empty());  // granted by the resolve, then fitted — not left in the pool
+        CheckContains(capture.Text(),
+                      "[autopilot] equip rune=rune.ember member=0 slot=0 skill=skill.strike rule=complete "
+                      "engine=engine.ember",
+                      __LINE__);
+    }
+    {
+        FHeadlessRunHarness harness{469u, "engine-complete-bolt"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[3].skills[1].runeIds = {"rune.fire"};
+        FLogCapture capture;
+        RewardTick(harness, "reward=card0,camp=none,equip=engine", {"rune.ember"});
+        CHECK((SlotRunes(run, 3, 1) == std::vector<std::string>{"rune.fire", "rune.ember"}));
+        CheckContains(capture.Text(), "member=3 slot=1 skill=skill.bolt rule=complete engine=engine.ember",
+                      __LINE__);
+    }
+    {
+        FHeadlessRunHarness harness{469u, "engine-complete-bolt-auto"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[3].skills[1].runeIds = {"rune.fire"};
+        FLogCapture capture;
+        RewardTick(harness, "reward=card0,camp=none,equip=auto", {"rune.ember"});
+        CHECK((SlotRunes(run, 3, 1) == std::vector<std::string>{"rune.fire"}));   // auto does not complete
+        CHECK((SlotRunes(run, 2, 5) == std::vector<std::string>{"rune.ember"}));  // first legal socket
+        CHECK(capture.Text().find("rule=complete") == std::string::npos);
+        CheckContains(capture.Text(), "member=2 slot=5 skill=skill.firebolt", __LINE__);
+    }
+}
+
+/// Test 3: rule 2 starts a pair, and only on a HOST — 1-socket shove and power-0 cell fog are rejected, so
+/// fire starts on m0 s2 Lunge. Plain auto takes m0 s0 (shove) instead: the walk, not the pair.
+void EnginePolicyStartsOnHostOnly() {
+    {
+        FHeadlessRunHarness harness{469u, "engine-start-lunge"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[0].skills[0] = game::FSkillSlot{"skill.shove", {}};
+        run.party[0].skills[1] = game::FSkillSlot{"skill.fog", {}};
+
+        const std::optional<game::dev::FEnginePlacement> placement =
+            game::dev::ChooseEnginePlacement(harness.registry, "rune.fire");
+        CHECK(placement.has_value());
+        CHECK(placement->member == 0);
+        CHECK(placement->slot == 2);
+        CHECK(placement->rule == EEngineRule::Start);
+        CHECK(placement->engineId == "engine.ember");
+
+        FLogCapture capture;
+        RewardTick(harness, "reward=card0,camp=none,equip=engine", {"rune.fire"});
+        CHECK((SlotRunes(run, 0, 2) == std::vector<std::string>{"rune.fire"}));
+        CheckContains(capture.Text(), "member=0 slot=2 skill=skill.lunge rule=start engine=engine.ember",
+                      __LINE__);
+    }
+    {
+        FHeadlessRunHarness harness{469u, "engine-start-shove-auto"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[0].skills[0] = game::FSkillSlot{"skill.shove", {}};
+        run.party[0].skills[1] = game::FSkillSlot{"skill.fog", {}};
+        RewardTick(harness, "reward=card0,camp=none,equip=auto", {"rune.fire"});
+        CHECK((SlotRunes(run, 0, 0) == std::vector<std::string>{"rune.fire"}));
+        CHECK(run.party[0].skills[2].runeIds.empty());
+    }
+}
+
+/// Test 4: rule 3 keeps a reservation — Strike [power, fire] reserves its last socket for ember, so swift
+/// (no engine) goes to the next unreserved slot (m0 s1 Cleave), rule=fallback. Plain auto consumes the
+/// reserved socket instead.
+void EnginePolicyFallbackKeepsReservation() {
+    {
+        FHeadlessRunHarness harness{469u, "engine-reserve-fallback"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[0].skills[0].runeIds = {"rune.power", "rune.fire"};
+        FLogCapture capture;
+        RewardTick(harness, "reward=card0,camp=none,equip=engine", {"rune.swift"});
+        CHECK((SlotRunes(run, 0, 0) == std::vector<std::string>{"rune.power", "rune.fire"}));
+        CHECK((SlotRunes(run, 0, 1) == std::vector<std::string>{"rune.swift"}));
+        CheckContains(capture.Text(), "member=0 slot=1 skill=skill.cleave rule=fallback", __LINE__);
+    }
+    {
+        FHeadlessRunHarness harness{469u, "engine-reserve-auto"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[0].skills[0].runeIds = {"rune.power", "rune.fire"};
+        RewardTick(harness, "reward=card0,camp=none,equip=auto", {"rune.swift"});
+        CHECK((SlotRunes(run, 0, 0) == std::vector<std::string>{"rune.power", "rune.fire", "rune.swift"}));
+        CHECK(run.party[0].skills[1].runeIds.empty());
+    }
+}
+
+/// Test 5: camp consolidation (P4) — a split pair fuses into one host slot with one remove+equip move and
+/// the loadout events prove both edits; a pooled partner is re-fitted by the retry step first.
+void CampConsolidationMovesSplitPair() {
+    {
+        FHeadlessRunHarness harness{469u, "engine-camp-move"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Camp);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[0].skills[0].runeIds = {"rune.fire"};
+        run.party[2].skills[5].runeIds = {"rune.ember"};
+        FLogCapture capture;
+        CHECK(game::dev::ConsolidateEnginesAtCamp(harness.registry) == 1);
+        CHECK(run.party[0].skills[0].runeIds.empty());
+        CHECK((SlotRunes(run, 2, 5) == std::vector<std::string>{"rune.ember", "rune.fire"}));
+        const auto loadouts = RunLogEventsOf(harness.registry, "loadout");
+        CHECK(CountLoadoutEvents(loadouts, "remove", "rune.fire") == 1);
+        CHECK(CountLoadoutEvents(loadouts, "equip", "rune.fire") == 1);
+        CheckContains(capture.Text(),
+                      "[autopilot] camp move rune=rune.fire from=0/0 to=2/5 engine=engine.ember", __LINE__);
+    }
+    {
+        FHeadlessRunHarness harness{469u, "engine-camp-retry"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Camp);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[0].skills[0].runeIds = {"rune.fire"};
+        run.runes = {"rune.ember"};
+        CHECK(game::dev::ConsolidateEnginesAtCamp(harness.registry) == 0);  // (a) fitted it; (b) nothing to move
+        CHECK((SlotRunes(run, 0, 0) == std::vector<std::string>{"rune.fire", "rune.ember"}));
+        CHECK(run.runes.empty());
+    }
+}
+
+/// Test 6: consolidation refuses a move whose removal breaks a co-fitted rune (fire supplies inferno's
+/// Fire tag, and Strike is full): zero moves, byte-identical loadout, `camp move none engine=engine.ember`.
+void CampConsolidationRefusesBrokenRemoval() {
+    FHeadlessRunHarness harness{469u, "engine-camp-refuse"};
+    SetupConstructedRun(harness, game::EDungeonPhase::Camp);
+    auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+    run.party[0].skills[0].runeIds = {"rune.fire", "rune.inferno", "rune.power"};
+    run.party[2].skills[5].runeIds = {"rune.ember"};
+    const std::string before = LoadoutSignature(run);
+    FLogCapture capture;
+    CHECK(game::dev::ConsolidateEnginesAtCamp(harness.registry) == 0);
+    const std::string after = LoadoutSignature(run);
+    if (before != after) {
+        std::cout << "[report] consolidation changed the loadout\n  before: " << before << "\n  after:  " << after
+                  << '\n';
+    }
+    CHECK(after == before);
+    CheckContains(capture.Text(), "[autopilot] camp move none engine=engine.ember", __LINE__);
+}
+
+/// Test 7: reward=engine scores every card BEFORE resolving (P3) — the completing ember beats card 0
+/// power; an owned duplicate scores 0, so cold (start, 1) wins the tie over the owned fire.
+void RewardEnginePicksCompletingCard() {
+    {
+        FHeadlessRunHarness harness{469u, "engine-card-complete"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[0].skills[0].runeIds = {"rune.fire"};
+        FLogCapture capture;
+        RewardTick(harness, "reward=engine,camp=none", {"rune.power", "rune.ember"});
+        CheckContains(capture.Text(), "pick=1 rune=rune.ember rule=complete", __LINE__);
+        CHECK((run.runes == std::vector<std::string>{"rune.ember"}));  // granted, not fitted (no equip token)
+    }
+    {
+        FHeadlessRunHarness harness{469u, "engine-card-owned"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[0].skills[0].runeIds = {"rune.fire"};
+
+        CHECK(game::dev::ScoreEngineCard(harness.registry, "rune.ember") == 2);  // completes engine.ember
+        CHECK(game::dev::ScoreEngineCard(harness.registry, "rune.cold") == 1);   // starts engine.frost
+        CHECK(game::dev::ScoreEngineCard(harness.registry, "rune.power") == 0);  // no engine
+        CHECK(game::dev::ScoreEngineCard(harness.registry, "rune.fire") == 0);   // owned duplicate = refund only
+
+        FLogCapture capture;
+        RewardTick(harness, "reward=engine,camp=none", {"rune.fire", "rune.power", "rune.cold"});
+        CheckContains(capture.Text(), "pick=2 rune=rune.cold rule=start", __LINE__);
+    }
+}
+
+/// Test 8: the run-end vocabulary (P7) — engine.ember per state: nothing owned → not-offered, a pooled
+/// partner → partner-unfitted, one host slot → armed (member/slot), a pair in a non-host → no-host, a
+/// split whose every move is refused → moved-refused.
+void ClassifyEnginesReasons() {
+    CHECK(game::dev::EngineArmName(EEngineArm::Armed) == "armed");
+    CHECK(game::dev::EngineArmName(EEngineArm::NotOffered) == "not-offered");
+    CHECK(game::dev::EngineArmName(EEngineArm::PartnerUnfitted) == "partner-unfitted");
+    CHECK(game::dev::EngineArmName(EEngineArm::MovedRefused) == "moved-refused");
+    CHECK(game::dev::EngineArmName(EEngineArm::NoHost) == "no-host");
+
+    {
+        FHeadlessRunHarness harness{469u, "engine-arm-none"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        const auto statuses = game::dev::ClassifyEngines(harness.registry);
+        CHECK(statuses.size() == 4);  // the frozen fixture's four rows, in data order
+        CHECK(statuses[0].engineId == "engine.ember");
+        CHECK(statuses[0].state == EEngineArm::NotOffered);
+    }
+    {
+        FHeadlessRunHarness harness{469u, "engine-arm-pooled"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[0].skills[0].runeIds = {"rune.fire"};
+        run.runes = {"rune.ember"};
+        const auto statuses = game::dev::ClassifyEngines(harness.registry);
+        CHECK(statuses[0].state == EEngineArm::PartnerUnfitted);
+    }
+    {
+        FHeadlessRunHarness harness{469u, "engine-arm-armed"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        harness.registry.ctx().get<game::FDungeonRun>().party[0].skills[0].runeIds = {"rune.fire", "rune.ember"};
+        const auto statuses = game::dev::ClassifyEngines(harness.registry);
+        CHECK(statuses[0].state == EEngineArm::Armed);
+        CHECK(statuses[0].member == 0);
+        CHECK(statuses[0].slot == 0);
+    }
+    {
+        FHeadlessRunHarness harness{469u, "engine-arm-nohost"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        harness.registry.ctx().get<game::FDungeonRun>().party[2].skills[1].runeIds = {"rune.fire", "rune.ember"};
+        const auto statuses = game::dev::ClassifyEngines(harness.registry);
+        CHECK(statuses[0].state == EEngineArm::NoHost);
+    }
+    {
+        FHeadlessRunHarness harness{469u, "engine-arm-refused"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[0].skills[0].runeIds = {"rune.fire", "rune.inferno", "rune.power"};
+        run.party[2].skills[5].runeIds = {"rune.ember"};
+        const auto statuses = game::dev::ClassifyEngines(harness.registry);
+        CHECK(statuses[0].state == EEngineArm::MovedRefused);
+    }
+}
+
+/// Test 9: two fresh driving runs (seed 469) under the full engine policy produce the identical
+/// `[autopilot]` decision sequence and the identical run-log loadout events — deterministic end to end,
+/// reaching dungeon 2 without getting stuck.
+void EnginePolicyIsDeterministic() {
+    const std::string policyText = "reward=engine,event=first,chest=open,camp=offer+1,continue,equip=engine";
+    FAutopilotDrive first;
+    FAutopilotDrive second;
+    std::vector<std::string> firstLines;
+    std::vector<std::string> secondLines;
+    {
+        FLogCapture capture;
+        first = DriveAutopilot(469u, "engine-det-a", policyText, EDriveStop::DungeonTwo);
+        firstLines = LinesContaining(capture.Text(), "[autopilot]");
+    }
+    {
+        FLogCapture capture;
+        second = DriveAutopilot(469u, "engine-det-b", policyText, EDriveStop::DungeonTwo);
+        secondLines = LinesContaining(capture.Text(), "[autopilot]");
+    }
+    CHECK(!first.stuck && !second.stuck);
+    CHECK(first.reachedDungeonTwo && second.reachedDungeonTwo);
+    CHECK(!firstLines.empty());
+    if (firstLines != secondLines) {
+        const std::size_t shared = std::min(firstLines.size(), secondLines.size());
+        for (std::size_t index = 0; index < shared; ++index) {
+            if (firstLines[index] != secondLines[index]) {
+                std::cout << "[report] autopilot lines diverge at " << index << "\n  a: " << firstLines[index]
+                          << "\n  b: " << secondLines[index] << '\n';
+                break;
+            }
+        }
+        if (firstLines.size() != secondLines.size()) {
+            std::cout << "[report] autopilot line counts differ: " << firstLines.size() << " vs "
+                      << secondLines.size() << '\n';
+        }
+    }
+    CHECK(firstLines == secondLines);
+
+    // The run-log side: identical `loadout` events too (same equip/remove sequence).
+    const auto loadouts = [](const FAutopilotDrive& drive) {
+        std::vector<nlohmann::json> events;
+        for (const auto& event : drive.events) {
+            if (event.value("t", std::string{}) == "loadout") events.push_back(event);
+        }
+        return events;
+    };
+    const std::vector<nlohmann::json> firstLoadouts = loadouts(first);
+    const std::vector<nlohmann::json> secondLoadouts = loadouts(second);
+    if (firstLoadouts != secondLoadouts) {
+        std::cout << "[report] loadout events differ: " << firstLoadouts.size() << " vs "
+                  << secondLoadouts.size() << '\n';
+    }
+    CHECK(firstLoadouts == secondLoadouts);
+    CHECK(!firstLoadouts.empty());  // the policy fit at least one pick on the way into dungeon 2
+}
+
+/// Test 10 (P6 bridge, replacing the impossible drive-side ignition assertion): the armed SLOT is what
+/// CheckEngineIgnition needs. Copy the policy-armed run slots onto a battle entity and give the target the
+/// trigger status → 1 ignition + one `engine_ignition` run-log event; the equip=auto loadout of the same
+/// state (the pair split across Bolt and Firebolt) ignites nothing.
+void ArmedSlotIgnitesAutoDoesNot() {
+    {
+        FHeadlessRunHarness harness{469u, "engine-bridge-armed"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[3].skills[1].runeIds = {"rune.fire"};
+        RewardTick(harness, "reward=card0,camp=none,equip=engine", {"rune.ember"});
+        CHECK((SlotRunes(run, 3, 1) == std::vector<std::string>{"rune.fire", "rune.ember"}));  // armed
+
+        const std::vector<game::FSkillSlot> slots = run.party[3].skills;
+        const entt::entity actor = harness.registry.create();
+        harness.registry.emplace<game::FPartyMember>(actor);
+        harness.registry.emplace<game::FSkillLoadout>(actor, game::FSkillLoadout{slots});
+        const entt::entity target = harness.registry.create();
+        harness.registry.emplace<game::FActiveStatuses>(
+            target, game::FActiveStatuses{{game::FStatusEffect{"status.burn", 3, 1}}});
+
+        const auto& content = harness.registry.ctx().get<game::gameplay::FContentRegistry>();
+        CHECK(game::CheckEngineIgnition(harness.registry, actor, target, content, "skill.bolt") == 1);
+        const auto ignitions = RunLogEventsOf(harness.registry, "engine_ignition");
+        CHECK(ignitions.size() == 1);
+        CHECK(ignitions[0]["engine"] == "engine.ember");
+    }
+    {
+        FHeadlessRunHarness harness{469u, "engine-bridge-auto"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Reward);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.party[3].skills[1].runeIds = {"rune.fire"};
+        RewardTick(harness, "reward=card0,camp=none,equip=auto", {"rune.ember"});
+        CHECK((SlotRunes(run, 3, 1) == std::vector<std::string>{"rune.fire"}));
+        CHECK((SlotRunes(run, 2, 5) == std::vector<std::string>{"rune.ember"}));
+
+        const std::vector<game::FSkillSlot> healerSlots = run.party[3].skills;
+        const std::vector<game::FSkillSlot> mageSlots = run.party[2].skills;
+        const auto& content = harness.registry.ctx().get<game::gameplay::FContentRegistry>();
+
+        const auto makeActor = [&](const std::vector<game::FSkillSlot>& slots) {
+            const entt::entity actor = harness.registry.create();
+            harness.registry.emplace<game::FPartyMember>(actor);
+            harness.registry.emplace<game::FSkillLoadout>(actor, game::FSkillLoadout{slots});
+            return actor;
+        };
+        const auto makeBurningTarget = [&] {
+            const entt::entity target = harness.registry.create();
+            harness.registry.emplace<game::FActiveStatuses>(
+                target, game::FActiveStatuses{{game::FStatusEffect{"status.burn", 3, 1}}});
+            return target;
+        };
+
+        CHECK(game::CheckEngineIgnition(harness.registry, makeActor(healerSlots), makeBurningTarget(), content,
+                                        "skill.bolt") == 0);
+        CHECK(game::CheckEngineIgnition(harness.registry, makeActor(mageSlots), makeBurningTarget(), content,
+                                        "skill.firebolt") == 0);
+        CHECK(RunLogEventsOf(harness.registry, "engine_ignition").empty());
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -861,5 +1400,14 @@ int main() {
         {"AutopilotDrivesSeededRunIntoDungeonTwo", AutopilotDrivesSeededRunIntoDungeonTwo},
         {"AutopilotStopsAtRoomLimit", AutopilotStopsAtRoomLimit},
         {"AutopilotEquipFitsPickedRune", AutopilotEquipFitsPickedRune},
+        {"EnginePolicyCompletesHalfPair", EnginePolicyCompletesHalfPair},
+        {"EnginePolicyStartsOnHostOnly", EnginePolicyStartsOnHostOnly},
+        {"EnginePolicyFallbackKeepsReservation", EnginePolicyFallbackKeepsReservation},
+        {"CampConsolidationMovesSplitPair", CampConsolidationMovesSplitPair},
+        {"CampConsolidationRefusesBrokenRemoval", CampConsolidationRefusesBrokenRemoval},
+        {"RewardEnginePicksCompletingCard", RewardEnginePicksCompletingCard},
+        {"ClassifyEnginesReasons", ClassifyEnginesReasons},
+        {"EnginePolicyIsDeterministic", EnginePolicyIsDeterministic},
+        {"ArmedSlotIgnitesAutoDoesNot", ArmedSlotIgnitesAutoDoesNot},
     });
 }

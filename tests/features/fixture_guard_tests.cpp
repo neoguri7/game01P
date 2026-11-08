@@ -31,7 +31,8 @@
 namespace {
 
 // Every file the fixture set must carry. The comment in each file says why the values are frozen.
-constexpr const char* kFixtureFiles[] = {"dungeon", "units", "skills", "runes", "statuses", "ai", "passive-tree", "bosses"};
+constexpr const char* kFixtureFiles[] = {
+    "dungeon", "units", "skills", "runes", "statuses", "ai", "passive-tree", "bosses", "engine_ignition"};
 
 // A named seed keeps the guard run reproducible; the party contract is dungeon.json's "party" array: four
 // playable units (one per class plus the healer), so the fixture cannot silently lose a party member.
@@ -73,6 +74,7 @@ void FixtureIdsAreSubsetOfShip() {
     subset(ship->skills, fixture->skills);
     subset(ship->runes, fixture->runes);
     subset(ship->statuses, fixture->statuses);
+    subset(ship->engines, fixture->engines);  // WP-00d: the frozen engine table (review P6)
 }
 
 /// The fixture's own dungeon loads: this is the cross-reference check for party/generation/boss/
