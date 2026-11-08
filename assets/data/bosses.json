@@ -1,0 +1,29 @@
+{
+  "_comment": "WP-15 multi-stage boss goals (schema_version 1). Data says WHAT (phases, gate, parts); the code interprets HOW (FBossGoals.h) - no string condition DSL. Only the Ember Crypt mid slot is mapped for now; every other boss slot is unmapped and keeps the single-phase fallback (generation.boss_unit). A gated phase means: while any part lives the body's HP cannot drop below that phase's hp_above threshold (the Bone Hydra rule).",
+  "schema_version": 1,
+  "map": [
+    { "theme": "theme.ember_crypt", "slot": "mid", "boss": "boss.stone_guardian" }
+  ],
+  "bosses": [
+    {
+      "id": "boss.stone_guardian",
+      "name": "Stone Guardian",
+      "unit": "enemy.guardian",
+      "phases": [
+        {
+          "hp_above": 50,
+          "gate": "parts",
+          "body_immunities": ["status.freeze", "status.paralyze"],
+          "notes": "Guard stance"
+        },
+        {
+          "hp_above": 0,
+          "notes": "Core exposed"
+        }
+      ],
+      "parts": [
+        { "unit": "enemy.guardian_heart", "count": 3, "name": "Guardian heart" }
+      ]
+    }
+  ]
+}

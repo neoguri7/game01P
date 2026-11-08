@@ -5,6 +5,7 @@
 #include "core/Logger.h"
 #include "ecs/components/FActiveStatuses.h"
 #include "ecs/components/FBaseCombatStats.h"
+#include "ecs/components/FBossGoals.h"
 #include "ecs/components/FFaction.h"
 #include "ecs/components/FHealth.h"
 #include "ecs/components/FSkillLoadout.h"
@@ -176,14 +177,23 @@ std::optional<FSkillPreview> PreviewSkill(
             entry.power = terms.power;
             entry.defense = terms.defense;
             entry.damage = terms.damage;
+            // WP-15: the preview is the gate's canon — the resolver applies this number, so the cap sits
+            // here (after ComputeDamage's minimum-1: a gated hit at the floor is a real 0, not 1). The
+            // offense/power/defense terms above stay the uncapped formula terms.
+            const int capped = BossBodyDamageCap(registry, target, entry.damage);
+            entry.blockedByGate = capped < entry.damage;
+            entry.damage = capped;
             entry.healthAfter = std::max(0, current - entry.damage);
             entry.lethal = entry.healthAfter == 0;
         }
 
-        // 부여 목록: 리졸버가 실제로 적용하는 것과 같다 — 정의가 있는 상태만, lethal이면 없음.
+        // 부여 목록: 리졸버가 실제로 적용하는 것과 같다 — 정의가 있는 상태만, lethal이면 없음. WP-15b: 면역
+        // 대상은 TryApplyStatus가 차단하므로 프리뷰 목록에서도 뺀다(프리뷰 = 실제 적용).
         if (!entry.lethal) {
+            const auto* targetActive = registry.try_get<FActiveStatuses>(target);
             for (const FResolvedStatus& status : resolved.statuses) {
-                if (content->statuses.find(status.statusId) != nullptr) {
+                if (content->statuses.find(status.statusId) != nullptr &&
+                    (targetActive == nullptr || !IsStatusImmune(*targetActive, status.statusId))) {
                     entry.statuses.push_back(status);
                 }
             }

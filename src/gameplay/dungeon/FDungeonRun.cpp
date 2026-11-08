@@ -7,10 +7,12 @@
 #include <fstream>
 #include <limits>
 #include <set>
+#include <tuple>
 #include <SDL3/SDL.h>
 
 #include "core/AssetManager.h"
 #include "core/Logger.h"
+#include "ecs/components/FBossGoals.h"
 #include "ecs/components/FDead.h"
 #include "ecs/components/FFaction.h"
 #include "ecs/components/FHealth.h"
@@ -19,6 +21,7 @@
 #include "gameplay/combat/FCombatSheet.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FBossContent.h"
 #include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/dungeon/FRunEventLog.h"
@@ -172,30 +175,30 @@ std::optional<gameplay::FRoomGenConfig> ParseRoomGeneration(
     return config;
 }
 
+/// WP-15: resolves the (theme, slot) boss mapping into the room config. "" = a non-boss slot; a mapped boss
+/// sets the body unit/name and the part rows and returns the bosses.json id; an unmapped boss leaves the
+/// config untouched and returns `config.bossUnit` — the single-phase fallback id (a fallback boss still
+/// produces its BossDefeated with `generation.boss_unit`, the WP-20 cross contract).
+std::string ApplyBossSlot(gameplay::FRoomGenConfig& config, const FBossCatalog* catalog, std::string_view themeId,
+                          const FRunRoomSlot& slot, bool bossBattle) {
+    if (!bossBattle) return {};  // WP-15c: the caller asks FRunSequence::IsBossBattle, the one boss predicate
+    if (catalog != nullptr) {
+        if (const FBossDef* def = catalog->Resolve(themeId, slot.boss); def != nullptr) {
+            config.bossUnit = def->unit;
+            config.bossName = def->name;
+            config.bossParts.clear();
+            for (const FBossPartDef& part : def->parts) {
+                config.bossParts.push_back({part.unit, part.name, part.count});
+            }
+            return def->id;
+        }
+    }
+    return config.bossUnit;
+}
+
 bool IsKnownStatUpgrade(std::string_view stat) {
     return stat == "health" || stat == "attack" || stat == "magic_attack" || stat == "defense"
         || stat == "magic_defense" || stat == "speed";
-}
-
-/// The unit template a run member maps to (`data/dungeon party[].id → unit`, then the content row). The run
-/// keeps placement ids ("party.warrior"); the unit table is keyed by template id ("char.warrior"). Mirrors
-/// how FRewards resolves party skills — a const-registry-safe read for the run HP derivation.
-const gameplay::FUnitContent* RunMemberUnitTemplate(const entt::registry& registry, const FRunMember& member) {
-    const auto* assets = registry.ctx().find<FAssetManager>();
-    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
-    if (assets == nullptr || content == nullptr) return nullptr;
-    const auto digest = assets->digest("data/dungeon");
-    if (!digest) return nullptr;
-    try {
-        for (const auto& row : digest->json().at("party")) {
-            if (row.at("id").get<std::string>() == member.id) {
-                return content->units.find(row.at("unit").get<std::string>());
-            }
-        }
-    } catch (const nlohmann::json::exception& error) {
-        LOG_WARN("Run member max health could not read the dungeon party: {}", error.what());
-    }
-    return nullptr;
 }
 
 /// The unknown-member report is once per id: views call the max-health helper every frame, and a broken
@@ -279,8 +282,31 @@ int KoRecoverFloor(int maxHealth, double fraction) {
     return std::max(1, floored);
 }
 
+/// The unit template a run member maps to (`data/dungeon party[].id → unit`, then the content row). The run
+/// keeps placement ids ("party.warrior"); the unit table is keyed by template id ("char.warrior"). Mirrors
+/// how FRewards resolves party skills — a const-registry-safe read for the run HP derivation.
+/// WP-21 §1: the single memberId → unit resolver every call site shares (max HP, event stats, battlefield
+/// placement). Roster awareness (a `data/roster` lookup ahead of the dungeon fallback) arrives with 21b.
+const gameplay::FUnitContent* ResolveRunMemberUnit(const entt::registry& registry, std::string_view memberId) {
+    const auto* assets = registry.ctx().find<FAssetManager>();
+    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
+    if (assets == nullptr || content == nullptr) return nullptr;
+    const auto digest = assets->digest("data/dungeon");
+    if (!digest) return nullptr;
+    try {
+        for (const auto& row : digest->json().at("party")) {
+            if (row.at("id").get<std::string>() == memberId) {
+                return content->units.find(row.at("unit").get<std::string>());
+            }
+        }
+    } catch (const nlohmann::json::exception& error) {
+        LOG_WARN("Run member max health could not read the dungeon party: {}", error.what());
+    }
+    return nullptr;
+}
+
 int DungeonMemberMaxHealth(const entt::registry& registry, const FRunMember& member) {
-    const auto* unit = RunMemberUnitTemplate(registry, member);
+    const auto* unit = ResolveRunMemberUnit(registry, member.id);
     if (unit == nullptr) {
         // Unknown member: return an unknown maximum instead of 0 + bonuses. A 0 would make the heal clamp
         // and the chest cost silently corrupt the run HP (callers treat <= 0 as unknown).
@@ -474,30 +500,39 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
         }
         registry.ctx().erase<FRunSequence>();
         registry.ctx().emplace<FRunSequence>(std::move(*sequence));
+        // WP-15: the optional bosses.json. Absent -> an empty catalog (every boss slot uses the single-phase
+        // fallback); present but invalid stops the boot here, before the probe.
+        if (!InstallBossCatalog(registry)) return false;
         const auto& rooms = registry.ctx().get<FRunSequence>();
-        // Probe one representative of every unique (family, boss) tuple actually authored; the room
-        // generation failure class is decided by (family, boss, pool, seed) — the ordinal only feeds Mix.
-        // Cost is bounded by the tuple count, not the slot count (WP-08 §4).
+        const auto* bossCatalog = FindBossCatalog(registry);
+        // Probe one representative of every unique (family, boss, resolved boss id) tuple actually authored;
+        // the room generation failure class is decided by (family, boss, pool, seed) — the ordinal only feeds
+        // Mix. Cost is bounded by the tuple count, not the slot count (WP-08 §4).
         constexpr int kProbeSeeds = 3;
         FDungeonBootProbe probe;
-        std::vector<std::pair<std::string, std::string>> probedTuples;
+        std::vector<std::tuple<std::string, std::string, std::string>> probedTuples;
         for (int index = 0; index < rooms.TotalDungeons(); ++index) {
             const auto position = rooms.PositionOf(index);
             const int battleCount = rooms.BattleCountAt(position);
             for (int ordinal = 0; ordinal < battleCount; ++ordinal) {
                 const auto* slot = rooms.BattleSlotAt(position, ordinal);
                 if (slot == nullptr) continue;
-                const std::pair<std::string, std::string> tuple{slot->family, slot->boss};
+                // WP-08b: the family is per slot — copy the parsed config and set it (never mutate the
+                // shared config; the probe walks several families). WP-15: the tuple key adds the resolved
+                // boss id; ApplyBossSlot runs before BuildRoomDocument so a mapped boss (and its parts) is
+                // probed through CreateBattlefield + SetupCombatUnits.
+                auto tupleConfig = *config;
+                tupleConfig.family = slot->family;
+                const std::string bossId =
+                    ApplyBossSlot(tupleConfig, bossCatalog, rooms.themes[position.theme].id, *slot,
+                                  rooms.IsBossBattle(position, ordinal));
+                const std::tuple<std::string, std::string, std::string> tuple{slot->family, slot->boss, bossId};
                 if (std::ranges::find(probedTuples, tuple) != probedTuples.end()) continue;
                 probedTuples.push_back(tuple);
                 for (std::uint32_t seed = 1; seed <= kProbeSeeds; ++seed) {
                     entt::registry probeRegistry;
                     FScene scene(probeRegistry, "validation");
                     scene.Load();
-                    // WP-08b: the family is per slot — copy the parsed config and set it (never mutate the
-                    // shared config; the probe walks several families).
-                    auto tupleConfig = *config;
-                    tupleConfig.family = slot->family;
                     const auto document =
                         BuildRoomDocument(data, tupleConfig, seed, index + 1, ordinal, !slot->boss.empty());
                     const auto battlefield = FEntityFactory::CreateBattlefield(scene, document);
@@ -694,12 +729,27 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
     // WP-08: the boss flag comes from the sequence slot of the current battle ordinal — never a room index.
     // WP-08b: the template family comes from the same slot (per-slot by copying the parsed config).
     const FRunRoomSlot* slot = nullptr;
+    std::string themeId;
+    bool bossBattle = false;  // WP-15c: FRunSequence::IsBossBattle is the single boss predicate
     if (const auto* sequence = FindRunSequence(registry)) {
         const auto position = sequence->PositionOf(run.depth - 1);
         slot = sequence->BattleSlotAt(position, run.room);
+        bossBattle = sequence->IsBossBattle(position, run.room);
+        // The (theme, slot) key of the WP-15 boss mapping; PositionOf clamps to a valid theme.
+        if (position.theme < sequence->themes.size()) themeId = sequence->themes[position.theme].id;
     }
     auto slotConfig = *config;
     if (slot != nullptr) slotConfig.family = slot->family;
+    // WP-15: resolve the (theme, slot) mapping into the document and mark the battle in ctx — for every
+    // build, the saved-phase continue included. "" = a non-boss slot (no marker).
+    const std::string bossId =
+        slot != nullptr ? ApplyBossSlot(slotConfig, FindBossCatalog(registry), themeId, *slot, bossBattle)
+                        : std::string{};
+    if (!bossId.empty()) {
+        registry.ctx().insert_or_assign<FBossBattle>(FBossBattle{bossId, slot->boss});
+    } else {
+        registry.ctx().erase<FBossBattle>();
+    }
     gameplay::FGeneratedRoom generated;
     auto document = BuildRoomDocument(data, slotConfig, run.seed, run.depth, run.room, slot != nullptr && !slot->boss.empty(),
                                       &generated);
@@ -715,6 +765,12 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
         LOG_INFO("[room] family={} strength={} walls={} reachable={:.2f} min_path={} cover={} traps={}",
                  slotConfig.family, strength ? gameplay::FamilyStrengthName(*strength) : "unknown", metrics.walls,
                  metrics.reachableRatio, metrics.minPath, metrics.coverCells, metrics.traps);
+        // WP-15: one line per real boss battle; parts = the mapped part rows' summed count (0 = fallback).
+        if (bossBattle && slot != nullptr) {
+            int partCount = 0;
+            for (const gameplay::FBossPartSpawn& part : slotConfig.bossParts) partCount += part.count;
+            LOG_INFO("[boss] slot={} boss={} parts={}", slot->boss, bossId, partCount);
+        }
     }
     return document;
 }

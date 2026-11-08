@@ -138,6 +138,7 @@ struct FTempAssets {
         if (withDungeon) {
             Copy("dungeon.json");
             Copy("passive-tree.json");
+            Copy("bosses.json");  // WP-15: else the shipped bosses.json is validated against fixture units
         }
     }
 

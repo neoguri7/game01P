@@ -408,6 +408,67 @@ FGeneratedRoom GenerateSplit(const FRoomGenConfig& config, const FRoomRequest& r
     return room;
 }
 
+// --- boss parts (WP-15) -------------------------------------------------------------------------
+
+/// Appends the boss parts (`config.bossParts`) to a generated boss room. The boss is the first enemy (every
+/// family's PlaceEnemies seats it there); the parts take band cells ordered by (Manhattan distance to the
+/// boss, y, x) — boss-adjacent first, deterministic. A candidate only seats a part while every unit stays
+/// mutually reachable (AllConnected: walls block, units do not — the family invariant). Consumes NO random
+/// draws: the classic output stays pinned and non-boss or part-less rooms stay byte-identical. Parts are
+/// appended AFTER the escorts (the combat contract); when the band runs out, the rest are skipped
+/// (`kMaxBossParts` keeps this far away).
+void PlaceBossParts(FGeneratedRoom& room, const FRoomGenConfig& config, const FRoomRequest& request) {
+    if (room.enemies.empty()) return;
+    const FGeneratedEnemy& boss = room.enemies.front();
+
+    FBoard board{};
+    for (int y = 0; y < kSize; ++y) {
+        for (int x = 0; x < kSize; ++x) {
+            board[y][x] = room.terrain[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)];
+        }
+    }
+    std::vector<FCell> units;
+    for (const auto& [x, y] : request.partyCells) units.push_back({x, y});
+    for (const auto& enemy : room.enemies) units.push_back({enemy.x, enemy.y});
+
+    // Candidate cells: the spawn band, floor only ('#' walls and '^' traps never host a unit), unoccupied.
+    std::vector<FCell> candidates;
+    for (int y = kEnemyFirstRow; y <= kEnemyLastRow; ++y) {
+        for (int x = kEdgeMargin; x <= kSize - 1 - kEdgeMargin; ++x) {
+            const FCell cell{x, y};
+            if (board[y][x] != '.') continue;
+            if (std::ranges::find(units, cell) != units.end()) continue;
+            candidates.push_back(cell);
+        }
+    }
+    std::ranges::sort(candidates, [&](const FCell& a, const FCell& b) {
+        const int aDistance = std::abs(a.x - boss.x) + std::abs(a.y - boss.y);
+        const int bDistance = std::abs(b.x - boss.x) + std::abs(b.y - boss.y);
+        if (aDistance != bDistance) return aDistance < bDistance;
+        if (a.y != b.y) return a.y < b.y;
+        return a.x < b.x;
+    });
+
+    for (const FBossPartSpawn& part : config.bossParts) {
+        for (int placed = 0; placed < part.count; ++placed) {
+            bool seatFound = false;
+            for (std::size_t index = 0; index < candidates.size(); ++index) {
+                units.push_back(candidates[index]);
+                if (!AllConnected(board, units)) {
+                    units.pop_back();
+                    continue;
+                }
+                const FCell seat = candidates[index];
+                candidates.erase(candidates.begin() + static_cast<std::ptrdiff_t>(index));
+                room.enemies.push_back({part.unit, part.displayName, seat.x, seat.y});
+                seatFound = true;
+                break;
+            }
+            if (!seatFound) return;  // the band ran out: stop (kMaxBossParts keeps this far away)
+        }
+    }
+}
+
 // --- measurement helpers ------------------------------------------------------------------------
 
 /// Supercover traversal mirroring gameplay/grid/FGridQuery.cpp HasGridLineOfSight (the game's LoS rule):
@@ -562,11 +623,16 @@ FRoomMetrics MeasureRoom(const FGeneratedRoom& room, std::span<const std::pair<i
 
 FGeneratedRoom GenerateRoom(const FRoomGenConfig& config, const FRoomRequest& request) {
     // The loader refuses unknown family names at boot, so the fall-through is the classic layout.
-    if (config.family == "open_variant") return GenerateOpenVariant(config, request);
-    if (config.family == "corridor") return GenerateCorridor(config, request);
-    if (config.family == "cover") return GenerateCover(config, request);
-    if (config.family == "split") return GenerateSplit(config, request);
-    return GenerateOpen(config, request);
+    FGeneratedRoom room;
+    if (config.family == "open_variant") room = GenerateOpenVariant(config, request);
+    else if (config.family == "corridor") room = GenerateCorridor(config, request);
+    else if (config.family == "cover") room = GenerateCover(config, request);
+    else if (config.family == "split") room = GenerateSplit(config, request);
+    else room = GenerateOpen(config, request);
+    // WP-15: boss parts join the document for a boss room (bosses only; no random draws — the classic
+    // output is pinned by golden tests).
+    if (request.boss && !config.bossParts.empty()) PlaceBossParts(room, config, request);
+    return room;
 }
 
 } // namespace game::gameplay
