@@ -1176,6 +1176,43 @@ void SeenSurvivesContinue() {
     CHECK(*next != id);
 }
 
+/// Critic w9-events #1: a result-screen save whose resolved event later left the catalog (removed/renamed) must
+/// not strand the run on a screen with nothing to click — the resume continues past the room, and the choice
+/// is never paid a second time.
+void ResolvedEventMissingFromCatalogContinues() {
+    FBoot boot(UniquePath("events-resolved-missing"));
+    StartFresh(boot);
+    const auto event = EnterEvent(boot);
+    CHECK(event.has_value());
+    CHECK(game::ApplyRunIntent(boot.registry, game::ERunIntent::ChooseEventOption, 1).has_value());
+    const int room = boot.run().room;
+    const int materials = boot.run().materials;
+
+    // The checkpoint was written on the result screen; the content then lost that event id.
+    json saved = ReadJsonFile(boot.runSave);
+    CHECK(saved["run"]["ext"]["event"].at("event_id") == event->eventId);
+    saved["run"]["ext"]["event"]["event_id"] = "event.removed_since_save";
+    {
+        std::ofstream out(boot.runSave, std::ios::trunc);
+        CHECK(out.good());
+        out << saved.dump(2);
+    }
+
+    ForgetRunInMemory(boot);
+    CHECK(game::ContinueDungeonRun(boot.registry));
+    auto& run = boot.run();
+    CHECK(run.phase == game::EDungeonPhase::Battle);  // progressed past the event room
+    CHECK(run.room == room + 1);
+    CHECK(run.materials == materials);                // no second payment
+    CHECK(!boot.registry.ctx().contains<game::FEventInstance>());
+    CHECK(!run.advanceRequested);                     // the continue path enters the battle itself
+    CHECK(!game::CurrentEventInstance(boot.registry).has_value());
+
+    // The progressed state is what the file holds now (a second resume lands in the same battle).
+    const json after = ReadJsonFile(boot.runSave);
+    CHECK(!after["run"]["ext"].contains("event") || !after["run"]["ext"]["event"].contains("event_id"));
+}
+
 void SeenAbsentIsEmptyList() {
     FBoot boot(UniquePath("events-seen-absent"));
     StartFresh(boot);
@@ -1537,5 +1574,6 @@ int main() {
         {"UnresolvedEventReopensChoices", UnresolvedEventReopensChoices},
         {"EventChosenLoggedOnce", EventChosenLoggedOnce},
         {"EventInstanceClearedOnNewRun", EventInstanceClearedOnNewRun},
+        {"ResolvedEventMissingFromCatalogContinues", ResolvedEventMissingFromCatalogContinues},
     });
 }

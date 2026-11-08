@@ -27,10 +27,14 @@ struct FRoomTypeDef {
 /// composition root — never by static self-registration (the runtime is a static library and the linker
 /// drops unreferenced registrars).
 ///
-/// Recipe boundary (honest): a new **modal-shaped** type of the same form as `event` = one line in
-/// RegisterRoomTypes + one view + one data line. A type with its **own behaviour** (its own progression or
-/// choice rules) edits the FRunFlow call site, and when its host sits between modals it also extends the
-/// FRunFlowStateMap modal-host list.
+/// What the table does today (W9): it data-drives only the `event` type's modalId and requiredSlotKey (the
+/// boot validation checks slot types and required keys through it). It is NOT yet a one-line recipe for a
+/// new type. A new room type — even a modal-shaped one — also needs:
+///  - FRunSequence.cpp IsKnownSlotType (the dungeon loader's own slot-type check),
+///  - the FRunFlow gap branch (ContinueReward sets phase=Event and derives the event instance),
+///  - the phase/resume mapping (EDungeonPhase + RunModalIdForPhase + NormalizeResumedRunPhase, and the
+///    FRunFlowStateMap modal-host list when its host sits between modals),
+///  - plus its view and data. A type with its own progression or choice rules edits FRunFlow further.
 struct FRoomTypeTable {
     std::vector<FRoomTypeDef> types;
 };

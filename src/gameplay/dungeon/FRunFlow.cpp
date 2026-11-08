@@ -407,7 +407,21 @@ void NormalizeResumedRunPhase(entt::registry& registry) {
         // event — leave it so the result screen reopens (no second payment). An unresolved resume re-derives
         // the pick (same seed/depth/room/seen = same event) and stores it, so the choices screen and the
         // flow agree without waiting for a render.
-        if (registry.ctx().contains<FEventInstance>()) return;
+        if (const auto* restored = registry.ctx().find<FEventInstance>()) {
+            if (!restored->resolved || FindEventDef(registry, restored->eventId)) return;
+            // Content changed under a result-screen save: the resolved event left the catalog, so the view has
+            // no event to draw (and no Continue). The choice was already paid — never re-open choices; continue
+            // past the room exactly as the player's Continue would.
+            LOG_WARN("Saved event '{}' (depth {}, room {}) is no longer in the catalog; continuing past it.",
+                     restored->eventId, run->depth, run->room);
+            if (const auto result = ApplyRunIntent(registry, ERunIntent::ContinueEvent); !result) {
+                LOG_WARN("The saved event room could not be continued past: {}", result.error());
+                return;
+            }
+            // Same as the vanished-slot path below: the continue path enters ember.battle itself.
+            if (auto* current = registry.ctx().find<FDungeonRun>()) current->advanceRequested = false;
+            return;
+        }
         auto instance = CurrentEventInstance(registry);
         if (instance) {
             registry.ctx().emplace<FEventInstance>(std::move(*instance));
