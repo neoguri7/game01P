@@ -1,14 +1,21 @@
-// WP-32a passive tree v2: directed authoring graph + undirected allocation adjacency, repeatable rank
-// miners, either/or capstones, data-driven caps, save replay and the run-sizing simulations.
-// Asset roots (WP §6): mechanism tests use in-memory JSON documents (Doc1/Doc2 + Node/V1Node);
-// V1SchemaStillLoads reads the frozen fixture tests/fixtures/assets/data/passive-tree.json; the ship
-// content-lint tests read ShipAssetRoots (passive-tree.json + dungeon.json) and print EXP/points as
-// reports, never gates. Save isolation: GAME01P_SAVE_DIR falls back to out/test-saves/node_tree_tests.
+// WP-32a passive tree v2: graph/allocation/rank/exclusive/cap mechanics, save replay and run sizing.
+//
+// Asset roots (WP §6 asset-root table):
+//   * mechanism tests use the in-memory v2 document of MechanismDocument()/MechanismTree(); every
+//     expectation derives from the named k* constants above it, never from shipped balance data;
+//   * V1SchemaStillLoads reads the FROZEN fixture tests/fixtures/assets/data/passive-tree.json;
+//   * content-lint tests read the SHIP root (passive-tree.json + dungeon.json) and assert structure or
+//     data-derived bounds only — their EXP/point/cap lines are reports, never gates.
+//
+// Save isolation: build-test.ps1 sets GAME01P_SAVE_DIR for the whole run; a plain ctest or a direct run
+// would otherwise reach the user's real save under %APPDATA%, so main() falls back to
+// out/test-saves/node_tree_tests.
 
 #define GAME01P_TEST_SUPPORT_CHECK
 #include "../TestSupport.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -16,10 +23,12 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include <imgui.h>
@@ -37,6 +46,8 @@ namespace {
 
 using nlohmann::json;
 using game::FPassiveNode;
+using game::FPassiveStatBonuses;
+using game::FPassiveStatCaps;
 using game::FPassiveTree;
 
 // --- in-memory document builders ----------------------------------------------------------------
@@ -62,6 +73,40 @@ json MinimalV2() { return Doc2({Node("root", {"n.a"}), Node("n.a")}); }
 json WithRanks(json node, int ranks) { node["max_ranks"] = ranks; return node; }
 json WithGroup(json node, const std::string& group) { node["exclusive_group"] = group; return node; }
 
+// --- mechanism tree: a compact v2 replica of the ship topology, namespaced ids -------------------
+// m.root -> m.left, m.right; m.left -> m.hub; m.right -> m.mid -> m.hub (diamond: hub has two in-edges)
+// m.hub -> m.capA, m.capB (either/or), m.rep (repeatable), m.leaf. Every expectation below derives from
+// these constants, so shipped balance changes can never break a mechanism test.
+constexpr int kRepRanks = 3;
+constexpr int kRepHealth = 2;
+constexpr int kLeftAttack = 1;
+constexpr int kRightAttack = 1;
+constexpr int kMidHealth = 1;
+constexpr int kHubDefense = 1;
+constexpr int kCapAAttack = 2;
+constexpr int kCapBAttack = 2;
+constexpr int kLeafMagicAttack = 1;
+constexpr int kAttackCap = 2;                  // below kLeftAttack + kCapAAttack, so a legal pick clamps
+constexpr std::size_t kHubNeighbors = 6;       // 2 in-edges (left, mid) + 4 out-edges
+
+json MechanismDocument() {
+    return Doc2({Node("m.root", {"m.left", "m.right"}),
+                 Node("m.left", {"m.hub"}, Bonuses(0, kLeftAttack)),
+                 Node("m.right", {"m.mid"}, Bonuses(0, kRightAttack)),
+                 Node("m.mid", {"m.hub"}, Bonuses(kMidHealth, 0)),
+                 Node("m.hub", {"m.capA", "m.capB", "m.rep", "m.leaf"}, Bonuses(0, 0, 0, kHubDefense)),
+                 WithGroup(Node("m.capA", json::array(), Bonuses(0, kCapAAttack)), "m.pair"),
+                 WithGroup(Node("m.capB", json::array(), Bonuses(0, kCapBAttack)), "m.pair"),
+                 WithRanks(Node("m.rep", json::array(), Bonuses(kRepHealth, 0)), kRepRanks),
+                 Node("m.leaf", json::array(), Bonuses(0, 0, kLeafMagicAttack))},
+                {{"max_total_attack", kAttackCap}});
+}
+FPassiveTree MechanismTree() {
+    const auto loaded = FPassiveTree::Load(MechanismDocument());
+    CHECK(loaded.has_value());
+    return *loaded;
+}
+
 // --- ship data + sizing helpers (content-lint) --------------------------------------------------
 json ShipDocument() {
     const game::FAssetManager assets{ShipAssetRoots()};
@@ -83,6 +128,21 @@ FPassiveTree LoadFixtureTree() {
     CHECK(loaded.has_value());
     return *loaded;
 }
+
+bool HasEffect(const FPassiveNode& node) {
+    const auto& b = node.bonuses;
+    return b.maxHealth != 0 || b.attack != 0 || b.magicAttack != 0 || b.defense != 0
+        || b.magicDefense != 0 || b.speed != 0;
+}
+std::array<int, 6> StatValues(const FPassiveStatBonuses& bonuses) {
+    return {bonuses.maxHealth, bonuses.attack, bonuses.magicAttack,
+            bonuses.defense, bonuses.magicDefense, bonuses.speed};
+}
+std::array<std::optional<int>, 6> CapValues(const FPassiveStatCaps& caps) {
+    return {caps.maxHealth, caps.attack, caps.magicAttack, caps.defense, caps.magicDefense, caps.speed};
+}
+constexpr std::array<std::string_view, 6> kStatNames = {"health", "attack", "magic_attack",
+                                                        "defense", "magic_defense", "speed"};
 
 /// EXP sources come from the shipped data (never hard-coded): balance.room_experience x battle rooms.
 /// The curve mirrors FDungeonGrowth::ExperienceForNextLevel.
@@ -122,11 +182,6 @@ int PointsForExperience(const FShipSizing& sizing, int experience) {
     return points;
 }
 
-bool HasEffect(const FPassiveNode& node) {
-    const auto& b = node.bonuses;
-    return b.maxHealth != 0 || b.attack != 0 || b.magicAttack != 0 || b.defense != 0
-        || b.magicDefense != 0 || b.speed != 0;
-}
 /// Candidates = allocatable AND worth a point (non-zero bonus) — the simulation's spend definition.
 std::vector<std::string> Candidates(const FPassiveTree& tree, const std::vector<std::string>& allocated) {
     std::vector<std::string> candidates;
@@ -169,18 +224,9 @@ bool PathsToNotable(const FPassiveTree& tree, const std::vector<std::string>& al
     return false;
 }
 
-// --- save fixture ------------------------------------------------------------------------------
+// --- save fixtures ------------------------------------------------------------------------------
 struct FSaveEnv {
-    game::FAssetManager assets{ShipAssetRoots()};
-    FPassiveTree tree;
-    std::optional<game::gameplay::FContentRegistry> content;
-    game::FDungeonSaveRules rules;
-    FSaveEnv() {
-        const auto treeAsset = assets.digest("data/passive-tree");
-        CHECK(treeAsset != nullptr);
-        const auto loaded = FPassiveTree::Load(treeAsset->json());
-        CHECK(loaded.has_value());
-        tree = *loaded;
+    explicit FSaveEnv(FPassiveTree passiveTree) : tree(std::move(passiveTree)) {
         content = game::gameplay::FContentRegistry::load(assets);
         CHECK(content.has_value());
         rules.content = &*content;
@@ -190,6 +236,10 @@ struct FSaveEnv {
         CHECK(dungeon != nullptr);
         for (const auto& member : dungeon->json().at("party")) rules.partyIds.push_back(member.at("id").get<std::string>());
     }
+    game::FAssetManager assets{ShipAssetRoots()};
+    FPassiveTree tree;
+    std::optional<game::gameplay::FContentRegistry> content;
+    game::FDungeonSaveRules rules;
 };
 json SaveDocument(const std::vector<std::string>& allocated) {
     json member = {{"id", "party.warrior"}, {"display_name", "Alden / Warrior"}, {"health", -1},
@@ -233,22 +283,47 @@ private:
     ImGuiContext* context{nullptr};
 };
 
-// --- schema ------------------------------------------------------------------------------------
+// --- mechanism schema --------------------------------------------------------------------------
+void MechanismSchemaLoads() {
+    const FPassiveTree tree = MechanismTree();
+    CHECK(tree.caps.attack == kAttackCap);
+    CHECK(!tree.caps.maxHealth && !tree.caps.magicAttack && !tree.caps.defense
+          && !tree.caps.magicDefense && !tree.caps.speed);
+    const FPassiveNode* rep = tree.Find("m.rep");
+    const FPassiveNode* capA = tree.Find("m.capA");
+    const FPassiveNode* capB = tree.Find("m.capB");
+    const FPassiveNode* hub = tree.Find("m.hub");
+    CHECK(rep != nullptr && rep->maxRanks == kRepRanks);
+    CHECK(capA != nullptr && capA->exclusiveGroup == "m.pair");
+    CHECK(capB != nullptr && capB->exclusiveGroup == "m.pair");
+    CHECK(hub != nullptr && hub->neighbors.size() == kHubNeighbors);
+}
+
+// --- ship schema (content-lint: structure only, no balance literals) ----------------------------
 void V2SchemaLoads() {
+    const json document = ShipDocument();
+    CHECK(document.at("schema_version").get<int>() == 2);
     const FPassiveTree tree = LoadShipTree();
     CHECK(tree.nodes.size() == 22u);
-    CHECK(tree.rootNodeId == "node.origin");
-    CHECK(tree.caps.maxHealth == 30 && tree.caps.attack == 7 && tree.caps.magicAttack == 6);
-    CHECK(tree.caps.defense == 6 && tree.caps.magicDefense == 3 && tree.caps.speed == 4);
-    const FPassiveNode* tempered = tree.Find("node.tempered");
-    const FPassiveNode* warpath = tree.Find("node.warpath");
-    const FPassiveNode* wardpath = tree.Find("node.wardpath");
-    const FPassiveNode* zenith = tree.Find("node.zenith");
-    CHECK(tempered != nullptr && tempered->maxRanks == 5);
-    CHECK(warpath != nullptr && warpath->exclusiveGroup == "capstone.doctrine");
-    CHECK(wardpath != nullptr && wardpath->exclusiveGroup == "capstone.doctrine");
-    CHECK(zenith != nullptr && zenith->neighbors.size() == 8u);  // 4 out-edges + 4 in-edges
+    CHECK(!tree.rootNodeId.empty());
+    const FPassiveNode* root = tree.Find(tree.rootNodeId);
+    CHECK(root != nullptr && !HasEffect(*root));
+    int allocatable = 0;
+    bool repeatable = false;
+    std::map<std::string, int> groupSizes;
+    std::map<std::string, int> inDegrees;
+    for (const FPassiveNode& node : tree.nodes) {
+        if (node.id != tree.rootNodeId) ++allocatable;
+        if (node.maxRanks > 1) repeatable = true;
+        if (!node.exclusiveGroup.empty()) ++groupSizes[node.exclusiveGroup];
+        for (const std::string& next : node.next) ++inDegrees[next];
+    }
+    CHECK(allocatable == 21);
+    CHECK(repeatable);
+    CHECK(std::ranges::any_of(groupSizes, [](const auto& group) { return group.second >= 2; }));
+    CHECK(std::ranges::any_of(inDegrees, [](const auto& entry) { return entry.second >= 2; }));
 }
+
 void V1SchemaStillLoads() {
     const FPassiveTree tree = LoadFixtureTree();
     CHECK(tree.nodes.size() == 9u);
@@ -283,10 +358,11 @@ void UndirectedReachabilityRequired() {
     CHECK(FPassiveTree::Load(Doc2({Node("root", {"n.a"}), Node("n.a")})).has_value());
 }
 void DiamondAllowsEitherPath() {
-    const FPassiveTree tree = LoadShipTree();
-    CHECK(tree.CanAllocate({"node.might", "node.swiftstep"}, "node.zenith"));
-    CHECK(tree.CanAllocate({"node.vitality", "node.precision", "node.conflagration"}, "node.zenith"));
-    CHECK(!tree.CanAllocate({"node.vitality", "node.precision"}, "node.zenith"));
+    const FPassiveTree tree = MechanismTree();
+    CHECK(tree.CanAllocate({"m.left"}, "m.hub"));
+    CHECK(tree.CanAllocate({"m.right", "m.mid"}, "m.hub"));
+    CHECK(!tree.CanAllocate({}, "m.hub"));
+    CHECK(!tree.CanAllocate({"m.right"}, "m.hub"));
 }
 void ExclusiveGroupNeedsTwoMembers() {
     CHECK(!FPassiveTree::Load(Doc2({Node("root", {"n.a"}), WithGroup(Node("n.a"), "solo")})).has_value());
@@ -327,7 +403,7 @@ void CapsValidated() {
           && !loaded->caps.magicDefense && !loaded->caps.speed);
 }
 
-// --- allocation --------------------------------------------------------------------------------
+// --- allocation (mechanism tree) ---------------------------------------------------------------
 void AdjacentOnlyAcrossGraph() {
     const auto loaded = FPassiveTree::Load(Doc2({Node("n.root", {"n.a", "n.c"}), Node("n.a", {"n.b"}),
                                                  Node("n.c", {"n.b"}), Node("n.b", {"n.d"}), Node("n.d")}));
@@ -338,101 +414,134 @@ void AdjacentOnlyAcrossGraph() {
     CHECK(loaded->CanAllocate({"n.c", "n.b"}, "n.d"));
 }
 void RootNotAllocatable() {
-    const FPassiveTree tree = LoadShipTree();
-    CHECK(!tree.CanAllocate({}, "node.origin"));
-    CHECK(!tree.CanAllocate({"node.might"}, "node.origin"));
+    const FPassiveTree tree = MechanismTree();
+    CHECK(!tree.CanAllocate({}, "m.root"));
+    CHECK(!tree.CanAllocate({"m.left"}, "m.root"));
 }
 void RepeatableUntilRankCap() {
-    const FPassiveTree tree = LoadShipTree();
-    std::vector<std::string> allocated = {"node.might", "node.swiftstep", "node.zenith"};
-    for (int rank = 0; rank < 5; ++rank) {
-        CHECK(tree.CanAllocate(allocated, "node.tempered"));
-        allocated.push_back("node.tempered");
+    const FPassiveTree tree = MechanismTree();
+    std::vector<std::string> allocated = {"m.left", "m.hub"};
+    for (int rank = 0; rank < kRepRanks; ++rank) {
+        CHECK(tree.CanAllocate(allocated, "m.rep"));
+        allocated.push_back("m.rep");
     }
 }
 void RepeatableStopsAtMaxRanks() {
-    const FPassiveTree tree = LoadShipTree();
-    std::vector<std::string> allocated = {"node.might", "node.swiftstep", "node.zenith"};
-    for (int rank = 0; rank < 5; ++rank) allocated.push_back("node.tempered");
-    CHECK(!tree.CanAllocate(allocated, "node.tempered"));
-    CHECK(!tree.CanAllocate({"node.might"}, "node.might"));  // max_ranks 1, held once
+    const FPassiveTree tree = MechanismTree();
+    std::vector<std::string> allocated = {"m.left", "m.hub"};
+    for (int rank = 0; rank < kRepRanks; ++rank) allocated.push_back("m.rep");
+    CHECK(!tree.CanAllocate(allocated, "m.rep"));
+    CHECK(!tree.CanAllocate({"m.left"}, "m.left"));  // max_ranks 1, held once
 }
 void ExclusiveBlocksBothDirections() {
-    const FPassiveTree tree = LoadShipTree();
-    const std::vector<std::string> withWarpath = {"node.might", "node.swiftstep", "node.zenith", "node.warpath"};
-    CHECK(!tree.CanAllocate(withWarpath, "node.wardpath"));
-    const FPassiveNode* forward = game::PassiveExclusiveConflict(tree.nodes, withWarpath, "node.wardpath");
-    CHECK(forward != nullptr && forward->id == "node.warpath");
-    const std::vector<std::string> withWardpath = {"node.vitality", "node.precision", "node.conflagration",
-                                                   "node.zenith", "node.wardpath"};
-    CHECK(!tree.CanAllocate(withWardpath, "node.warpath"));
-    const FPassiveNode* backward = game::PassiveExclusiveConflict(tree.nodes, withWardpath, "node.warpath");
-    CHECK(backward != nullptr && backward->id == "node.wardpath");
+    const FPassiveTree tree = MechanismTree();
+    const std::vector<std::string> withCapA = {"m.left", "m.hub", "m.capA"};
+    CHECK(!tree.CanAllocate(withCapA, "m.capB"));
+    const FPassiveNode* forward = game::PassiveExclusiveConflict(tree.nodes, withCapA, "m.capB");
+    CHECK(forward != nullptr && forward->id == "m.capA");
+    const std::vector<std::string> withCapB = {"m.left", "m.hub", "m.capB"};
+    CHECK(!tree.CanAllocate(withCapB, "m.capA"));
+    const FPassiveNode* backward = game::PassiveExclusiveConflict(tree.nodes, withCapB, "m.capA");
+    CHECK(backward != nullptr && backward->id == "m.capB");
 }
 void ExclusiveAbsentInOldSaves() {
-    const FPassiveTree tree = LoadShipTree();
-    const std::vector<std::string> old = {"node.might", "node.swiftstep"};
-    CHECK(game::PassiveExclusiveConflict(tree.nodes, old, "node.warpath") == nullptr);
-    CHECK(game::PassiveExclusiveConflict(tree.nodes, old, "node.wardpath") == nullptr);
+    const FPassiveTree tree = MechanismTree();
+    const std::vector<std::string> old = {"m.left", "m.hub"};  // no member of the pair held
+    CHECK(game::PassiveExclusiveConflict(tree.nodes, old, "m.capA") == nullptr);
+    CHECK(game::PassiveExclusiveConflict(tree.nodes, old, "m.capB") == nullptr);
     const FPassiveTree fixture = LoadFixtureTree();
     CHECK(std::ranges::all_of(fixture.nodes, [](const FPassiveNode& node) { return node.exclusiveGroup.empty(); }));
 }
 void RanksCountTwice() {
-    const FPassiveTree tree = LoadShipTree();
-    CHECK(tree.Bonuses({"node.might", "node.swiftstep", "node.zenith", "node.tempered", "node.tempered"}).maxHealth == 4);
+    const FPassiveTree tree = MechanismTree();
+    CHECK(tree.Bonuses({"m.left", "m.hub", "m.rep", "m.rep"}).maxHealth == 2 * kRepHealth);
 }
 void CapsClampTotals() {
-    const auto loaded = FPassiveTree::Load(Doc2({Node("root", {"n.a", "n.b", "n.c", "n.hp"}),
-                                                 Node("n.a", json::array(), Bonuses(0, 1)),
-                                                 Node("n.b", json::array(), Bonuses(0, 1)),
-                                                 Node("n.c", json::array(), Bonuses(0, 1)),
-                                                 Node("n.hp", json::array(), Bonuses(3, 0))},
-                                                {{"max_total_attack", 2}}));
-    CHECK(loaded.has_value());
-    const auto bonuses = loaded->Bonuses({"n.a", "n.b", "n.c", "n.hp"});
-    CHECK(bonuses.attack == 2);     // clamped
-    CHECK(bonuses.maxHealth == 3);  // no cap on health
+    const FPassiveTree tree = MechanismTree();
+    // A legal pickup whose raw attack sum exceeds kAttackCap; health has no cap and sums freely.
+    const auto bonuses = tree.Bonuses({"m.left", "m.hub", "m.mid", "m.rep", "m.rep", "m.capA"});
+    CHECK(bonuses.attack == kAttackCap);
+    CHECK(bonuses.maxHealth == kMidHealth + 2 * kRepHealth);
 }
 void CapsAreDataDriven() {
-    json document = ShipDocument();
+    json document = MechanismDocument();
     const auto original = FPassiveTree::Load(document);
     CHECK(original.has_value());
-    CHECK(original->Bonuses({"node.might", "node.precision"}).attack == 2);
+    CHECK(original->Bonuses({"m.left", "m.hub", "m.capA"}).attack == kAttackCap);  // clamped
     document["caps"]["max_total_attack"] = 1;
     const auto lowered = FPassiveTree::Load(document);
     CHECK(lowered.has_value());
-    CHECK(lowered->Bonuses({"node.might", "node.precision"}).attack == 1);
+    CHECK(lowered->Bonuses({"m.left", "m.hub", "m.capA"}).attack == 1);
+    document["caps"]["max_total_attack"] = kLeftAttack + kCapAAttack;
+    const auto raised = FPassiveTree::Load(document);
+    CHECK(raised.has_value());
+    CHECK(raised->Bonuses({"m.left", "m.hub", "m.capA"}).attack == kLeftAttack + kCapAAttack);
 }
 
-// --- save --------------------------------------------------------------------------------------
+// --- save replay --------------------------------------------------------------------------------
 void OldSaveUniqueIdsLoad() {
-    FSaveEnv env;
+    FSaveEnv env{LoadShipTree()};  // about old shipped ids, so it stays on the ship tree
     const auto loaded = game::DungeonRunFromJson(SaveDocument({"node.might", "node.swiftstep"}), env.rules);
     CHECK(loaded.has_value());
     CHECK((loaded->party[0].allocatedNodes == std::vector<std::string>{"node.might", "node.swiftstep"}));
 }
 void RepeatableSaveRoundTrip() {
-    FSaveEnv env;
-    const std::vector<std::string> list = {"node.might", "node.swiftstep", "node.zenith",
-                                           "node.tempered", "node.tempered", "node.tempered"};
+    FSaveEnv env{MechanismTree()};
+    std::vector<std::string> list = {"m.left", "m.hub"};
+    for (int rank = 0; rank < kRepRanks; ++rank) list.push_back("m.rep");
     const auto loaded = game::DungeonRunFromJson(SaveDocument(list), env.rules);
     CHECK(loaded.has_value());
-    CHECK(loaded->party[0].allocatedNodes == list);
+    CHECK((loaded->party[0].allocatedNodes == list));
     const auto reloaded = game::DungeonRunFromJson(game::DungeonRunToJson(*loaded), env.rules);
     CHECK(reloaded.has_value());
-    CHECK(reloaded->party[0].allocatedNodes == list);
+    CHECK((reloaded->party[0].allocatedNodes == list));
 }
 void IllegalOrderRejected() {
-    FSaveEnv env;
-    const auto loaded = game::DungeonRunFromJson(SaveDocument({"node.swiftstep", "node.might"}), env.rules);
+    FSaveEnv env{MechanismTree()};
+    // First entry has no allocated (or root) neighbor, so its position is illegal.
+    const auto loaded = game::DungeonRunFromJson(SaveDocument({"m.hub", "m.left"}), env.rules);
     CHECK(!loaded.has_value());
     CHECK(loaded.error().contains("allocated_nodes"));
 }
 void UnknownNodeRejected() {
-    FSaveEnv env;
-    const auto loaded = game::DungeonRunFromJson(SaveDocument({"node.ghost"}), env.rules);
+    FSaveEnv env{MechanismTree()};
+    const auto loaded = game::DungeonRunFromJson(SaveDocument({"m.ghost"}), env.rules);
     CHECK(!loaded.has_value());
     CHECK(loaded.error().contains("allocated_nodes"));
+}
+void SaveAcceptsChildBeforeParentWhenAdjacent() {
+    FSaveEnv env{MechanismTree()};
+    // hub (child of mid) precedes mid, and mid precedes right — undirected adjacency still allows it.
+    const std::vector<std::string> list = {"m.left", "m.hub", "m.mid", "m.right"};
+    const auto loaded = game::DungeonRunFromJson(SaveDocument(list), env.rules);
+    CHECK(loaded.has_value());
+    CHECK((loaded->party[0].allocatedNodes == list));
+}
+void SaveRejectsDuplicateSingleRankNode() {
+    FSaveEnv env{MechanismTree()};
+    const auto loaded = game::DungeonRunFromJson(SaveDocument({"m.left", "m.left"}), env.rules);
+    CHECK(!loaded.has_value());
+    CHECK(loaded.error().contains("allocated_nodes"));
+}
+void SaveRejectsRanksBeyondMax() {
+    FSaveEnv env{MechanismTree()};
+    std::vector<std::string> beyond = {"m.left", "m.hub"};
+    for (int rank = 0; rank <= kRepRanks; ++rank) beyond.push_back("m.rep");  // one rank too many
+    const auto rejected = game::DungeonRunFromJson(SaveDocument(beyond), env.rules);
+    CHECK(!rejected.has_value());
+    CHECK(rejected.error().contains("allocated_nodes"));
+    std::vector<std::string> exact = {"m.left", "m.hub"};  // positive control: exactly max ranks loads
+    for (int rank = 0; rank < kRepRanks; ++rank) exact.push_back("m.rep");
+    CHECK(game::DungeonRunFromJson(SaveDocument(exact), env.rules).has_value());
+}
+void SaveRejectsBothExclusiveMembers() {
+    FSaveEnv env{MechanismTree()};
+    for (const auto& order : {std::vector<std::string>{"m.left", "m.hub", "m.capA", "m.capB"},
+                              std::vector<std::string>{"m.left", "m.hub", "m.capB", "m.capA"}}) {
+        const auto loaded = game::DungeonRunFromJson(SaveDocument(order), env.rules);
+        CHECK(!loaded.has_value());
+        CHECK(loaded.error().contains("allocated_nodes"));
+    }
 }
 void RespecReturnsRepeats() {
     game_test::FTestRegistry loaded = game_test::LoadTestRegistry(ShipAssetRoots(), SavePath("respec"));
@@ -460,6 +569,28 @@ void EveryAllocatableNodeHasEffect() {
         CHECK(HasEffect(node));
     }
     CHECK(allocatable == 21);
+}
+void ShipCapsAboveReachableMax() {
+    const FPassiveTree tree = LoadShipTree();
+    const auto caps = CapValues(tree.caps);
+    for (std::size_t stat = 0; stat < caps.size(); ++stat) {
+        if (!caps[stat]) continue;
+        std::map<std::string, int> groupMax;  // one member per either/or group at most
+        int reachable = 0;
+        for (const FPassiveNode& node : tree.nodes) {
+            if (node.id == tree.rootNodeId) continue;
+            const int value = StatValues(node.bonuses)[stat] * node.maxRanks;
+            if (node.exclusiveGroup.empty()) {
+                reachable += value;
+            } else {
+                groupMax[node.exclusiveGroup] = std::max(groupMax[node.exclusiveGroup], value);
+            }
+        }
+        for (const auto& entry : groupMax) reachable += entry.second;
+        std::cout << "  [report] cap " << kStatNames[stat] << ": reachable max " << reachable
+                  << " <= cap " << *caps[stat] << "\n";
+        CHECK(*caps[stat] >= reachable);
+    }
 }
 void CycleOneNotSaturated() {
     const FShipSizing sizing = ReadShipSizing();
@@ -499,14 +630,14 @@ void NotablePathCandidateAfterLevelFive() {
         }
     }
 }
-void TemperedSoakThenExcluded() {
-    const FPassiveTree tree = LoadShipTree();
-    std::vector<std::string> allocated = {"node.might", "node.swiftstep", "node.zenith"};
-    for (int rank = 0; rank < 5; ++rank) {
-        CHECK(tree.CanAllocate(allocated, "node.tempered"));
-        allocated.push_back("node.tempered");
+void RepeatableSoakThenExcluded() {
+    const FPassiveTree tree = MechanismTree();
+    std::vector<std::string> allocated = {"m.left", "m.hub"};
+    for (int rank = 0; rank < kRepRanks; ++rank) {
+        CHECK(tree.CanAllocate(allocated, "m.rep"));
+        allocated.push_back("m.rep");
     }
-    CHECK(!tree.CanAllocate(allocated, "node.tempered"));
+    CHECK(!tree.CanAllocate(allocated, "m.rep"));
     CHECK(Candidates(tree, allocated).size() >= 2);
 }
 
@@ -543,6 +674,7 @@ int main() {
 #endif
     }
     return game_test::RunTests("node_tree", {
+        {"MechanismSchemaLoads", MechanismSchemaLoads},
         {"V2SchemaLoads", V2SchemaLoads},
         {"V1SchemaStillLoads", V1SchemaStillLoads},
         {"DirectedGraphAcyclic", DirectedGraphAcyclic},
@@ -564,12 +696,17 @@ int main() {
         {"RepeatableSaveRoundTrip", RepeatableSaveRoundTrip},
         {"IllegalOrderRejected", IllegalOrderRejected},
         {"UnknownNodeRejected", UnknownNodeRejected},
+        {"SaveAcceptsChildBeforeParentWhenAdjacent", SaveAcceptsChildBeforeParentWhenAdjacent},
+        {"SaveRejectsDuplicateSingleRankNode", SaveRejectsDuplicateSingleRankNode},
+        {"SaveRejectsRanksBeyondMax", SaveRejectsRanksBeyondMax},
+        {"SaveRejectsBothExclusiveMembers", SaveRejectsBothExclusiveMembers},
         {"RespecReturnsRepeats", RespecReturnsRepeats},
         {"EveryAllocatableNodeHasEffect", EveryAllocatableNodeHasEffect},
+        {"ShipCapsAboveReachableMax", ShipCapsAboveReachableMax},
         {"CycleOneNotSaturated", CycleOneNotSaturated},
         {"LevelUpCandidatesAtLeastTwo", LevelUpCandidatesAtLeastTwo},
         {"NotablePathCandidateAfterLevelFive", NotablePathCandidateAfterLevelFive},
-        {"TemperedSoakThenExcluded", TemperedSoakThenExcluded},
+        {"RepeatableSoakThenExcluded", RepeatableSoakThenExcluded},
         {"PanelDrawSmoke", PanelDrawSmoke},
     });
 }
