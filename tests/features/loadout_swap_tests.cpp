@@ -3,10 +3,15 @@
 // duplicate refusal, the next battle's loadout, save/continue, the free cost, the four active slots, the
 // camp host glue (ApplyCampLoadoutEdit) and the pure display panel (DrawLoadoutPanel).
 //
-// Boot: the SHIPPED content (the real 4-slot pools and the shipped unlocks.json gates) with every writable
-// file — checkpoint, run save, meta save — under a per-case scratch root. Rules cases may open the camp
-// phase directly; the next-battle, save and camp-modal cases walk the real run flow. Expectations are
-// derived from the loaded data (pools, MemberActiveSkillSlots), never from balance constants.
+// Content: the FROZEN FIXTURE plus a temp overlay — roots {scratch, tests/fixtures/assets, assets}, with a
+// units.json derived from the fixture written into the scratch root. A shipped rename, retune or pool trim
+// therefore never moves this suite. The fixture's three-skill pools cannot fill the four-slot contract and
+// author no gated skill, so SwapUnitsOverlay() widens each party unit from the fixture tables only. ONE
+// case (ShipPoolsFillActiveSlots) reads the SHIPPED content on purpose: the shipped pools must keep filling
+// the camp panel's active slots. Every writable file — checkpoint, run save, meta save — lives under the
+// per-case scratch root. Rules cases may open the camp phase directly; the next-battle, save and camp-modal
+// cases walk the real run flow. Expectations are derived from the loaded data (pools, slots, rune tags),
+// never from balance constants.
 
 #define GAME01P_TEST_SUPPORT_CHECK
 #include "../TestSupport.h"
@@ -92,6 +97,13 @@ std::string ReadTextFile(const std::filesystem::path& path) {
 
 json ReadJsonFile(const std::filesystem::path& path) { return json::parse(ReadTextFile(path)); }
 
+void WriteJsonFile(const std::filesystem::path& path, const json& document) {
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    CHECK(file.good());
+    file << document.dump(2);
+    CHECK(file.good());
+}
+
 std::string ReadBytes(const std::string& path) {
     std::ifstream file(path, std::ios::binary);
     CHECK(file.good());
@@ -117,14 +129,78 @@ struct FScratchRoot {
     FScratchRoot& operator=(const FScratchRoot&) = delete;
 };
 
-/// The shipped content world with an isolated checkpoint/save/meta store. Shipped (not the frozen fixture):
-/// the real 4-slot unit pools and the shipped unlocks.json gate rows are the subject of the pool tests.
+/// The fixture's party pools are widened from the FIXTURE tables only (no shipped gameplay file is read):
+/// its three-skill warrior/archer/healer pools cannot fill the four active slots, a swap needs candidates
+/// beyond the default loadout, and the locked-skill case needs an authored gated row. Per party unit: the
+/// authored fixture skills in order, then fixture skills.json ids in catalog order that are not already in
+/// the list and carry no unlock row, until the UNGATED count reaches the slot contract + 2, then the first
+/// authored kind=skill unlock row LAST (today skill.shackle — skill.hook is not a fixture skill).
+json SwapUnitsOverlay() {
+    const json fixtureUnits = ReadJsonFile(FixtureDataPath("units.json"));
+    const json fixtureSkills = ReadJsonFile(FixtureDataPath("skills.json"));
+    const json fixtureDungeon = ReadJsonFile(FixtureDataPath("dungeon.json"));
+    const json fixtureUnlocks = ReadJsonFile(FixtureDataPath("unlocks.json"));
+
+    std::vector<std::string> skillCatalog;
+    for (const json& row : fixtureSkills.at("skills")) skillCatalog.push_back(row.at("id").get<std::string>());
+    std::vector<std::string> partyUnits;
+    for (const json& row : fixtureDungeon.at("party")) partyUnits.push_back(row.at("unit").get<std::string>());
+
+    std::vector<std::string> unlockIds;     // every unlock target: a row here means the id is gated
+    std::string gatedSkill;                 // the first kind=skill row the skills table authors
+    for (const json& row : fixtureUnlocks.at("unlocks")) {
+        const std::string id = row.at("id").get<std::string>();
+        unlockIds.push_back(id);
+        if (gatedSkill.empty() && row.at("kind").get<std::string>() == "skill" &&
+            std::ranges::find(skillCatalog, id) != skillCatalog.end()) {
+            gatedSkill = id;
+        }
+    }
+    CHECK(!gatedSkill.empty());
+
+    const std::size_t requiredUngated = static_cast<std::size_t>(game::kBaseActiveSkillSlots) + 2;
+    json units = fixtureUnits;
+    for (json& unitRow : units.at("units")) {
+        if (std::ranges::find(partyUnits, unitRow.at("id").get<std::string>()) == partyUnits.end()) continue;
+        std::vector<std::string> skills;
+        for (const json& skillId : unitRow.at("skills")) skills.push_back(skillId.get<std::string>());
+        std::size_t ungated = 0;
+        for (const std::string& skillId : skills) {
+            if (std::ranges::find(unlockIds, skillId) == unlockIds.end()) ++ungated;
+        }
+        for (const std::string& candidate : skillCatalog) {
+            if (ungated >= requiredUngated) break;
+            if (std::ranges::find(skills, candidate) != skills.end()) continue;
+            if (std::ranges::find(unlockIds, candidate) != unlockIds.end()) continue;
+            skills.push_back(candidate);
+            ++ungated;
+        }
+        CHECK(ungated >= requiredUngated);
+        if (std::ranges::find(skills, gatedSkill) == skills.end()) skills.push_back(gatedSkill);
+        unitRow["skills"] = skills;
+    }
+    return units;
+}
+
+/// Which content world a case boots.
+enum class ESwapContent { Fixture, Shipped };
+
+/// A booted registry with an isolated checkpoint/save/meta store. Fixture (the default) = the frozen fixture
+/// plus the derived units overlay, so gameplay expectations never move with shipped balance data; Shipped =
+/// the shipped content only, for the single pool-shape case.
 struct FSwapBoot {
     FScratchRoot scratch;  // declared first: destroyed last, after the registry released its files
     entt::registry registry;
 
-    explicit FSwapBoot(const char* stem) : scratch(stem) {
-        std::vector<std::string> roots{scratch.root.string(), kShipAssetRoot};
+    explicit FSwapBoot(const char* stem, ESwapContent content = ESwapContent::Fixture) : scratch(stem) {
+        std::vector<std::string> roots{scratch.root.string()};
+        if (content == ESwapContent::Fixture) {
+            // A per-file lookup: the scratch root shadows the fixture's units.json, every other gameplay
+            // table still comes from the fixture and the ship root supplies presentation data only.
+            WriteJsonFile(scratch.root / "data" / "units.json", SwapUnitsOverlay());
+            roots.push_back(kTestFixtureRoot);
+        }
+        for (const std::string& root : ShipAssetRoots()) roots.push_back(root);
         game::FAssetManager::Initialize(registry, std::move(roots));
         CHECK(game::gameplay::FGameplayServices::Initialize(registry));
         CHECK(game::InitializeDungeon(registry, (scratch.root / "checkpoint.json").string()));
@@ -165,7 +241,7 @@ void WalkToCamp(FSwapBoot& boot) {
             continue;
         }
         if (run.phase == game::EDungeonPhase::Reward) {
-            (void)game::ResolveRuneOffer(boot.registry, -1);  // the shipped chance may not have opened one
+            (void)game::ResolveRuneOffer(boot.registry, -1);  // the frozen offer table decides; none is fine
             CHECK(game::ApplyRunIntent(boot.registry, game::ERunIntent::ContinueReward).has_value());
             continue;
         }
@@ -209,6 +285,18 @@ std::size_t RuneTotal(const game::FDungeonRun& run) {
         for (const game::FSkillSlot& slot : member.skills) total += slot.runeIds.size();
     }
     return total;
+}
+
+/// Runes with no tag requirement and no exclusion: legal on every skill, so a case can fit them without
+/// pinning any skill's tags. Catalog order; the frozen fixture carries three.
+std::vector<std::string> UnconditionalRunes(entt::registry& registry) {
+    const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
+    std::vector<std::string> runes;
+    for (const game::gameplay::FRuneContent& rune : content.runes.rows) {
+        if (!rune.requiresAllTags.empty() || !rune.requiresAnyTags.empty() || !rune.excludesTags.empty()) continue;
+        runes.push_back(rune.id);
+    }
+    return runes;
 }
 
 const game::FLoadoutMemberView* FindMemberView(const std::vector<game::FLoadoutMemberView>& members,
@@ -402,8 +490,8 @@ void CampSwapCannotPickLockedSkill() {
     StartCamp(boot);
     game::FDungeonRun& run = boot.run();
 
-    // Derive the locked skill from the shipped catalog: a kind=skill unlock row that this party member's
-    // unit authors (for party.warrior that is skill.hook — never hard-coded here).
+    // Derive the locked skill from the fixture catalog crossed with the authored pool: a kind=skill unlock
+    // row that this party member's unit authors (today skill.shackle for party.warrior — never hard-coded).
     std::size_t memberIndex = run.party.size();
     std::string locked;
     for (std::size_t i = 0; i < run.party.size() && locked.empty(); ++i) {
@@ -455,7 +543,9 @@ void SwapReturnsRunesToPool() {
     game::FDungeonRun& run = boot.run();
 
     // Fit three universally legal runes into slot 0 through the real camp API.
-    run.runes = {"rune.power", "rune.swift", "rune.range"};
+    const std::vector<std::string> runes = UnconditionalRunes(registry);
+    CHECK(runes.size() >= 3);
+    run.runes = {runes[0], runes[1], runes[2]};
     for (int fitted = 0; fitted < 3; ++fitted) {
         const auto error = game::EquipDungeonRune(registry, 0, 0, 0);
         CHECK(!error.has_value());
@@ -491,7 +581,9 @@ void SwapSameSkillRejected() {
     game::FDungeonRun& run = boot.run();
 
     // Give the slot a fitted rune so the refusal is visibly not a no-op that unsticks it.
-    run.runes = {"rune.power"};
+    const std::vector<std::string> runes = UnconditionalRunes(registry);
+    CHECK(!runes.empty());
+    run.runes = {runes[0]};
     CHECK(!game::EquipDungeonRune(registry, 0, 1, 0).has_value());
     CHECK(run.party[0].skills[1].runeIds.size() == 1);
     const std::string current = run.party[0].skills[1].skillId;
@@ -569,7 +661,10 @@ void SwapSaveRoundTrip() {
     CHECK(run.phase == game::EDungeonPhase::Camp);
 
     // One fitted rune returns to the collected pool with the swap, and both must survive the save.
-    run.runes = {"rune.power"};
+    const std::vector<std::string> runes = UnconditionalRunes(registry);
+    CHECK(!runes.empty());
+    const std::string returnedRune = runes[0];
+    run.runes = {returnedRune};
     CHECK(!game::EquipDungeonRune(registry, 0, 0, 0).has_value());
     CHECK(run.party[0].skills[0].runeIds.size() == 1);
     const std::string candidate = SwapCandidate(registry, run, 0);
@@ -589,7 +684,7 @@ void SwapSaveRoundTrip() {
     }
     CHECK(memberFound);
     CHECK(document.at("run").at("runes").size() == 1);
-    CHECK(document.at("run").at("runes").at(0).get<std::string>() == "rune.power");
+    CHECK(document.at("run").at("runes").at(0).get<std::string>() == returnedRune);
 
     // Continue re-validates every slot through SkillsFromJson: the swapped slot loads, the rune is collected.
     registry.ctx().erase<game::FDungeonRun>();
@@ -598,7 +693,7 @@ void SwapSaveRoundTrip() {
     CHECK(resumed.phase == game::EDungeonPhase::Camp);
     CHECK(resumed.party[0].skills[0].skillId == candidate);
     CHECK(resumed.party[0].skills[0].runeIds.empty());
-    CHECK(std::ranges::find(resumed.runes, "rune.power") != resumed.runes.end());
+    CHECK(std::ranges::find(resumed.runes, returnedRune) != resumed.runes.end());
 }
 
 void SwapIsFree() {
@@ -755,8 +850,17 @@ void CampPanelDrivesSwap() {
     CHECK(!run.message.empty());
     CHECK(selection.member == 1 && selection.slot == 2);  // a successful swap keeps the selection
 
-    // A refused request reports the reason and prefixes the run message.
-    const std::string rejected = run.party[0].skills[0].skillId;  // a warrior skill, not the archer's
+    // A refused request reports the reason and prefixes the run message. The overlay authors class-foreign
+    // ids into every pool, so derive a skill outside THIS member's pool instead of borrowing another's.
+    const std::vector<std::string> pool = game::MemberSkillPool(registry, run.party[1].id);
+    std::string rejected;
+    for (const game::gameplay::FSkillContent& row : content.skills.rows) {
+        if (std::ranges::find(pool, row.id) == pool.end()) {
+            rejected = row.id;
+            break;
+        }
+    }
+    CHECK(!rejected.empty());
     const auto refusal = game::ApplyCampLoadoutEdit(registry, selection, game::FLoadoutEdit{1, 2, rejected});
     CHECK(refusal.has_value());
     CHECK(*refusal == "That skill is not in this member's pool.");
@@ -787,7 +891,7 @@ void PanelIsDisplayOnly() {
 
 void MemberSkillPoolMatchesPreparation() {
     FSwapBoot boot("swap-pool-preparation");
-    CHECK(boot.InitMeta());  // the gates as the shipped game sees them
+    CHECK(boot.InitMeta());  // the frozen fixture's unlock gates, as the real boot sees them
     StartCamp(boot);
     entt::registry& registry = boot.registry;
     game::FDungeonRun& run = boot.run();
@@ -828,6 +932,30 @@ void MemberSkillPoolMatchesPreparation() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// The shipped pool shape — the ONLY case that reads the shipped content. The camp panel's pool is a
+// shipped-game promise: every default party member must fill its active slots (the shape the roster boot
+// validation enforces), so a content edit that trims a pool fails here instead of silently starving the
+// camp panel. Every other case in this suite is pinned to the frozen fixture.
+// ---------------------------------------------------------------------------------------------
+
+void ShipPoolsFillActiveSlots() {
+    FSwapBoot boot("swap-ship-pools", ESwapContent::Shipped);
+    CHECK(boot.InitMeta());
+    const game::FPreparationDraft draft =
+        game::MakeDefaultDraft(boot.registry, game::FRunStartRequest{true, -1});
+    CHECK(draft.setup.party.size() == game::kRunPartySize);
+    for (const std::string& memberId : draft.setup.party) {
+        const int slots = game::MemberActiveSkillSlots(boot.registry, memberId);
+        const std::vector<std::string> pool = game::MemberSkillPool(boot.registry, memberId);
+        if (static_cast<int>(pool.size()) < slots) {
+            std::cout << "[report] shipped pool " << memberId << " holds " << pool.size() << " of " << slots
+                      << " active slots\n";
+        }
+        CHECK(static_cast<int>(pool.size()) >= slots);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Rune sockets stay skill-bound across several swaps
 // ---------------------------------------------------------------------------------------------
 
@@ -838,7 +966,9 @@ void RuneSocketsStaySkillBound() {
     game::FDungeonRun& run = boot.run();
 
     // Fit one rune into slot 0 of three members.
-    run.runes = {"rune.power", "rune.swift", "rune.range"};
+    const std::vector<std::string> runes = UnconditionalRunes(registry);
+    CHECK(runes.size() >= 3);
+    run.runes = {runes[0], runes[1], runes[2]};
     for (std::size_t member = 0; member < 3; ++member) {
         CHECK(!game::EquipDungeonRune(registry, member, 0, 0).has_value());
         CHECK(run.party[member].skills[0].runeIds.size() == 1);
@@ -928,6 +1058,7 @@ int main() {
         {"CampPanelDrivesSwap", CampPanelDrivesSwap},
         {"PanelIsDisplayOnly", PanelIsDisplayOnly},
         {"MemberSkillPoolMatchesPreparation", MemberSkillPoolMatchesPreparation},
+        {"ShipPoolsFillActiveSlots", ShipPoolsFillActiveSlots},
         {"RuneSocketsStaySkillBound", RuneSocketsStaySkillBound},
         {"CampModalShowsLoadoutPanel", CampModalShowsLoadoutPanel},
     });
