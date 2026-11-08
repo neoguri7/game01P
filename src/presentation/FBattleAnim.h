@@ -97,8 +97,19 @@ struct FActiveEffect {
     bool ground{false};
 };
 
+/// One floating damage number on the field, spawned where a blow really landed. Scope is the target's own
+/// healthBefore→healthAfter delta only: HP changes from hooks (leech heals the caster) are not in that
+/// delta and get no pop (WP-12, W6 ★13 — recorded follow-up).
+struct FDamagePop {
+    glm::vec2 at{};          // cell coordinates (fractional, like FActiveEffect)
+    int damage{0};
+    float age{0.f};
+    float lifetime{.8f};
+};
+
 struct FBattleEffects {
     std::vector<FActiveEffect> active;
+    std::vector<FDamagePop> pops;
 };
 
 /// Things that happen a little later: the blow landing, a projectile arriving, a unit falling.

@@ -57,6 +57,10 @@ struct FInsets {
     float bottom{0.f};
 };
 
+/// WP-12 density rule: above this many declared enemy intents the board keeps only the numbers and drops
+/// the glyph/badge decoration. Authored in ui_layout.json (`combat.intent_compact_threshold`).
+inline constexpr int kDefaultIntentCompactThreshold = 12;
+
 /// Authored layout of the floating combat HUD (assets/data/ui_layout.json). Every number is in design pixels.
 struct FUiLayoutSpec {
     float designWidth{1280.f};
@@ -66,6 +70,7 @@ struct FUiLayoutSpec {
     /// Strips kept clear of the arena for the HUD clusters; what remains is the playfield viewport. Nothing
     /// paints them: the world reaches every window edge.
     FInsets bands;
+    int intentCompactThreshold{kDefaultIntentCompactThreshold};
     FHudZones<FZoneSpec> zones;
 };
 
@@ -83,6 +88,8 @@ struct FUiLayout {
     /// The part of the viewport clear of the top and bottom HUD clusters; the isometric arena is fitted into
     /// it, so the clusters never cover a cell even when the bands reserve nothing.
     FRect arena;
+    /// The authored density threshold (design data, never a magic number in the renderer).
+    int intentCompactThreshold{kDefaultIntentCompactThreshold};
     FHudZones<FRect> zones;
 };
 

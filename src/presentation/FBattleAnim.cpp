@@ -13,6 +13,7 @@
 #include "ecs/components/FDead.h"
 #include "ecs/components/FGridPosition.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "presentation/FSettings.h"
 
 namespace game {
 namespace {
@@ -161,6 +162,18 @@ void Spawn(entt::registry& registry, FAnimClipId clipId, glm::vec2 from, glm::ve
 /// A blow lands on `target`: the health bar catches up and the unit flinches or falls.
 void React(entt::registry& registry, float delay, const FBattleEvent::FTarget& target) {
     Later(registry, delay, [target](entt::registry& r) {
+        // WP-12 damage pop: the target's own released delta, at the moment the blow lands — every target that
+        // lost HP (hostile or not; an area shot can hurt anyone). Skipped with the animations (the
+        // presentation preference never changes a rule).
+        if (target.healthBefore > target.healthAfter && !CurrentSettings(r).skipAnimations) {
+            if (auto* effects = r.ctx().find<FBattleEffects>(); effects != nullptr) {
+                if (const auto* cell = r.try_get<FGridPosition>(target.unit); cell != nullptr) {
+                    effects->pops.push_back(FDamagePop{
+                        glm::vec2{static_cast<float>(cell->x), static_cast<float>(cell->y)},
+                        target.healthBefore - target.healthAfter, 0.f});
+                }
+            }
+        }
         auto* anim = r.try_get<FUnitAnim>(target.unit);
         const auto* data = r.ctx().find<FBattleAnimData>();
         const auto* library = FAnimationLibrary::Find(r);
@@ -488,6 +501,11 @@ void UpdateBattleAnimations(entt::registry& registry, float dt) {
     std::erase_if(effects->active, [](const FActiveEffect& effect) {
         return effect.duration > 0.f ? effect.age >= effect.duration : effect.player.finished;
     });
+    // WP-12 damage pops: short-lived floating numbers over the released blow.
+    for (FDamagePop& pop : effects->pops) {
+        pop.age += dt;
+    }
+    std::erase_if(effects->pops, [](const FDamagePop& pop) { return pop.age >= pop.lifetime; });
 }
 
 bool DrawAnimFrame(entt::registry& registry, FAnimClipId clipId, std::uint32_t frame, glm::vec2 anchor, float scale,

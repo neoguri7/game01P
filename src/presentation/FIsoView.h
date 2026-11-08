@@ -11,6 +11,15 @@ namespace game {
 inline constexpr float kIsoHalfWidth = 32.f;
 inline constexpr float kIsoHalfHeight = 16.f;
 
+/// A standing unit's picture and health bar (EmberGridRenderSystem's DrawUnit). The picture is a design-px
+/// square whose top sits kUnitHeadAboveFeet above the cell centre; the health bar hugs that top edge. HUD
+/// overlays anchor above the bar from these numbers so they never cover the body.
+inline constexpr float kUnitSpriteSize = 64.f;
+inline constexpr float kUnitHeadAboveFeet = 52.f;
+inline constexpr float kUnitHealthBarWidth = 34.f;
+inline constexpr float kUnitHealthBarInset = 2.f;
+inline constexpr float kUnitHealthBarHeight = 4.f;
+
 struct FIsoView {
     glm::vec2 origin{};  // screen position of grid corner (0, 0): the top vertex of cell (0, 0)
     float scale{1.f};
