@@ -11,8 +11,10 @@
 #include <system_error>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #include "core/Logger.h"
+#include "dev/FEnginePolicy.h"
 #include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FRewards.h"
@@ -83,8 +85,9 @@ std::optional<FCampSpec> ParseCampSpec(std::string_view spec) {
 
 /// One offer decision under the reward rule: card N (0-based; an out-of-range N takes the last card) or skip.
 struct FOfferPick {
-    int index{-1};       // the resolved card index; -1 = skip
-    std::string rune;    // the picked rune id, or "skip"
+    int index{-1};          // the resolved card index; -1 = skip
+    std::string rune;       // the picked rune id, or "skip"
+    std::string_view rule;  // WP-00d reward=engine: "complete" | "start" | "card0"; empty = no rule suffix
 };
 
 /// The reward rule, shared by the reward modal and the camp rune-offer purchase. Resolves the open offer.
@@ -93,7 +96,29 @@ FOfferPick ResolveOfferByPolicy(entt::registry& registry, const FAutopilotPolicy
     auto* rewards = registry.ctx().find<FRewards>();
     if (rewards == nullptr || !rewards->offer.active) return pick;
     if (!policy.rewardSkip && !rewards->offer.candidates.empty()) {
-        pick.index = std::min(policy.rewardCard, static_cast<int>(rewards->offer.candidates.size()) - 1);
+        if (policy.rewardEngine) {
+            // WP-00d: score every card BEFORE the resolve (ScoreEngineCard reads ownership): the highest
+            // score wins, the lowest index on ties; all zeros -> card 0.
+            int bestScore = 0;
+            std::size_t bestIndex = 0;
+            for (std::size_t index = 0; index < rewards->offer.candidates.size(); ++index) {
+                const int score = ScoreEngineCard(registry, rewards->offer.candidates[index]);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestIndex = index;
+                }
+            }
+            pick.index = static_cast<int>(bestIndex);
+            if (bestScore == kEngineCardScoreComplete) {
+                pick.rule = "complete";
+            } else if (bestScore == kEngineCardScoreStart) {
+                pick.rule = "start";
+            } else {
+                pick.rule = "card0";
+            }
+        } else {
+            pick.index = std::min(policy.rewardCard, static_cast<int>(rewards->offer.candidates.size()) - 1);
+        }
         pick.rune = rewards->offer.candidates[static_cast<std::size_t>(pick.index)];
     } else {
         pick.rune = "skip";
@@ -159,12 +184,27 @@ int ResolveOpenOffers(entt::registry& registry, const FAutopilotPolicy& policy, 
         if (rewards == nullptr || !rewards->offer.active) break;
         const FOfferPick pick = ResolveOfferByPolicy(registry, policy);
         if (context == EOfferContext::Reward) {
-            LOG_INFO("[autopilot] reward depth={} room={} pick={} rune={}", run.depth, run.room, pick.index,
-                     pick.rune);
+            if (pick.rule.empty()) {
+                LOG_INFO("[autopilot] reward depth={} room={} pick={} rune={}", run.depth, run.room, pick.index,
+                         pick.rune);
+            } else {
+                LOG_INFO("[autopilot] reward depth={} room={} pick={} rune={} rule={}", run.depth, run.room,
+                         pick.index, pick.rune, pick.rule);
+            }
         } else {
-            LOG_INFO("[autopilot] camp offer=bought pick={}", pick.rune);
+            if (pick.rule.empty()) {
+                LOG_INFO("[autopilot] camp offer=bought pick={}", pick.rune);
+            } else {
+                LOG_INFO("[autopilot] camp offer=bought pick={} rule={}", pick.rune, pick.rule);
+            }
         }
-        if (policy.equipAuto && pick.rune != "skip") EquipPickedRune(registry, pick.rune);
+        if (pick.rune != "skip") {
+            if (policy.equip == EAutopilotEquip::Auto) {
+                EquipPickedRune(registry, pick.rune);
+            } else if (policy.equip == EAutopilotEquip::Engine) {
+                EquipRuneByEnginePolicy(registry, pick.rune);
+            }
+        }
     }
     return resolves;
 }
@@ -205,6 +245,11 @@ std::expected<FAutopilotPolicy, std::string> ParseAutopilotPolicy(std::string_vi
             sawReward = true;
             if (value == "skip") {
                 policy.rewardSkip = true;
+            } else if (value == "engine") {
+                // WP-00d: score every card before resolving (ResolveOfferByPolicy); rewardCard stays 0.
+                policy.rewardEngine = true;
+                policy.rewardSkip = false;
+                policy.rewardCard = 0;
             } else if (value.starts_with("card")) {
                 const auto card = ParseCount(value.substr(4), std::numeric_limits<int>::max());
                 if (!card) return std::unexpected(BadValue("bad reward value", value));
@@ -235,8 +280,9 @@ std::expected<FAutopilotPolicy, std::string> ParseAutopilotPolicy(std::string_vi
         } else if (key == "equip") {
             if (sawEquip) return std::unexpected(std::string("duplicate token 'equip'"));
             sawEquip = true;
-            if (value == "auto") policy.equipAuto = true;
-            else if (value == "off") policy.equipAuto = false;
+            if (value == "auto") policy.equip = EAutopilotEquip::Auto;
+            else if (value == "off") policy.equip = EAutopilotEquip::Off;
+            else if (value == "engine") policy.equip = EAutopilotEquip::Engine;
             else return std::unexpected(BadValue("bad equip value", value));
         } else {
             return std::unexpected(BadValue("unknown token", token));
@@ -275,6 +321,7 @@ EAutopilotStatus FRunAutopilot::tick(entt::registry& registry, std::string_view 
     }
 
     if (maxRooms_ > 0 && roomsCompleted_ >= maxRooms_ && topStateId != kRunModalReward) {
+        LogRunEndEngines(registry);
         LOG_INFO("[autopilot] room limit {} reached at depth={} room={}", maxRooms_, std::get<0>(key),
                  std::get<1>(key));
         return EAutopilotStatus::Finished;
@@ -301,6 +348,7 @@ EAutopilotStatus FRunAutopilot::tick(entt::registry& registry, std::string_view 
             if (resolves == 0) {
                 LOG_INFO("[autopilot] reward depth={} room={} pick=none", run->depth, run->room);
             }
+            TrackArmedEngines(registry, run->depth);
             PostRunIntent(registry, ERunIntent::ContinueReward);
             ++roomsCompleted_;
             act();
@@ -331,6 +379,12 @@ EAutopilotStatus FRunAutopilot::tick(entt::registry& registry, std::string_view 
             }
         }
 
+        // WP-00d: one consolidation pass per camp visit (equip=engine): retry pooled runes, then gather split
+        // pairs; camp is the only place a move is allowed (free per D-17).
+        if (policy_.equip == EAutopilotEquip::Engine) {
+            (void)ConsolidateEnginesAtCamp(registry);
+        }
+
         // Reinforcements: member 0 only (the camp view's candidates[0] for the first expanded member, M-FUN
         // Step-Camp). Each of the U purchases takes the lowest upgrade index member 0 accepts; no legal
         // upgrade — or an empty party — stops the buying.
@@ -355,6 +409,8 @@ EAutopilotStatus FRunAutopilot::tick(entt::registry& registry, std::string_view 
             }
         }
 
+        TrackArmedEngines(registry, run->depth);
+
         if (policy_.campContinue) {
             PostRunIntent(registry, ERunIntent::LeaveCamp);
             LOG_INFO("[autopilot] camp descend depth={}", run->depth);
@@ -366,6 +422,7 @@ EAutopilotStatus FRunAutopilot::tick(entt::registry& registry, std::string_view 
     }
 
     if (topStateId == kRunModalRunEnd) {
+        LogRunEndEngines(registry);
         LOG_INFO("[autopilot] run end depth={} room={} cleared={}", run != nullptr ? run->depth : std::get<0>(key),
                  run != nullptr ? run->room : std::get<1>(key), run != nullptr ? run->cleared : -1);
         return EAutopilotStatus::Finished;
@@ -373,6 +430,46 @@ EAutopilotStatus FRunAutopilot::tick(entt::registry& registry, std::string_view 
 
     // Battle, prepare, menus: nothing to drive (battles belong to GAME01P_AUTOPLAY).
     return EAutopilotStatus::Running;
+}
+
+void FRunAutopilot::TrackArmedEngines(const entt::registry& registry, int depth) {
+    for (const FEngineArmStatus& status : ClassifyEngines(registry)) {
+        if (status.state != EEngineArm::Armed) continue;
+        const bool recorded = std::any_of(armedEngines_.begin(), armedEngines_.end(),
+                                          [&status](const FArmedEngineRecord& record) {
+                                              return record.engineId == status.engineId;
+                                          });
+        if (recorded) continue;
+        armedEngines_.push_back(FArmedEngineRecord{status.engineId, depth});
+        LOG_INFO("[autopilot] engine armed engine={} depth={} member={} slot={}", status.engineId, depth,
+                 status.member, status.slot);
+    }
+}
+
+void FRunAutopilot::LogRunEndEngines(const entt::registry& registry) {
+    if (runEndEnginesLogged_) return;
+    runEndEnginesLogged_ = true;
+    const FDungeonRun* run = registry.ctx().find<FDungeonRun>();
+    const int depth = run != nullptr ? run->depth : 0;
+    std::string armed;
+    std::string unarmed;
+    for (const FEngineArmStatus& status : ClassifyEngines(registry)) {
+        const auto recorded = std::find_if(armedEngines_.begin(), armedEngines_.end(),
+                                           [&status](const FArmedEngineRecord& record) {
+                                               return record.engineId == status.engineId;
+                                           });
+        if (recorded != armedEngines_.end()) {
+            if (!armed.empty()) armed += ',';
+            armed += status.engineId + "@" + std::to_string(recorded->depth);
+        } else if (status.state == EEngineArm::Armed) {
+            if (!armed.empty()) armed += ',';
+            armed += status.engineId + "@" + std::to_string(depth);
+        } else {
+            if (!unarmed.empty()) unarmed += ',';
+            unarmed += status.engineId + ":" + std::string(EngineArmName(status.state));
+        }
+    }
+    LOG_INFO("[autopilot] run end engines armed=[{}] unarmed=[{}]", armed, unarmed);
 }
 
 } // namespace game::dev

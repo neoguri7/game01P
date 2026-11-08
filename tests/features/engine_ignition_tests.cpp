@@ -313,12 +313,26 @@ void UsesExistingRunes() {
 }
 
 /// AbsentDocumentBootsWithoutEngines: the engine table is the one optional table — a root without the
-/// document (the frozen fixture, or a mod one-root boot) loads with an empty table and no ignition, and
-/// the silent `resolvePath` probe must keep a legitimate engine-less boot out of the error log.
+/// document (a mod one-root boot) loads with an empty table and no ignition, and the silent `resolvePath`
+/// probe must keep a legitimate engine-less boot out of the error log. The frozen fixture carries a copy
+/// of the shipped document since WP-00d, so this root is built explicitly from every fixture *.json
+/// except engine_ignition.json.
 void AbsentDocumentBootsWithoutEngines() {
-    const game::FAssetManager fixtureOnly{{kTestFixtureRoot}};
+    FTempRoot temp{"no-engines"};
+    const std::filesystem::path fixtureData = std::filesystem::path(kTestFixtureRoot) / "data";
+    for (const std::filesystem::directory_entry& entry :
+         std::filesystem::directory_iterator(fixtureData)) {
+        if (!entry.is_regular_file() || entry.path().extension() != ".json") continue;
+        if (entry.path().filename() == "engine_ignition.json") continue;  // the absent document under test
+        std::error_code error;
+        std::filesystem::copy_file(entry.path(), temp.root / "data" / entry.path().filename(),
+                                   std::filesystem::copy_options::overwrite_existing, error);
+        CHECK(!error);
+    }
+
+    const game::FAssetManager engineLessRoot{{temp.root.string()}};
     const std::optional<game::gameplay::FContentRegistry> content =
-        game::gameplay::FContentRegistry::load(fixtureOnly);
+        game::gameplay::FContentRegistry::load(engineLessRoot);
     CHECK(content.has_value());
     CHECK(content->engines.rows.empty());
 }
