@@ -201,27 +201,6 @@ bool IsKnownStatUpgrade(std::string_view stat) {
         || stat == "magic_defense" || stat == "speed";
 }
 
-/// The unit template a run member maps to (`data/dungeon party[].id → unit`, then the content row). The run
-/// keeps placement ids ("party.warrior"); the unit table is keyed by template id ("char.warrior"). Mirrors
-/// how FRewards resolves party skills — a const-registry-safe read for the run HP derivation.
-const gameplay::FUnitContent* RunMemberUnitTemplate(const entt::registry& registry, const FRunMember& member) {
-    const auto* assets = registry.ctx().find<FAssetManager>();
-    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
-    if (assets == nullptr || content == nullptr) return nullptr;
-    const auto digest = assets->digest("data/dungeon");
-    if (!digest) return nullptr;
-    try {
-        for (const auto& row : digest->json().at("party")) {
-            if (row.at("id").get<std::string>() == member.id) {
-                return content->units.find(row.at("unit").get<std::string>());
-            }
-        }
-    } catch (const nlohmann::json::exception& error) {
-        LOG_WARN("Run member max health could not read the dungeon party: {}", error.what());
-    }
-    return nullptr;
-}
-
 /// The unknown-member report is once per id: views call the max-health helper every frame, and a broken
 /// party id must be loud once — not a per-frame flood.
 void ReportUnknownRunMember(std::string_view id) {
@@ -303,8 +282,31 @@ int KoRecoverFloor(int maxHealth, double fraction) {
     return std::max(1, floored);
 }
 
+/// The unit template a run member maps to (`data/dungeon party[].id → unit`, then the content row). The run
+/// keeps placement ids ("party.warrior"); the unit table is keyed by template id ("char.warrior"). Mirrors
+/// how FRewards resolves party skills — a const-registry-safe read for the run HP derivation.
+/// WP-21 §1: the single memberId → unit resolver every call site shares (max HP, event stats, battlefield
+/// placement). Roster awareness (a `data/roster` lookup ahead of the dungeon fallback) arrives with 21b.
+const gameplay::FUnitContent* ResolveRunMemberUnit(const entt::registry& registry, std::string_view memberId) {
+    const auto* assets = registry.ctx().find<FAssetManager>();
+    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
+    if (assets == nullptr || content == nullptr) return nullptr;
+    const auto digest = assets->digest("data/dungeon");
+    if (!digest) return nullptr;
+    try {
+        for (const auto& row : digest->json().at("party")) {
+            if (row.at("id").get<std::string>() == memberId) {
+                return content->units.find(row.at("unit").get<std::string>());
+            }
+        }
+    } catch (const nlohmann::json::exception& error) {
+        LOG_WARN("Run member max health could not read the dungeon party: {}", error.what());
+    }
+    return nullptr;
+}
+
 int DungeonMemberMaxHealth(const entt::registry& registry, const FRunMember& member) {
-    const auto* unit = RunMemberUnitTemplate(registry, member);
+    const auto* unit = ResolveRunMemberUnit(registry, member.id);
     if (unit == nullptr) {
         // Unknown member: return an unknown maximum instead of 0 + bonuses. A 0 would make the heal clamp
         // and the chest cost silently corrupt the run HP (callers treat <= 0 as unknown).
