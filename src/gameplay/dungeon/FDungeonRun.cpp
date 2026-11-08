@@ -438,7 +438,7 @@ void DeleteDungeonSave(entt::registry& registry) {
     auto* save = registry.ctx().find<FDungeonSave>();
     if (save == nullptr) return;
     std::error_code code;
-    if (!save->path.empty()) std::filesystem::remove(save->path, code);
+    if (!save->path.empty()) RemoveSaveFile(save->path, code);
     if (code) {
         save->error = "Could not delete the saved expedition.";
         LOG_ERROR("Could not delete '{}': {}", save->path, code.message());
