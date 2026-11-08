@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -46,6 +47,9 @@ struct FPrototypeRun {
 	unsigned dungeonIndex{0};
 
 	[[nodiscard]] static std::optional<FPrototypeRun> Load(const gameplay::FContentRegistry& content);
+	/// WP-32h: prototype-local file seam — reads a passive-tree file with no schema-version gate;
+	/// FPassiveTree::Load alone validates the document (v1 and v2). Missing/unreadable files log and yield nullopt.
+	[[nodiscard]] static std::optional<FPassiveTree> LoadPassiveTreeFile(const std::filesystem::path& path);
 	[[nodiscard]] bool CanStart(const gameplay::FContentRegistry& content) const;
 	[[nodiscard]] bool Start(const gameplay::FContentRegistry& content);
 	void End();

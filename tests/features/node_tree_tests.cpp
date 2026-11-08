@@ -39,12 +39,14 @@
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/progression/FPassiveTree.h"
+#include "gameplay/run/FPrototypeRun.h"
 #include "presentation/FPassiveTreePanel.h"
 #include "presentation/FUiTheme.h"
 
 namespace {
 
 using nlohmann::json;
+using game::EAllocationBlocker;
 using game::FPassiveNode;
 using game::FPassiveStatBonuses;
 using game::FPassiveStatCaps;
@@ -478,6 +480,41 @@ void CapsAreDataDriven() {
     CHECK(raised->Bonuses({"m.left", "m.hub", "m.capA"}).attack == kLeftAttack + kCapAAttack);
 }
 
+// --- allocation blocker API (WP-32h) ------------------------------------------------------------
+void BlockerMatchesCanAllocate() {
+    const FPassiveTree tree = MechanismTree();
+    std::vector<std::string> ids;
+    for (const FPassiveNode& node : tree.nodes) ids.push_back(node.id);
+    ids.push_back("m.unknown");
+    std::vector<std::string> maxedRep = {"m.left", "m.hub"};
+    for (int rank = 0; rank < kRepRanks; ++rank) maxedRep.push_back("m.rep");
+    const std::vector<std::vector<std::string>> states = {
+        {},
+        {"m.left"},
+        {"m.left", "m.hub"},
+        {"m.left", "m.hub", "m.capA"},
+        maxedRep,
+        {"m.left", "m.hub", "m.rep"},
+    };
+    for (const std::vector<std::string>& allocated : states) {
+        for (const std::string& id : ids) {
+            CHECK(tree.CanAllocate(allocated, id) == (tree.Blocker(allocated, id) == EAllocationBlocker::None));
+        }
+    }
+}
+void BlockerReasons() {
+    const FPassiveTree tree = MechanismTree();
+    CHECK(tree.Blocker({}, "m.root") == EAllocationBlocker::Root);
+    CHECK(tree.Blocker({}, "m.unknown") == EAllocationBlocker::UnknownNode);
+    CHECK(tree.Blocker({"m.left"}, "m.left") == EAllocationBlocker::MaxRank);  // max_ranks 1, held once
+    std::vector<std::string> maxedRep = {"m.left", "m.hub"};
+    for (int rank = 0; rank < kRepRanks; ++rank) maxedRep.push_back("m.rep");
+    CHECK(tree.Blocker(maxedRep, "m.rep") == EAllocationBlocker::MaxRank);
+    CHECK(tree.Blocker({"m.left", "m.hub", "m.capA"}, "m.capB") == EAllocationBlocker::Exclusive);
+    CHECK(tree.Blocker({}, "m.hub") == EAllocationBlocker::NotAdjacent);
+    CHECK(tree.Blocker({"m.left", "m.hub", "m.rep"}, "m.rep") == EAllocationBlocker::None);
+}
+
 // --- save replay --------------------------------------------------------------------------------
 void OldSaveUniqueIdsLoad() {
     FSaveEnv env{LoadShipTree()};  // about old shipped ids, so it stays on the ship tree
@@ -641,6 +678,41 @@ void RepeatableSoakThenExcluded() {
     CHECK(Candidates(tree, allocated).size() >= 2);
 }
 
+// --- prototype tree file loading (WP-32h) -------------------------------------------------------
+void PrototypeTreeFileLoadsV1AndV2() {
+    // v1: the frozen fixture tree (never the shipped assets/data/passive-tree.json).
+    const auto v1 = game::FPrototypeRun::LoadPassiveTreeFile(FixtureDataPath("passive-tree.json"));
+    CHECK(v1.has_value());
+
+    // v2: the in-memory mechanism document written to a temp path.
+    const std::string v2Path = SavePath("proto-tree");
+    {
+        std::ofstream file(v2Path);
+        CHECK(file.good());
+        file << MechanismDocument().dump();
+    }
+    const auto v2 = game::FPrototypeRun::LoadPassiveTreeFile(v2Path);
+    CHECK(v2.has_value());
+
+    // An unknown future schema version is rejected by FPassiveTree::Load alone.
+    const std::string v3Path = SavePath("proto-tree-v3");
+    {
+        json document = MechanismDocument();
+        document["schema_version"] = 3;
+        std::ofstream file(v3Path);
+        CHECK(file.good());
+        file << document.dump();
+    }
+    CHECK(!game::FPrototypeRun::LoadPassiveTreeFile(v3Path).has_value());
+
+    // A path with no file behind it fails before parsing.
+    CHECK(!game::FPrototypeRun::LoadPassiveTreeFile(SavePath("proto-tree-absent")).has_value());
+
+    std::error_code error;
+    std::filesystem::remove(v2Path, error);
+    std::filesystem::remove(v3Path, error);
+}
+
 // --- panel -------------------------------------------------------------------------------------
 void PanelDrawSmoke() {
     const FPassiveTree tree = LoadShipTree();
@@ -692,6 +764,8 @@ int main() {
         {"RanksCountTwice", RanksCountTwice},
         {"CapsClampTotals", CapsClampTotals},
         {"CapsAreDataDriven", CapsAreDataDriven},
+        {"BlockerMatchesCanAllocate", BlockerMatchesCanAllocate},
+        {"BlockerReasons", BlockerReasons},
         {"OldSaveUniqueIdsLoad", OldSaveUniqueIdsLoad},
         {"RepeatableSaveRoundTrip", RepeatableSaveRoundTrip},
         {"IllegalOrderRejected", IllegalOrderRejected},
@@ -707,6 +781,7 @@ int main() {
         {"LevelUpCandidatesAtLeastTwo", LevelUpCandidatesAtLeastTwo},
         {"NotablePathCandidateAfterLevelFive", NotablePathCandidateAfterLevelFive},
         {"RepeatableSoakThenExcluded", RepeatableSoakThenExcluded},
+        {"PrototypeTreeFileLoadsV1AndV2", PrototypeTreeFileLoadsV1AndV2},
         {"PanelDrawSmoke", PanelDrawSmoke},
     });
 }
