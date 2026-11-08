@@ -12,6 +12,7 @@
 #include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunFlow.h"
+#include "presentation/FCampLoadoutHost.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FUiTheme.h"
@@ -280,6 +281,12 @@ void RenderDungeonCampView(entt::registry& registry) {
             }
             ImGui::EndDisabled();
             if (respecProblem) ImGui::TextDisabled("%s", respecProblem->c_str());
+        }
+
+        ImGui::SeparatorText("LOADOUT (free)");
+        auto& selection = CampLoadoutSelection(registry);
+        if (const auto edit = DrawLoadoutPanel(BuildCampLoadoutModel(registry, selection))) {
+            (void)ApplyCampLoadoutEdit(registry, selection, *edit);
         }
 
         for (std::size_t memberIndex = 0; memberIndex < run.party.size(); ++memberIndex) {
