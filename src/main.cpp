@@ -288,6 +288,15 @@ int main(int argc, char* argv[])
             shutdown();
             return EXIT_FAILURE;
         }
+        // [WP-09h] boot validation of the unlock catalog's consumers — a kind=skill/rune row that reaches
+        // no content would sell a no-op (w9-hub critic F4). Same shipped-content grade as the roster check
+        // above; the frozen fixture world keeps its deliberately consumer-less rows because no test boots
+        // through this file — tests call ValidateUnlockTargets directly.
+        if (const auto problem = game::ValidateUnlockTargets(engine.getRegistry())) {
+            LOG_ERROR("Unlock content is invalid: {}", *problem);
+            shutdown();
+            return EXIT_FAILURE;
+        }
         game::InitializeDungeonUi(engine.getRegistry());
     } else {
         game::ui::ApplyTheme();

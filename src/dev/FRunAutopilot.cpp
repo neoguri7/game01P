@@ -17,6 +17,9 @@
 #include "dev/FEnginePolicy.h"
 #include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FEventContent.h"
+#include "gameplay/dungeon/FEventEffects.h"
+#include "gameplay/dungeon/FEventSection.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunFlow.h"
 
@@ -299,9 +302,15 @@ FRunAutopilot::FRunAutopilot(FAutopilotPolicy policy, int maxRooms)
 
 EAutopilotStatus FRunAutopilot::tick(entt::registry& registry, std::string_view topStateId) {
     const FDungeonRun* run = registry.ctx().find<FDungeonRun>();
-    const std::tuple<int, int, int> key = run != nullptr
-        ? std::tuple<int, int, int>{run->depth, run->room, static_cast<int>(run->phase)}
-        : std::tuple<int, int, int>{-1, -1, -1};
+    // WP-09h P2: the event stage (1 while the ctx FEventInstance is resolved) joins the decision key. The
+    // event room is two-stage — ChooseEventOption keeps (depth, room, phase) and only flips `resolved` — so
+    // without the fourth element the continue after a resolve looked like the same decision point and timed
+    // out to Stuck after kAutopilotStuckFrames.
+    const FEventInstance* eventInstance = registry.ctx().find<FEventInstance>();
+    const int eventStage = eventInstance != nullptr && eventInstance->resolved ? 1 : 0;
+    const std::tuple<int, int, int, int> key = run != nullptr
+        ? std::tuple<int, int, int, int>{run->depth, run->room, static_cast<int>(run->phase), eventStage}
+        : std::tuple<int, int, int, int>{-1, -1, -1, -1};
 
     if (topStateId != lastTop_ || key != lastKey_) {
         acted_ = false;
@@ -357,12 +366,58 @@ EAutopilotStatus FRunAutopilot::tick(entt::registry& registry, std::string_view 
     }
 
     if (topStateId == kRunModalEvent) {
-        if (run != nullptr) {
-            const bool loot = (policy_.chestOnEvenDungeons && run->depth % 2 == 0) || policy_.eventOption == 1;
-            PostRunIntent(registry, loot ? ERunIntent::ChooseEventLoot : ERunIntent::ChooseEventRest);
-            LOG_INFO("[autopilot] event depth={} room={} choice={}", run->depth, run->room, loot ? "loot" : "rest");
-            act();
+        // WP-09h P2: the event room is two-stage (choose the option, then continue the result screen) and
+        // gate-aware. The stage rides in the decision key (eventStage): the resolve keeps (depth, room,
+        // phase) constant, and only the key change makes the continue a new decision point.
+        if (run == nullptr) {
+            LOG_ERROR("[autopilot] the event modal is open without a run");
+            return EAutopilotStatus::Stuck;
         }
+        // PostRunIntent may insert into the context (dense map): the decision data is copied out before the
+        // post, and every later line reads these copies.
+        const int depth = run->depth;
+        const int room = run->room;
+        const auto instance = CurrentEventInstance(registry);
+        if (!instance.has_value()) {
+            LOG_ERROR("[autopilot] event depth={} room={}: no event instance", depth, room);
+            return EAutopilotStatus::Stuck;
+        }
+        if (instance->resolved) {
+            PostRunIntent(registry, ERunIntent::ContinueEvent);
+            LOG_INFO("[autopilot] event continue depth={} room={}", depth, room);
+            act();
+            return EAutopilotStatus::Running;
+        }
+        const auto def = FindEventDef(registry, instance->eventId);
+        if (!def.has_value()) {
+            LOG_ERROR("[autopilot] event '{}' (depth {} room {}) is not in the catalog", instance->eventId, depth,
+                      room);
+            return EAutopilotStatus::Stuck;
+        }
+        const int policyIndex = (policy_.chestOnEvenDungeons && depth % 2 == 0) || policy_.eventOption == 1 ? 1 : 0;
+        int choice = -1;
+        const bool policyInRange = policyIndex >= 0 && static_cast<std::size_t>(policyIndex) < def->choices.size();
+        if (policyInRange && EvaluateEventGate(registry, def->choices[static_cast<std::size_t>(policyIndex)]).open) {
+            choice = policyIndex;
+        } else {
+            // The policy index is shut (or absent): the first open choice. The content contract guarantees
+            // gates + 1 <= choices, so this always finds one — a miss is a data/wiring error, not a wait.
+            for (std::size_t index = 0; index < def->choices.size(); ++index) {
+                if (EvaluateEventGate(registry, def->choices[index]).open) {
+                    choice = static_cast<int>(index);
+                    break;
+                }
+            }
+        }
+        if (choice < 0) {
+            LOG_ERROR("[autopilot] event '{}' (depth {} room {}) has no open choice", def->id, depth, room);
+            return EAutopilotStatus::Stuck;
+        }
+        const bool fallback = choice != policyIndex;
+        PostRunIntent(registry, ERunIntent::ChooseEventOption, choice);
+        LOG_INFO("[autopilot] event depth={} room={} choice={}{}", depth, room, choice,
+                 fallback ? " (gate fallback)" : "");
+        act();
         return EAutopilotStatus::Running;
     }
 

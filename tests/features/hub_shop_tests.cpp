@@ -2,10 +2,10 @@
 // ledger, the rune offer gate (FRewards::CandidatesFor) and the Unlocks tab (FPreparationView).
 //
 // The no-op guards are the heart of 21c: buying a skill must change MemberSkillPool, buying a rune must add
-// it to the reward offer pool, buying a roster row must make the member selectable — and the shipped
-// `party.rogue_stub` (a locked identity placeholder) must be refused instead of sold as a no-op. Seals are
-// earned through the real ledger path (BossDefeated/DungeonCleared events appended while a run is installed,
-// the same contract promotion_tests uses); no real battle is fought.
+// it to the reward offer pool, buying a roster row must make the member selectable — and a locked identity
+// placeholder must be refused instead of sold as a no-op (each case carves its own test-local stub, so the
+// shipped roster may move on). Seals are earned through the real ledger path (BossDefeated/DungeonCleared
+// events appended while a run is installed, the same contract promotion_tests uses); no real battle is fought.
 //
 // Content world: the SHIPPED assets (plus a temp override root FIRST for the roster/unlocks rewrites). The
 // shipped `units.json` pools, `unlocks.json` gates and `rewards.json` weights are what these consumers read,
@@ -191,6 +191,39 @@ game::FMetaUnlockRow RowOrFail(entt::registry& registry, std::string_view unlock
     return row.value_or(game::FMetaUnlockRow{});
 }
 
+/// The first catalog row of a kind — the targets in this file come from the catalogs, never a shipped id
+/// (critic F2), so an authoring pass moves the data and not the expectations. None in the catalog ->
+/// CHECK failure (no silent skip).
+game::FMetaUnlockRow FirstUnlockOfKind(entt::registry& registry, std::string_view kind) {
+    for (const game::FMetaUnlockRow& row : game::MetaUnlockCatalog(registry)) {
+        if (row.kind == kind) return row;
+    }
+    CHECK(false);
+    return {};
+}
+
+/// The skill-gate target, derived from the catalogs: the first kind=skill unlock row that some NON-locked
+/// roster member authors in its unit pool BEYOND its default loadout (index >= the member's active slots).
+/// Returns {memberId, skillId}; none in the catalog -> CHECK failure.
+std::pair<std::string, std::string> GatedPoolSkill(entt::registry& registry) {
+    for (const game::FMetaUnlockRow& row : game::MetaUnlockCatalog(registry)) {
+        if (row.kind != "skill") continue;
+        for (const game::FMetaRosterRow& member : game::MetaRosterCatalog(registry)) {
+            if (member.locked) continue;
+            const game::gameplay::FUnitContent* unit = game::ResolveRunMemberUnit(registry, member.id);
+            if (unit == nullptr) continue;
+            const auto found = std::ranges::find(unit->skillIds, row.id);
+            if (found == unit->skillIds.end()) continue;
+            if (static_cast<int>(found - unit->skillIds.begin()) >=
+                game::MemberActiveSkillSlots(registry, member.id)) {
+                return {member.id, row.id};
+            }
+        }
+    }
+    CHECK(false);
+    return {};
+}
+
 // ---------------------------------------------------------------------------------------------
 // Preset meta saves (the injected path pins the file; the loader merges the shipped roster in)
 // ---------------------------------------------------------------------------------------------
@@ -315,45 +348,58 @@ std::string ExpectedRowName(entt::registry& registry, const game::FMetaUnlockRow
 void PurchaseRevealsSkillNextRun() {
     FShopBoot boot("shop-skill");
     CHECK(boot.InitMeta());
-    const game::FMetaUnlockRow hook = RowOrFail(boot.registry, "skill.hook");
+    // The gate target is derived from the catalogs (critic F2 — no shipped id in this file): the first
+    // gated skill of a fieldable member, authored beyond its default loadout.
+    const auto [gateMember, gateSkill] = GatedPoolSkill(boot.registry);
+    const game::FMetaUnlockRow row = RowOrFail(boot.registry, gateSkill);
+    CHECK(game::IsUnlockGated(boot.registry, gateSkill));
     InstallRun(boot.registry);
     // Earn exactly what the row asks for: both its seal gate and its price (2 per boss, 1 per clear).
-    const int earned = EarnAtLeast(boot.registry, std::max(hook.cost, hook.sealGate));
+    const int earned = EarnAtLeast(boot.registry, std::max(row.cost, row.sealGate));
     CHECK(game::MetaSeals(boot.registry) == earned);
 
     game::FPreparationDraft draft =
         game::MakeDefaultDraft(boot.registry, game::FRunStartRequest{true, -1});
-    const std::size_t warrior = MemberIndex(draft, "party.warrior");
+    const std::size_t member = MemberIndex(draft, gateMember);
 
     // Before the purchase: absent from the pool and refused by the draft editor (a refused pick is a no-op).
-    CHECK(!Contains(game::MemberSkillPool(boot.registry, "party.warrior"), "skill.hook"));
-    const std::vector<std::string> before = draft.setup.skills[warrior];
-    CHECK(!game::SetDraftSkill(boot.registry, draft, warrior, 0, "skill.hook"));
-    CHECK(draft.setup.skills[warrior] == before);
+    CHECK(!Contains(game::MemberSkillPool(boot.registry, gateMember), gateSkill));
+    const std::vector<std::string> before = draft.setup.skills[member];
+    CHECK(!game::SetDraftSkill(boot.registry, draft, member, 0, gateSkill));
+    CHECK(draft.setup.skills[member] == before);
 
-    CHECK(game::PurchaseMetaUnlock(boot.registry, "skill.hook") == game::EUnlockStatus::Purchasable);
-    CHECK(game::HasMetaUnlock(boot.registry, "skill.hook"));
-    CHECK(game::MetaSeals(boot.registry) == earned - hook.cost);  // the price was deducted
+    CHECK(game::PurchaseMetaUnlock(boot.registry, gateSkill) == game::EUnlockStatus::Purchasable);
+    CHECK(game::HasMetaUnlock(boot.registry, gateSkill));
+    CHECK(game::MetaSeals(boot.registry) == earned - row.cost);  // the price was deducted
 
     // After: the authored pool no longer hides it, the draft can equip it, and the run carries it.
-    CHECK(Contains(game::MemberSkillPool(boot.registry, "party.warrior"), "skill.hook"));
-    CHECK(game::SetDraftSkill(boot.registry, draft, warrior, 0, "skill.hook"));
-    CHECK(draft.setup.skills[warrior][0] == "skill.hook");
+    CHECK(Contains(game::MemberSkillPool(boot.registry, gateMember), gateSkill));
+    CHECK(game::SetDraftSkill(boot.registry, draft, member, 0, gateSkill));
+    CHECK(draft.setup.skills[member][0] == gateSkill);
     CHECK(!game::ValidateRunSetup(boot.registry, draft.setup).has_value());
 
     CHECK(game::StartDungeonRunFromSetup(boot.registry, kSeed + 1, true, -1, draft.setup));
-    const game::FRunMember* member = FindRunMember(boot.run(), "party.warrior");
-    CHECK(member != nullptr);
-    CHECK(member != nullptr && MemberLoadoutHas(*member, "skill.hook"));
-    CHECK(member != nullptr && member->skills.size() == draft.setup.skills[warrior].size());
+    const game::FRunMember* runMember = FindRunMember(boot.run(), gateMember);
+    CHECK(runMember != nullptr);
+    CHECK(runMember != nullptr && MemberLoadoutHas(*runMember, gateSkill));
+    CHECK(runMember != nullptr && runMember->skills.size() == draft.setup.skills[member].size());
 }
 
 void PurchaseAddsRuneToOfferPool() {
     FShopBoot boot("shop-rune");
     CHECK(boot.InitMeta());
     InstallRun(boot.registry);
-    // The authored party can legally fit Inferno (the mage's firebolt/flame_field carry Fire).
-    CHECK(!game::RuneFittingSkillNames(boot.registry, "rune.inferno").empty());
+    // The target is the first kind=rune unlock row (critic F2 — no rune id in this file). Its weight is
+    // read from the rune table the draw consumes, never asserted as a literal.
+    const game::FMetaUnlockRow row = FirstUnlockOfKind(boot.registry, "rune");
+    const auto* content = boot.registry.ctx().find<game::gameplay::FContentRegistry>();
+    CHECK(content != nullptr);
+    const game::gameplay::FRuneContent* rune = content != nullptr ? content->runes.find(row.id) : nullptr;
+    CHECK(rune != nullptr);
+    const int weight = rune != nullptr ? rune->dropWeight : 0;
+    CHECK(weight >= 1);  // the draw's own floor (RuneWeight clamps to >= 1)
+    // The authored party must legally fit it (else the offer pool excludes it and the sweeps are vacuous).
+    CHECK(!game::RuneFittingSkillNames(boot.registry, row.id).empty());
 
     // Before: across many draws the gated rune never appears in the candidates.
     int beforeDraws = 0;
@@ -362,17 +408,16 @@ void PurchaseAddsRuneToOfferPool() {
         const std::vector<std::string> candidates = game::RollRuneCandidates(boot.registry);
         CHECK(!candidates.empty());
         ++beforeDraws;
-        if (Contains(candidates, "rune.inferno")) ++beforeHits;
+        if (Contains(candidates, row.id)) ++beforeHits;
     }
     CHECK(beforeHits == 0);
 
-    const game::FMetaUnlockRow inferno = RowOrFail(boot.registry, "rune.inferno");
-    const int earned = EarnAtLeast(boot.registry, std::max(inferno.cost, inferno.sealGate));
-    CHECK(game::PurchaseMetaUnlock(boot.registry, "rune.inferno") == game::EUnlockStatus::Purchasable);
-    CHECK(game::MetaSeals(boot.registry) == earned - inferno.cost);
+    const int earned = EarnAtLeast(boot.registry, std::max(row.cost, row.sealGate));
+    CHECK(game::PurchaseMetaUnlock(boot.registry, row.id) == game::EUnlockStatus::Purchasable);
+    CHECK(game::MetaSeals(boot.registry) == earned - row.cost);
 
-    // After: the rune is in the unowned pool, so a broad sweep of draws must offer it (weight 4 over the
-    // shipped pool; 256 draws make a miss astronomically unlikely and the draw stream is deterministic).
+    // After: the rune is in the unowned pool, so the same sweep must offer it (256 draws make a miss
+    // astronomically unlikely; the draw stream is deterministic and the weight above is the table's own).
     int afterDraws = 0;
     int afterHits = 0;
     for (int draw = 0; draw < 256; ++draw) {
@@ -382,11 +427,11 @@ void PurchaseAddsRuneToOfferPool() {
             CHECK(!game::RuneFittingSkillNames(boot.registry, candidate).empty());
         }
         ++afterDraws;
-        if (Contains(candidates, "rune.inferno")) ++afterHits;
+        if (Contains(candidates, row.id)) ++afterHits;
     }
     // Diagnostic before the assertion: CHECK throws the rest of the case away on failure.
-    std::cout << "[report] inferno offer pool: before draws=" << beforeDraws << " hits=" << beforeHits
-              << "; after draws=" << afterDraws << " hits=" << afterHits << "\n";
+    std::cout << "[report] " << row.id << " offer pool: before draws=" << beforeDraws
+              << " hits=" << beforeHits << "; after draws=" << afterDraws << " hits=" << afterHits << "\n";
     CHECK(afterHits >= 1);
 }
 
@@ -449,27 +494,37 @@ void PurchaseUnlocksRosterEntry() {
 }
 
 void PurchaseRefusesLockedStubRoster() {
-    FShopBoot boot("shop-locked-stub");
+    const char* kStubId = "party.test_stub";
+    FShopBoot boot("shop-locked-stub", [&](const std::filesystem::path& data) {
+        // A test-local locked stub and its kind=roster row (critic F2): the case never depends on the
+        // shipped stub staying a stub.
+        json roster = ReadJson("assets/data/roster.json");
+        roster["roster"].push_back({{"id", kStubId}, {"name", "???"}, {"locked", true}});
+        WriteJson(data / "roster.json", roster);
+        json unlocks = ReadJson("assets/data/unlocks.json");
+        unlocks["unlocks"].push_back({{"id", kStubId}, {"kind", "roster"}, {"cost", 8}, {"seal_gate", 8}});
+        WriteJson(data / "unlocks.json", unlocks);
+    });
     // Enough funds for the stub's gate and price (and for the positive control): the refusal must be the
     // no-op guard, not a shortfall.
-    const game::FMetaUnlockRow stubRow = RowOrFail(boot.registry, "party.rogue_stub");
-    const game::FMetaUnlockRow hook = RowOrFail(boot.registry, "skill.hook");
-    const int funds = std::max({stubRow.cost, stubRow.sealGate, hook.cost, hook.sealGate});
+    const game::FMetaUnlockRow stubRow = RowOrFail(boot.registry, kStubId);
+    const game::FMetaUnlockRow control = FirstUnlockOfKind(boot.registry, "skill");
+    const int funds = std::max({stubRow.cost, stubRow.sealGate, control.cost, control.sealGate});
     WritePreset(boot, funds, LadderOf({{"1", BossLedgerLane(funds)}}));
     CHECK(boot.InitMeta());
     CHECK(game::MetaSeals(boot.registry) == funds);
     CHECK(game::LifetimeSealsEarned(boot.registry) >= funds);
 
-    const game::FUnlockOffer stub = game::EvaluateUnlockOffer(boot.registry, "party.rogue_stub");
+    const game::FUnlockOffer stub = game::EvaluateUnlockOffer(boot.registry, kStubId);
     CHECK(stub.status == game::EUnlockStatus::Unavailable);
     CHECK(!stub.reason.empty());
     // Positive control: with the same funds a real row is purchasable.
-    CHECK(game::EvaluateUnlockOffer(boot.registry, "skill.hook").status == game::EUnlockStatus::Purchasable);
+    CHECK(game::EvaluateUnlockOffer(boot.registry, control.id).status == game::EUnlockStatus::Purchasable);
 
     const std::string before = ReadText(boot.metaPath);
-    CHECK(game::PurchaseMetaUnlock(boot.registry, "party.rogue_stub") == game::EUnlockStatus::Unavailable);
+    CHECK(game::PurchaseMetaUnlock(boot.registry, kStubId) == game::EUnlockStatus::Unavailable);
     CHECK(game::MetaSeals(boot.registry) == funds);  // nothing was spent
-    CHECK(!game::HasMetaUnlock(boot.registry, "party.rogue_stub"));  // nothing was stored
+    CHECK(!game::HasMetaUnlock(boot.registry, kStubId));  // nothing was stored
     CHECK(ReadText(boot.metaPath) == before);  // no save at all
 }
 
@@ -546,25 +601,27 @@ void PurchaseRejectsInsufficientSeals() {
 
 void PurchaseRejectsAlreadyUnlocked() {
     FShopBoot boot("shop-owned");
+    // The owned row is derived from the catalog (the first kind=skill row), never a literal id.
+    const std::string ownedId = FirstUnlockOfKind(boot.registry, "skill").id;
     WritePreset(boot, 2,
                 LadderOf({{"1", LedgerLane({"theme.ember_crypt/0#boss"})}}),
-                json::array({"skill.hook"}));
+                json::array({ownedId}));
     CHECK(boot.InitMeta());
-    CHECK(game::HasMetaUnlock(boot.registry, "skill.hook"));
-    CHECK(game::EvaluateUnlockOffer(boot.registry, "skill.hook").status == game::EUnlockStatus::Owned);
+    CHECK(game::HasMetaUnlock(boot.registry, ownedId));
+    CHECK(game::EvaluateUnlockOffer(boot.registry, ownedId).status == game::EUnlockStatus::Owned);
 
     const std::string before = ReadText(boot.metaPath);
-    CHECK(game::PurchaseMetaUnlock(boot.registry, "skill.hook") == game::EUnlockStatus::Owned);
+    CHECK(game::PurchaseMetaUnlock(boot.registry, ownedId) == game::EUnlockStatus::Owned);
     CHECK(game::MetaSeals(boot.registry) == 2);  // no second charge
     const json unlocks = PersistedUnlocks(boot);
-    CHECK(CountUnlock(unlocks, "skill.hook") == 1);  // no duplicate row
+    CHECK(CountUnlock(unlocks, ownedId) == 1);  // no duplicate row
     CHECK(ReadText(boot.metaPath) == before);  // a refused purchase never saves
 
     // Positive control: an unowned row in the same state goes through.
     const std::vector<game::FMetaUnlockRow> catalog = game::MetaUnlockCatalog(boot.registry);
     const game::FMetaUnlockRow* affordable = nullptr;
     for (const game::FMetaUnlockRow& row : catalog) {
-        if (row.kind == "roster" || row.id == "skill.hook") continue;
+        if (row.kind == "roster" || row.id == ownedId) continue;
         if (affordable == nullptr && row.sealGate <= 2 && row.cost <= 2) affordable = &row;
     }
     CHECK(affordable != nullptr);
@@ -576,6 +633,8 @@ void PurchaseRejectsAlreadyUnlocked() {
 
 void PurchaseDisabledWhenMetaDisabled() {
     FShopBoot boot("shop-disabled");
+    // Any real row exercises the read-only refusal; the first kind=skill row is derived, never a literal.
+    const std::string targetId = FirstUnlockOfKind(boot.registry, "skill").id;
     // A file from a newer build: the session must be read-only, the file byte-identical after any attempt.
     WriteJson(boot.metaPath, json{{"schema_version", 2}, {"seals", 5}});
     const std::string before = ReadText(boot.metaPath);
@@ -584,28 +643,29 @@ void PurchaseDisabledWhenMetaDisabled() {
     CHECK(game::FindMetaSave(boot.registry) != nullptr);  // a store exists; it is just read-only
     CHECK(game::MetaSeals(boot.registry) == 0);
     CHECK(game::LifetimeSealsEarned(boot.registry) == 0);
-    CHECK(game::EvaluateUnlockOffer(boot.registry, "skill.hook").status == game::EUnlockStatus::MetaDisabled);
+    CHECK(game::EvaluateUnlockOffer(boot.registry, targetId).status == game::EUnlockStatus::MetaDisabled);
 
-    CHECK(game::PurchaseMetaUnlock(boot.registry, "skill.hook") == game::EUnlockStatus::MetaDisabled);
-    CHECK(!game::HasMetaUnlock(boot.registry, "skill.hook"));
+    CHECK(game::PurchaseMetaUnlock(boot.registry, targetId) == game::EUnlockStatus::MetaDisabled);
+    CHECK(!game::HasMetaUnlock(boot.registry, targetId));
     CHECK(game::MetaSeals(boot.registry) == 0);
     CHECK(ReadText(boot.metaPath) == before);  // untouched, not reset and not overwritten
 }
 
 void PurchaseRefusedWithoutMeta() {
     FShopBoot boot("shop-no-meta");
+    const std::string targetId = FirstUnlockOfKind(boot.registry, "skill").id;
     CHECK(game::FindMetaSave(boot.registry) == nullptr);
     CHECK(game::MetaDisabled(boot.registry));
     CHECK(!std::filesystem::exists(boot.metaPath));
 
     // The catalog is still readable through the asset boundary, but nothing can be bought without a profile.
-    const game::FUnlockOffer offer = game::EvaluateUnlockOffer(boot.registry, "skill.hook");
-    CHECK(offer.row.id == "skill.hook");
+    const game::FUnlockOffer offer = game::EvaluateUnlockOffer(boot.registry, targetId);
+    CHECK(offer.row.id == targetId);
     CHECK(offer.status == game::EUnlockStatus::MetaDisabled);
-    CHECK(game::PurchaseMetaUnlock(boot.registry, "skill.hook") == game::EUnlockStatus::MetaDisabled);
+    CHECK(game::PurchaseMetaUnlock(boot.registry, targetId) == game::EUnlockStatus::MetaDisabled);
     CHECK(game::MetaSeals(boot.registry) == 0);
     CHECK(game::LifetimeSealsEarned(boot.registry) == 0);
-    CHECK(!game::HasMetaUnlock(boot.registry, "skill.hook"));
+    CHECK(!game::HasMetaUnlock(boot.registry, targetId));
     CHECK(!std::filesystem::exists(boot.metaPath));  // no store, no file
 }
 
@@ -701,10 +761,12 @@ void ScanMetaSaveKeys(const json& value, const std::string& path) {
 void NoPowerFieldsAfterPurchase() {
     FShopBoot boot("shop-no-power");
     CHECK(boot.InitMeta());
+    // The first kind=skill row is derived (critic F2); the milestone arithmetic below is the case's own.
+    const game::FMetaUnlockRow first = FirstUnlockOfKind(boot.registry, "skill");
     InstallRun(boot.registry);
     // A boss milestone also writes the promotions block, so the scan covers both additive shapes.
     FireBossDefeat(boot.registry, 0);                                    // +2 seals, lifetime 2
-    CHECK(game::PurchaseMetaUnlock(boot.registry, "skill.hook") == game::EUnlockStatus::Purchasable);
+    CHECK(game::PurchaseMetaUnlock(boot.registry, first.id) == game::EUnlockStatus::Purchasable);
     FireBossDefeat(boot.registry, 1);                                    // +2 seals
     FireDungeonClear(boot.registry, 2);                                  // +1 seal
     CHECK(game::MetaSeals(boot.registry) == 3);
@@ -713,7 +775,7 @@ void NoPowerFieldsAfterPurchase() {
     const json document = ReadJson(boot.metaPath);
     const auto unlocks = document.find("unlocks");
     CHECK(unlocks != document.end() && unlocks->is_array());
-    CHECK(unlocks != document.end() && CountUnlock(*unlocks, "skill.hook") == 1);
+    CHECK(unlocks != document.end() && CountUnlock(*unlocks, first.id) == 1);
     CHECK(unlocks != document.end() && CountUnlock(*unlocks, "skill.mark") == 1);
     const auto promotions = document.find("promotions");
     // Not vacuous: the boss milestones really wrote the promotion records the walk must allow.
@@ -745,21 +807,32 @@ bool LooksEnglish(std::string_view text) {
 }
 
 void UnlockOffersCatalogOrderAndReasons() {
-    FShopBoot boot("shop-offers");
-    // lifetime 5 (2 + 1 + 2 across rank 1 and rank 2), balance 3, hook already owned.
+    // The case carves its own locked stub (roster row + kind=roster row in the temp root): the shipped
+    // stub is not the subject (WP-23 may turn it into a real character). The offers must mirror the
+    // WRITTEN document row for row.
+    const char* kStubId = "party.test_stub";
+    json written;  // the override document the offers must mirror
+    FShopBoot boot("shop-offers", [&](const std::filesystem::path& data) {
+        json roster = ReadJson("assets/data/roster.json");
+        roster["roster"].push_back({{"id", kStubId}, {"name", "???"}, {"locked", true}});
+        WriteJson(data / "roster.json", roster);
+        written = ReadJson("assets/data/unlocks.json");
+        written["unlocks"].push_back({{"id", kStubId}, {"kind", "roster"}, {"cost", 8}, {"seal_gate", 8}});
+        WriteJson(data / "unlocks.json", written);
+    });
+    // lifetime 5 (2 + 1 + 2 across rank 1 and rank 2), balance 3; the first kind=skill row is owned.
+    const std::string ownedId = FirstUnlockOfKind(boot.registry, "skill").id;
     WritePreset(boot, 3,
                 LadderOf({{"1", LedgerLane({"theme.ember_crypt/0#boss", "theme.ember_crypt/1#clear"})},
                           {"2", LedgerLane({"theme.ashen_reach/0#boss"})}}),
-                json::array({"skill.hook"}));
+                json::array({ownedId}));
     CHECK(boot.InitMeta());
     CHECK(game::MetaSeals(boot.registry) == 3);
     CHECK(game::LifetimeSealsEarned(boot.registry) == 5);
 
     const std::vector<game::FUnlockOffer> offers = game::BuildUnlockOffers(boot.registry);
-    const json shipped = ReadJson("assets/data/unlocks.json");
-    const json& rows = shipped.at("unlocks");
+    const json& rows = written.at("unlocks");
     CHECK(offers.size() == rows.size());
-    CHECK(offers.size() == 9);
     for (std::size_t index = 0; index < offers.size() && index < rows.size(); ++index) {
         CHECK(offers[index].row.id == rows[index].at("id").get<std::string>());  // catalog order
         CHECK(!offers[index].reason.empty());  // every row carries its English reason
@@ -771,12 +844,12 @@ void UnlockOffersCatalogOrderAndReasons() {
     }
 
     // One crafted state, four decisive statuses (plus the locked-stub no-op guard).
-    const game::FUnlockOffer* hook = FindOffer(offers, "skill.hook");
+    const game::FUnlockOffer* owned = FindOffer(offers, ownedId);
     const game::FUnlockOffer* bash = FindOffer(offers, "skill.bash");
     const game::FUnlockOffer* storm = FindOffer(offers, "skill.storm");
     const game::FUnlockOffer* shackle = FindOffer(offers, "skill.shackle");
-    const game::FUnlockOffer* stub = FindOffer(offers, "party.rogue_stub");
-    CHECK(hook != nullptr && hook->status == game::EUnlockStatus::Owned);
+    const game::FUnlockOffer* stub = FindOffer(offers, kStubId);
+    CHECK(owned != nullptr && owned->status == game::EUnlockStatus::Owned);
     CHECK(bash != nullptr && bash->status == game::EUnlockStatus::Purchasable);
     CHECK(storm != nullptr && storm->status == game::EUnlockStatus::BelowSealGate);
     CHECK(shackle != nullptr && shackle->status == game::EUnlockStatus::InsufficientSeals);
@@ -882,11 +955,11 @@ void UnlocksTabRendersAndBuyIsTheRule() {
     CHECK(noMetaLog.find("Unlocks need a profile (meta progress is off).") != std::string::npos);
     CHECK(!registry.ctx().contains<game::FPreparationCommand>());  // the view posts nothing
 
-    // Meta on: earn exactly hook's gate/price so its row is a live "Buy for <cost> seals" reason.
+    // Meta on: earn exactly the target row's gate/price so its row is a live "Buy for <cost> seals" reason.
     CHECK(view.InitMeta());
-    const game::FMetaUnlockRow hook = RowOrFail(registry, "skill.hook");
+    const game::FMetaUnlockRow target = FirstUnlockOfKind(registry, "skill");
     InstallRun(registry);
-    const int earned = EarnAtLeast(registry, std::max(hook.cost, hook.sealGate));
+    const int earned = EarnAtLeast(registry, std::max(target.cost, target.sealGate));
     CHECK(game::MetaSeals(registry) == earned);
 
     view.DrawFrame(screen, "Unlocks");  // settle after the state change
@@ -916,10 +989,10 @@ void UnlocksTabRendersAndBuyIsTheRule() {
         CHECK(metaLog.find(row.id) == std::string::npos);
     }
     // The view renders the evaluator's reason and performs no purchase on its own ("buy is the rule").
-    const std::string buyReason = "Buy for " + std::to_string(hook.cost) + " seals";
+    const std::string buyReason = "Buy for " + std::to_string(target.cost) + " seals";
     CHECK(metaLog.find(buyReason) != std::string::npos);
     CHECK(game::MetaSeals(registry) == earned);
-    CHECK(!game::HasMetaUnlock(registry, "skill.hook"));
+    CHECK(!game::HasMetaUnlock(registry, target.id));
     CHECK(!registry.ctx().contains<game::FPreparationCommand>());
 }
 

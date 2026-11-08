@@ -4,8 +4,7 @@
 //
 // Everything the tests expect is derived from the loaded fixture data (dungeon balance/recovery, units,
 // the fixture events.json) or from the documented rule under test. The remaining literals are the WP's
-// own contracts: the seed id/pool, the fixture pool tags ("common"/"test"), the fixture event ids, and
-// the D-3 payout read straight from the SHIP assets/data/dungeon.json.
+// own contracts: the seed id/pool, the fixture pool tags ("common"/"test") and the fixture event ids.
 //
 // Sections: schema/loader (EventsLoad over a temp events.json), numbers/effects, stats, dispatch/pools,
 // pick, non-repeat, and the two-stage flow + log + save section.
@@ -25,6 +24,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -33,9 +33,12 @@
 #include <SDL3/SDL.h>
 #include <imgui.h>
 #include <nlohmann/json.hpp>
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
 
 #include "core/AssetManager.h"
 #include "core/EngineState.h"
+#include "core/Logger.h"
 #include "core/ResourceManager.h"
 #include "core/SDLDeleter.h"
 #include "gameplay/GameplayServices.h"
@@ -99,6 +102,37 @@ std::string ReadBytes(const std::string& path) {
 }
 
 json FixtureDoc(const char* file) { return ReadJsonFile(FixtureDataPath(file)); }
+
+/// Captures spdlog output while alive (the camp_tests FLogCapture pattern): the event warnings are the
+/// subject of the warning-count and quiet-view tests below.
+struct FLogCapture {
+    std::ostringstream stream;
+    std::shared_ptr<spdlog::logger> logger;
+
+    FLogCapture() {
+        logger = std::make_shared<spdlog::logger>(
+            "event-test-capture", std::make_shared<spdlog::sinks::ostream_sink_mt>(stream));
+        logger->set_level(spdlog::level::trace);
+        SetCurrentGameLogger(logger);
+    }
+
+    ~FLogCapture() { SetCurrentGameLogger(nullptr); }
+
+    FLogCapture(const FLogCapture&) = delete;
+    FLogCapture& operator=(const FLogCapture&) = delete;
+
+    std::string Text() const { return stream.str(); }
+};
+
+/// Non-overlapping occurrence count of `needle` in `text` (the one-line-warning probes).
+std::size_t CountOccurrences(const std::string& text, std::string_view needle) {
+    std::size_t count = 0;
+    for (std::size_t pos = text.find(needle); pos != std::string::npos;
+         pos = text.find(needle, pos + needle.size())) {
+        ++count;
+    }
+    return count;
+}
 
 // --- a booted registry with its own checkpoint and save slot (camp_tests pattern) ---------------
 
@@ -330,6 +364,90 @@ void EventSchemaValidated() {
     CHECK(catalog.front().id == game::kLegacySeedEventId);
 }
 
+/// WP-09h P3-①: the seed is derived from the current balance on every read. The balance is an immutable
+/// asset document, so "re-initialized" here means: rewrite the override root and drop the manager cache —
+/// exactly what a content reload does. Nothing in the event module may answer from a stale copy.
+/// (Regression pin: HEAD passes this; it holds the no-cache rule the single-entry lookup must keep.)
+void FindEventDefReflectsReinitializedBalance() {
+    FTempAssets assets("events-find-def-retune");
+    constexpr int kFirstMaterials = 8;
+    constexpr int kSecondMaterials = 21;
+    auto document = FixtureDoc("dungeon.json");
+    document["balance"]["event_materials"] = kFirstMaterials;
+    assets.Write("dungeon.json", document);
+    FBoot boot(UniquePath("events-find-def-retune-boot"), assets.Roots());
+    StartFresh(boot);
+
+    const auto gainOf = [](const game::FEventDef& seed) {
+        for (const auto& effect : seed.choices[1].effects) {
+            if (effect.kind == game::kEventEffectGainMaterials) return effect.amount;
+        }
+        return 0;
+    };
+    const auto first = game::FindEventDef(boot.registry, game::kLegacySeedEventId);
+    CHECK(first.has_value() && first->choices.size() >= 2u);
+    CHECK(gainOf(*first) == kFirstMaterials);
+    CHECK(first->choices[1].text.find("gain " + std::to_string(kFirstMaterials) + " materials") !=
+          std::string::npos);
+
+    document["balance"]["event_materials"] = kSecondMaterials;
+    assets.Write("dungeon.json", document);
+    boot.registry.ctx().get<game::FAssetManager>().clearCache();
+
+    const auto second = game::FindEventDef(boot.registry, game::kLegacySeedEventId);
+    CHECK(second.has_value() && second->choices.size() >= 2u);
+    CHECK(gainOf(*second) == kSecondMaterials);
+    CHECK(second->choices[1].text.find("gain " + std::to_string(kSecondMaterials) + " materials") !=
+          std::string::npos);
+}
+
+/// WP-09h P3-②: the single-entry lookup returns exactly what the catalog walk carries for an authored id,
+/// field for field. Regression pin (HEAD passes): it guards the O(1) rewrite's fidelity.
+void FindEventDefAuthoredMatchesCatalog() {
+    FBoot boot(UniquePath("events-find-def-catalog"));
+    const auto catalog = game::EventCatalog(boot.registry);
+    CHECK(catalog.size() == 4u);  // the seed + the three authored fixture events
+
+    const auto sameChoice = [](const game::FEventChoice& found, const game::FEventChoice& entry) {
+        if (found.text != entry.text || found.resultText != entry.resultText) return false;
+        if (found.check.has_value() != entry.check.has_value()) return false;
+        if (found.check.has_value() &&
+            (found.check->stat != entry.check->stat || found.check->difficulty != entry.check->difficulty)) {
+            return false;
+        }
+        if (found.effects.size() != entry.effects.size()) return false;
+        for (std::size_t index = 0; index < found.effects.size(); ++index) {
+            if (found.effects[index].kind != entry.effects[index].kind ||
+                found.effects[index].amount != entry.effects[index].amount) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    for (const game::FEventDef& entry : catalog) {
+        if (entry.id == game::kLegacySeedEventId) continue;  // the three authored fixture ids
+        const auto found = game::FindEventDef(boot.registry, entry.id);
+        if (!found.has_value()) std::cout << "    missing: " << entry.id << '\n';
+        CHECK(found.has_value());
+        CHECK(found->id == entry.id);
+        CHECK(found->title == entry.title);
+        CHECK(found->body == entry.body);
+        CHECK(found->tags == entry.tags);
+        CHECK(found->choices.size() == entry.choices.size());
+        for (std::size_t index = 0; index < found->choices.size(); ++index) {
+            CHECK(sameChoice(found->choices[index], entry.choices[index]));
+        }
+    }
+
+    // The seed branch answers too, equal to the catalog's first entry.
+    const auto seed = game::FindEventDef(boot.registry, game::kLegacySeedEventId);
+    CHECK(seed.has_value());
+    CHECK(seed->id == catalog.front().id && seed->title == catalog.front().title);
+    CHECK(seed->choices.size() == catalog.front().choices.size());
+    CHECK((game::FindEventDef(boot.registry, "event.not_authored") == std::nullopt));
+}
+
 void UnknownKeyRejected() {
     FTempAssets assets("events-unknown-key");
     const json base = FixtureDoc("events.json");
@@ -450,6 +568,30 @@ void CheckGateDisablesWhenUnmet() {
     }
 }
 
+/// WP-09h P3-③ / #8: the view path reads the gate with warnUnresolved=false and must stay silent even with
+/// an unresolvable member; the rule path (default argument) still warns exactly once for the same input.
+/// Fails on HEAD: the parameter does not exist there and the warn fires on every call.
+void ViewGateIsQuiet() {
+    FBoot boot(UniquePath("events-view-quiet"));
+    StartFresh(boot);
+    const auto def = game::FindEventDef(boot.registry, kFixtureGatedEvent);
+    CHECK(def.has_value() && !def->choices.empty() && def->choices[0].check.has_value());
+    CHECK(boot.run().party.size() >= 2u);
+    boot.run().party[0].id = "party.unit_absent";  // no resolvable unit: EventPartyStat would warn
+
+    FLogCapture capture;
+    for (int call = 0; call < 10; ++call) {
+        // Read every frame as the view does: the verdict must not change, the log must stay empty.
+        const auto gate = game::EvaluateEventGate(boot.registry, def->choices[0], false);
+        CHECK(gate.reason.find("unknown") == std::string::npos);  // the other members still resolve
+    }
+    CHECK(CountOccurrences(capture.Text(), "has no resolvable unit") == 0);
+
+    // The positive control: the default (the rule paths) warns once for the very same input.
+    (void)game::EvaluateEventGate(boot.registry, def->choices[0]);
+    CHECK(CountOccurrences(capture.Text(), "has no resolvable unit") == 1);
+}
+
 void CheckHasNoFailureBranch() {
     FTempAssets assets("events-no-failure-branch");
     const json base = FixtureDoc("events.json");
@@ -482,6 +624,46 @@ void GatedOptionsLeaveAChoice() {
     CHECK(!ContentBoots(assets.Roots()));
     assets.Write("events.json", base);
     CHECK(ContentBoots(assets.Roots()));
+}
+
+/// One authored probe document for the amount-cap test: 1 event, 2 choices, one effect of `kind`.
+json EffectAmountProbe(std::string_view kind, int amount) {
+    return json{
+        {"schema_version", game::kEventSchemaVersion},
+        {"events", json::array({json{
+            {"id", "event.test_amount_cap"},
+            {"title", "Cap probe"},
+            {"body", "Cap probe."},
+            {"tags", json::array({"test"})},
+            {"choices", json::array({
+                json{{"text", "Take"},
+                     {"effects", json::array({json{{"kind", std::string(kind)}, {"amount", amount}}})},
+                     {"result_text", "Taken."}},
+                json{{"text", "Leave"}, {"effects", json::array()}, {"result_text", "Left."}},
+            })},
+        }})},
+    };
+}
+
+/// WP-09h P6 / #9: the flat-effect validators cap `amount` at kEventEffectAmountMax — probed from both
+/// sides (over the ceiling refused, the ceiling itself accepted) for the four bounded kinds; node points
+/// also accept 0 (the documented default-of-1 shape). Fails on HEAD: 1000 boots there (no upper bound).
+void EffectAmountCapRejected() {
+    FTempAssets assets("events-amount-cap");
+    const std::vector<std::string> kinds = {
+        std::string(game::kEventEffectRestorePartyHp),
+        std::string(game::kEventEffectDamageParty),
+        std::string(game::kEventEffectGainMaterials),
+        std::string(game::kEventEffectGainNodePoints),
+    };
+    for (const std::string& kind : kinds) {
+        assets.Write("events.json", EffectAmountProbe(kind, game::kEventEffectAmountMax + 1));
+        CHECK(!ContentBoots(assets.Roots()));  // over the ceiling: the parameter validator refuses the boot
+        assets.Write("events.json", EffectAmountProbe(kind, game::kEventEffectAmountMax));
+        CHECK(ContentBoots(assets.Roots()));   // the ceiling itself is legal (no vacuous too-low pass)
+    }
+    assets.Write("events.json", EffectAmountProbe(std::string(game::kEventEffectGainNodePoints), 0));
+    CHECK(ContentBoots(assets.Roots()));  // node points: 0 reads as the default of 1 and stays legal
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -517,6 +699,54 @@ void EventHealClampsToMax() {
     const int gain3 = std::min(heal, max3 - 1);
     CHECK(run.party[3].health == 1 + gain3);
     CHECK(outcome->hpRestored == 1 + gain3);
+}
+
+/// WP-09h P5 / #6: the camp/room restore and the event `restore_party_hp` applier are one rule — the
+/// -1 sentinel is skipped, a known maximum clamps, an unknown maximum (<= 0) does not — and
+/// RestorePartyHealth returns the actually restored total (= the outcome). Regression pin: HEAD's two
+/// copies agree today too; this holds them together after the merge into one rule.
+void CampAndEventRestoreAgree() {
+    FBoot camp(UniquePath("events-restore-camp"));
+    FBoot event(UniquePath("events-restore-event"));
+    StartFresh(camp);
+    StartFresh(event);
+
+    constexpr int kHeal = 12;
+    const auto prepare = [](FBoot& boot) {
+        auto& run = boot.run();
+        CHECK(run.party.size() >= 4u);
+        const int max1 = game::DungeonMemberMaxHealth(boot.registry, run.party[1]);
+        const int max3 = game::DungeonMemberMaxHealth(boot.registry, run.party[3]);
+        CHECK(max1 > 3 && max3 > 0);
+        run.party[0].health = -1;               // sentinel = unclaimed = full: the rule skips the member
+        run.party[1].health = max1 - 3;         // three short: the clamp caps the gain at exactly 3
+        run.party[2].id = "party.unit_absent";  // unit unresolvable: maximum unknown, no clamp
+        run.party[2].health = 12;
+        run.party[3].health = max3;             // already at the maximum: nothing to restore
+    };
+    prepare(camp);
+    prepare(event);
+    CHECK(game::DungeonMemberMaxHealth(camp.registry, camp.run().party[2]) <= 0);  // premise: unknown max
+
+    // The camp side: what EnterCamp's RestoreParty calls (the camp flow itself is FRunFlow's; this test
+    // exercises the shared helper it delegates to).
+    const int restored = game::RestorePartyHealth(camp.registry, kHeal);
+
+    // The event side: the same amount through the effect pipeline.
+    game::FEventChoice choice;
+    choice.effects.push_back(game::gameplay::FEffectSpec{
+        .kind = std::string(game::kEventEffectRestorePartyHp), .amount = kHeal});
+    const auto outcome = game::ApplyEventChoice(event.registry, choice);
+    CHECK(outcome.has_value());
+    CHECK(outcome->hpRestored == restored);
+    CHECK(restored == 3 + kHeal);  // the clamped 3 on party[1] + the unclamped member's kHeal
+
+    CHECK(camp.run().party.size() == event.run().party.size());
+    for (std::size_t index = 0; index < camp.run().party.size(); ++index) {
+        CHECK(camp.run().party[index].health == event.run().party[index].health);
+    }
+    CHECK(camp.run().party[0].health == -1);  // the sentinel survives both paths
+    CHECK(camp.run().party[2].health == 12 + kHeal);
 }
 
 void DamagePartyStopsAtOneHp() {
@@ -693,10 +923,50 @@ void EventIncomeBindsD3() {
     }
     CHECK(seeded > 0);
     CHECK(seeded == game::DungeonBalance(boot.registry, "event_materials"));  // one canonical source
+    // No shipped-value guard here: D-3 invites retuning `event_materials` against the curve, and a test
+    // pinned to the ship number would break the next tuning pass (WP-09h #4). The single-source assert
+    // above is the contract.
+}
 
-    // D-3: the SHIP dossier authors the event payout as 3 — read the shipped file itself.
-    const json ship = ReadJsonFile(std::string(kShipAssetRoot) + "/data/dungeon.json");
-    CHECK(ship["balance"]["event_materials"] == 3);
+/// WP-09h P4 / #7: the seed warnings are ctx-scoped, never process-global statics. A fresh registry warns
+/// again for the same fraction, and a changed fraction warns once more — while repeated reads of an
+/// unchanged fraction stay at one line. Fails on HEAD: the `static bool reported` is already consumed by
+/// the first registry, so the second answers 0 warnings there.
+void SeedWarningsAreRegistryScoped() {
+    const auto setFraction = [](FBoot& boot, double fraction) {
+        game::FDungeonRecovery recovery = game::DungeonRecovery(boot.registry);
+        recovery.eventChestHpCostFraction = fraction;
+        boot.registry.ctx().insert_or_assign<game::FDungeonRecovery>(std::move(recovery));
+    };
+
+    // Registry A: a zero fraction warns exactly once over five catalog reads.
+    FBoot bootA(UniquePath("events-seed-warn-a"));
+    setFraction(bootA, 0.0);
+    {
+        FLogCapture capture;
+        for (int read = 0; read < 5; ++read) (void)game::EventCatalog(bootA.registry);
+        CHECK(CountOccurrences(capture.Text(), "event_chest_hp_cost_fraction") == 1);
+        CHECK(CountOccurrences(capture.Text(), "is not a whole number") == 0);
+    }
+
+    // A fresh registry warns again for the same value (the process-global static stays quiet on HEAD).
+    FBoot bootB(UniquePath("events-seed-warn-b"));
+    setFraction(bootB, 0.0);
+    {
+        FLogCapture capture;
+        (void)game::EventCatalog(bootB.registry);
+        CHECK(CountOccurrences(capture.Text(), "event_chest_hp_cost_fraction") == 1);
+    }
+
+    // A changed fraction warns once more on A; the repeated read of the new value is quiet again.
+    setFraction(bootA, 0.123);
+    {
+        FLogCapture capture;
+        (void)game::EventCatalog(bootA.registry);
+        CHECK(CountOccurrences(capture.Text(), "is not a whole number") == 1);
+        (void)game::EventCatalog(bootA.registry);
+        CHECK(CountOccurrences(capture.Text(), "is not a whole number") == 1);
+    }
 }
 
 void ChestChoiceShowsPerUnitLoss() {
@@ -928,16 +1198,35 @@ void EmptyPoolFailsBoot() {
     CHECK(ContentBoots(assets.Roots()));
 }
 
-void ShippedEventsFileIsEmptyInW9() {
+void ShippedEventsFileLoads() {
+    // WP-09h P1: W9 ships `"events": []`; WP-23 fills the array with authored events. Everything asserted
+    // here survives that without an edit — the document loads and the full gameplay boot accepts it. No
+    // emptiness assert: the emptiness of the shipped list is not this suite's contract.
     const json shipped = ReadJsonFile(std::string(kShipAssetRoot) + "/data/events.json");
     CHECK(shipped["schema_version"] == game::kEventSchemaVersion);
     CHECK(shipped["events"].is_array());
-    CHECK(shipped["events"].empty());  // W9 ships the seed only; authored events arrive with WP-23
 
-    // The loader contract side: an empty list is a normal document, not an error.
     entt::registry registry;
     game::FAssetManager::Initialize(registry, ShipAssetRoots());
     const auto defs = game::LoadEventDefs(registry.ctx().get<game::FAssetManager>());
+    CHECK(defs.has_value());
+    CHECK(ContentBoots(ShipAssetRoots()));
+}
+
+/// WP-09h P1: a missing `data/events` is a boot failure. The probe boots a temp root ALONE (no fixture, no
+/// ship fallback), so the only root the document could come from is the temp root itself.
+void EventsFileAbsentFailsBoot() {
+    FTempAssets assets("events-absent");
+    entt::registry bare;
+    game::FAssetManager::Initialize(bare, {assets.root.string()});
+    CHECK(!game::LoadEventDefs(bare.ctx().get<game::FAssetManager>()).has_value());
+
+    // The positive control: the same root with an explicit empty document loads — the failure is the
+    // absence of the file, and `"events": []` is the normal zero-authored-events document.
+    assets.Write("events.json", json{{"schema_version", game::kEventSchemaVersion}, {"events", json::array()}});
+    entt::registry loaded;
+    game::FAssetManager::Initialize(loaded, {assets.root.string()});
+    const auto defs = game::LoadEventDefs(loaded.ctx().get<game::FAssetManager>());
     CHECK(defs.has_value());
     CHECK(defs->empty());
 }
@@ -1534,18 +1823,24 @@ int main() {
 
     return game_test::RunTests("event_framework", {
         {"EventSchemaValidated", EventSchemaValidated},
+        {"FindEventDefReflectsReinitializedBalance", FindEventDefReflectsReinitializedBalance},
+        {"FindEventDefAuthoredMatchesCatalog", FindEventDefAuthoredMatchesCatalog},
         {"UnknownKeyRejected", UnknownKeyRejected},
         {"ResultTextIsSingleText", ResultTextIsSingleText},
         {"BadCheckStatFailsBoot", BadCheckStatFailsBoot},
         {"CheckGateDisablesWhenUnmet", CheckGateDisablesWhenUnmet},
+        {"ViewGateIsQuiet", ViewGateIsQuiet},
         {"CheckHasNoFailureBranch", CheckHasNoFailureBranch},
         {"GatedOptionsLeaveAChoice", GatedOptionsLeaveAChoice},
+        {"EffectAmountCapRejected", EffectAmountCapRejected},
         {"EventHealClampsToMax", EventHealClampsToMax},
+        {"CampAndEventRestoreAgree", CampAndEventRestoreAgree},
         {"DamagePartyStopsAtOneHp", DamagePartyStopsAtOneHp},
         {"ChestCostMatchesFraction", ChestCostMatchesFraction},
         {"GainMaterialsIsRunScope", GainMaterialsIsRunScope},
         {"ReplaceLegacyShrine", ReplaceLegacyShrine},
         {"EventIncomeBindsD3", EventIncomeBindsD3},
+        {"SeedWarningsAreRegistryScoped", SeedWarningsAreRegistryScoped},
         {"ChestChoiceShowsPerUnitLoss", ChestChoiceShowsPerUnitLoss},
         {"StatSourceIsPartyBestPure", StatSourceIsPartyBestPure},
         {"StatVocabularyMatchesUpgrades", StatVocabularyMatchesUpgrades},
@@ -1555,7 +1850,8 @@ int main() {
         {"UnknownRoomTypeFailsBoot", UnknownRoomTypeFailsBoot},
         {"BattleRemainsImplicit", BattleRemainsImplicit},
         {"EmptyPoolFailsBoot", EmptyPoolFailsBoot},
-        {"ShippedEventsFileIsEmptyInW9", ShippedEventsFileIsEmptyInW9},
+        {"ShippedEventsFileLoads", ShippedEventsFileLoads},
+        {"EventsFileAbsentFailsBoot", EventsFileAbsentFailsBoot},
         {"EventPickGolden", EventPickGolden},
         {"EventPickStableAcrossRestart", EventPickStableAcrossRestart},
         {"EventPickSeparatesGapSlots", EventPickSeparatesGapSlots},

@@ -125,18 +125,28 @@ constexpr std::string_view kSeedCacheResult = "The lock gives way; the cache is 
     return std::ranges::any_of(authored, [pool](const FEventDef& event) { return EventInPool(event, pool); });
 }
 
+/// The seed warnings' memory (WP-09h #7): ctx-owned instead of function-local statics, so a fresh registry
+/// (or a re-initialized dungeon whose recovery changed) warns again for a new fraction, while the repeated
+/// catalog reads of one unchanged fraction stay at one line. Values = the last warned fraction.
+struct FEventSeedWarnings {
+    std::optional<double> nonWholeFraction;
+    std::optional<double> zeroFraction;
+};
+
 } // namespace
 
 std::optional<std::vector<FEventDef>> LoadEventDefs(const FAssetManager& assets) {
-    // A missing `data/events` is the optional-table case (the engine-ignition precedent,
-    // FContentRegistry::load): `resolvePath` is the silent existence probe, because the loader would log a
-    // false ERROR for every legitimate event-less boot. Zero authored events is a valid W9 state — the seed
-    // alone is the event content and content-only test roots that predate WP-09 carry no events file — so it
-    // is announced by exactly one WARN. A present document is loaded (and later validated) like a required
-    // table: a present-but-broken file is unusable.
+    // A missing `data/events` is a boot failure (WP-09h #5): the document is required like every other
+    // content table — zero authored events is expressed by `"events": []`, never by a missing file — because
+    // a packaging slip that drops it would otherwise silently delete every authored event behind a single
+    // WARN (WP-23 authors 12 events). `resolvePath` is the existence probe so the loader does not log a
+    // second, misleading reason; the ERROR below is the one reason. A present document is loaded (and later
+    // validated) like any required table: `"events": []` is the normal zero-event document, a
+    // present-but-broken file is unusable.
     if (!assets.resolvePath(kEventSchema.assetId).has_value()) {
-        LOG_WARN("event content: no 'data/events' document; zero authored events (the seed is the only event).");
-        return std::vector<FEventDef>{};
+        LOG_ERROR("event content: no 'data/events' document; the event table is required (write "
+                  "\"events\": [] for zero authored events).");
+        return std::nullopt;
     }
     const std::optional<std::vector<FContentRow>> rows = FContentLoader::load(assets, kEventSchema);
     if (!rows) return std::nullopt;  // present but broken: the reason is already logged
@@ -247,19 +257,21 @@ std::vector<FEventDef> BuildLegacySeedEvents(entt::registry& registry) {
     const double chestFraction = DungeonRecovery(registry).eventChestHpCostFraction;
     const double chestPercent = chestFraction * 100.0;
     const int chestCostPercent = static_cast<int>(std::lround(chestPercent));
+    // The warning memory is ctx-owned (WP-09h #7), never a function-local static: a second registry in the
+    // same process (or a recovered dungeon) warns again, while repeated reads of one fraction stay quiet.
+    auto* warnings = registry.ctx().find<FEventSeedWarnings>();
+    if (warnings == nullptr) warnings = &registry.ctx().emplace<FEventSeedWarnings>();
     if (std::abs(chestPercent - std::round(chestPercent)) > kSeedPercentEpsilon) {
-        static bool reported = false;  // once per process: the catalog is read on every event room
-        if (!reported) {
-            reported = true;
+        if (warnings->nonWholeFraction != chestFraction) {
+            warnings->nonWholeFraction = chestFraction;
             LOG_WARN("event seed: recovery.event_chest_hp_cost_fraction {} x 100 is not a whole number; "
                      "the cache cost uses {}%.", chestFraction, chestCostPercent);
         }
     }
     const bool costsHp = chestFraction > 0.0;
     if (!costsHp) {
-        static bool reported = false;
-        if (!reported) {
-            reported = true;
+        if (warnings->zeroFraction != chestFraction) {
+            warnings->zeroFraction = chestFraction;
             LOG_WARN("event seed: recovery.event_chest_hp_cost_fraction is 0 (or recovery is absent); the "
                      "cache choice has no HP cost.");
         }
@@ -300,9 +312,19 @@ std::vector<FEventDef> EventCatalog(entt::registry& registry) {
 }
 
 std::optional<FEventDef> FindEventDef(entt::registry& registry, std::string_view id) {
-    std::vector<FEventDef> catalog = EventCatalog(registry);
-    for (FEventDef& event : catalog) {
-        if (event.id == id) return std::optional<FEventDef>{std::move(event)};
+    // One entry, never the whole catalog (WP-09h #8): the view calls this every frame, so copying the
+    // authored table and rebuilding the seed for nothing is off the table. Nothing is cached either — the
+    // seed is still derived from the current balance/recovery on every read, so a re-initialized dungeon is
+    // reflected immediately (the one-canonical-source contract in BuildLegacySeedEvents).
+    if (id == kLegacySeedEventId) {
+        std::vector<FEventDef> seed = BuildLegacySeedEvents(registry);
+        if (seed.empty()) return std::nullopt;  // the builder always returns one seed; defensive only
+        return std::optional<FEventDef>{std::move(seed.front())};
+    }
+    if (const FEventTable* table = registry.ctx().find<FEventTable>()) {
+        for (const FEventDef& event : table->events) {
+            if (event.id == id) return std::optional<FEventDef>{event};
+        }
     }
     return std::nullopt;
 }

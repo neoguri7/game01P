@@ -61,7 +61,10 @@ void RenderDungeonEventView(entt::registry& registry) {
                 ImGui::Separator();
                 for (std::size_t index = 0; index < def->choices.size(); ++index) {
                     const FEventChoice& choice = def->choices[index];
-                    const FEventGate gate = EvaluateEventGate(registry, choice);
+                    // The view reads every choice's gate on every frame: warnUnresolved=false keeps the
+                    // "member has no resolvable unit" WARN on the rule paths (ChooseEventOption, autopilot)
+                    // instead of spamming it per frame (WP-09h #8).
+                    const FEventGate gate = EvaluateEventGate(registry, choice, false);
                     ImGui::BeginDisabled(!gate.open);
                     // The choice resolves inside the same popup (the stage switches); never CloseCurrentPopup here.
                     if (ui::Button(choice.text.c_str(), {-1, 42})) {

@@ -20,9 +20,10 @@ namespace {
 /// The logged provenance of every event effect application (FEffectContext::source).
 constexpr const char* kEventEffectSource = "event";
 
-/// Validator bounds (WP-09 §2). Named so no bound is a magic number: the flat effects need a positive
-/// amount, the chest-style cost a whole percent in [1, 99] (100 is not a trade — it floors the party), and
-/// node points a non-negative count (0 reads as the default of 1).
+/// Validator bounds (WP-09 §2; the WP-09h #9 ceiling is the public kEventEffectAmountMax). Named so no
+/// bound is a magic number: the flat effects need a positive amount up to the ceiling (an in-code overflow
+/// guard, not balance), the chest-style cost a whole percent in [1, 99] (100 is not a trade — it floors
+/// the party), and node points a non-negative count (0 reads as the default of 1) up to the same ceiling.
 constexpr int kEventEffectAmountMin = 1;
 constexpr int kEventDamagePercentMax = 99;
 constexpr int kEventNodePointsMin = 0;
@@ -98,17 +99,9 @@ int RestoredHealth(const entt::registry& registry, const FRunMember& member, int
 // --- appliers (Run scope) -----------------------------------------------------------------------
 
 void ApplyRestorePartyHp(entt::registry& registry, const FEffectContext&, const gameplay::FEffectSpec& spec) {
-    auto* run = registry.ctx().find<FDungeonRun>();
-    if (run == nullptr) return;
-    int restored = 0;
-    for (auto& member : run->party) {
-        // The same rule as FRunFlow's RestoreParty: the -1 sentinel (unclaimed = full) is never
-        // materialised, and the gain clamps to the derived maximum when it is known.
-        if (member.health < 0) continue;  // sentinel: already full, never materialised
-        const int before = member.health;
-        member.health = RestoredHealth(registry, member, spec.amount, member.health);
-        restored += std::max(0, member.health - before);
-    }
+    // One rule for the event applier and the camp/room restore (WP-09h #6): RestorePartyHealth owns the
+    // sentinel skip and the clamp formula, so the two paths cannot drift apart.
+    const int restored = RestorePartyHealth(registry, spec.amount);
     if (auto* outcome = EventOutcomeOf(registry)) {
         outcome->hpRestored += restored;
     }
@@ -192,7 +185,7 @@ void ApplyGainNodePoints(entt::registry& registry, const FEffectContext&, const 
 // --- validators ---------------------------------------------------------------------------------
 
 bool ValidatePositiveAmount(const gameplay::FEffectSpec& spec) {
-    return spec.amount >= kEventEffectAmountMin;
+    return spec.amount >= kEventEffectAmountMin && spec.amount <= kEventEffectAmountMax;
 }
 
 bool ValidateDamagePercent(const gameplay::FEffectSpec& spec) {
@@ -205,10 +198,26 @@ bool ValidateEmptyRunePool(const gameplay::FEffectSpec& spec) {
 }
 
 bool ValidateNonNegativeAmount(const gameplay::FEffectSpec& spec) {
-    return spec.amount >= kEventNodePointsMin;
+    return spec.amount >= kEventNodePointsMin && spec.amount <= kEventEffectAmountMax;
 }
 
 } // namespace
+
+int RestorePartyHealth(entt::registry& registry, int amount) {
+    auto* run = registry.ctx().find<FDungeonRun>();
+    if (run == nullptr) return 0;  // nothing to restore
+    int restored = 0;
+    for (auto& member : run->party) {
+        // -1 = unclaimed = already full: a heal never materialises the sentinel. Otherwise the run HP is
+        // clamped to the member's derived max (unknown max <= 0: add without clamping — never clamp
+        // toward 0).
+        if (member.health < 0) continue;
+        const int before = member.health;
+        member.health = RestoredHealth(registry, member, amount, member.health);
+        restored += std::max(0, member.health - before);
+    }
+    return restored;
+}
 
 void RegisterEventEffects(entt::registry& registry) {
     RegisterEffect(registry, kEventEffectRestorePartyHp, gameplay::FEffectScope::Run, ApplyRestorePartyHp,
@@ -281,7 +290,7 @@ std::string EventStatLabel(std::string_view stat) {
     return std::string(stat);  // outside the vocabulary: the raw id the content wrote
 }
 
-FEventStatReading EventPartyStat(const entt::registry& registry, std::string_view stat) {
+FEventStatReading EventPartyStat(const entt::registry& registry, std::string_view stat, bool warnUnresolved) {
     FEventStatReading reading;
     const auto* run = registry.ctx().find<FDungeonRun>();
     if (run == nullptr) return reading;
@@ -289,7 +298,7 @@ FEventStatReading EventPartyStat(const entt::registry& registry, std::string_vie
     for (const auto& member : run->party) {
         const auto* unit = ResolveRunMemberUnit(registry, member.id);
         if (unit == nullptr) {
-            if (!warned) {  // one warning per call, however many members fail to resolve
+            if (warnUnresolved && !warned) {  // one warning per call, however many members fail to resolve
                 warned = true;
                 LOG_WARN("Event stat '{}': member '{}' has no resolvable unit; unresolvable members are skipped.",
                          stat, member.id);
@@ -306,7 +315,7 @@ FEventStatReading EventPartyStat(const entt::registry& registry, std::string_vie
     return reading;
 }
 
-FEventGate EvaluateEventGate(const entt::registry& registry, const FEventChoice& choice) {
+FEventGate EvaluateEventGate(const entt::registry& registry, const FEventChoice& choice, bool warnUnresolved) {
     FEventGate gate;
     if (!choice.check) return gate;  // no gate: open, no reason
     const FEventCheck& check = *choice.check;
@@ -315,7 +324,7 @@ FEventGate EvaluateEventGate(const entt::registry& registry, const FEventChoice&
         gate.reason = EventStatLabel(check.stat) + " unknown";
         return gate;
     }
-    const FEventStatReading reading = EventPartyStat(registry, check.stat);
+    const FEventStatReading reading = EventPartyStat(registry, check.stat, warnUnresolved);
     if (!reading.resolved) {  // no run or no member resolved: a closed gate, never a guessed value
         gate.open = false;
         gate.reason = EventStatLabel(check.stat) + " unknown";

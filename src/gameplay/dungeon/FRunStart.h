@@ -79,6 +79,15 @@ bool StartDungeonRunFromSetup(entt::registry& registry, std::uint32_t seed, bool
 /// content.skills and ValidateSkillSlot({skill, {}}, content) passes. nullopt = valid, else the reason.
 [[nodiscard]] std::optional<std::string> ValidateRosterContent(entt::registry& registry);
 
+/// Boot validation (w9-hub critic F4, R6 P12), called by the composition root right after
+/// ValidateRosterContent: every kind=skill/rune unlock catalog row must reach a real consumer, or the shop
+/// would sell a no-op. kind=skill: at least one NON-locked roster member authors the id in its unit pool
+/// (ResolveRunMemberUnit — the authored pool, never the gate-filtered MemberSkillPool). kind=rune: the id
+/// exists in the rune table. kind=roster is not checked (the EvaluateUnlockOffer locked/missing-target
+/// guard owns it) and neither is any other kind. nullopt = valid, else the first violation's reason, which
+/// names the offending id.
+[[nodiscard]] std::optional<std::string> ValidateUnlockTargets(entt::registry& registry);
+
 /// The preparation draft (pure rules the view drives and the tests call). Built from the carrier.
 struct FPreparationDraft {
     bool fresh{false};
