@@ -1,5 +1,5 @@
 {
-  "_comment": "개편 3차: 클래스별 베이스 스킬 9종과 숲 확장 스킬 3종. damage_type(physical/magical)과 rune_sockets(PoE 소켓)가 추가되었다. 태그는 룬 장착 조건(정본 §3.2)의 입력이며 수치는 잠정값이다. Shared IDs use forest display names; original Ember names: Strike, Cleave, Arrow, Volley, Bolt, Weakening fog, Heal, Battle blessing, Curse.",
+  "_comment": "개편 3차: 클래스별 베이스 스킬 9종과 숲 확장 스킬 3종. damage_type(physical/magical)과 rune_sockets(PoE 소켓)가 추가되었다. 태그는 룬 장착 조건(정본 §3.2)의 입력이며 수치는 잠정값이다. WP-16 템포 스킬 4종(shove/barrage/shackle/imp_firebomb) 추가. Shared IDs use forest display names; original Ember names: Strike, Cleave, Arrow, Volley, Bolt, Weakening fog, Heal, Battle blessing, Curse.",
   "schema_version": 1,
   "skills": [
     {
@@ -203,6 +203,84 @@
         "Spell",
         "Projectile",
         "Fire"
+      ]
+    },
+    {
+      "id": "skill.shove",
+      "display_name": "Shove",
+      "ap_cost": 1,
+      "power": 1,
+      "range": 1,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 1,
+      "tags": [
+        "Melee",
+        "Attack"
+      ],
+      "hooks": [
+        {
+          "id": "hook.shove_push",
+          "event": "on_hit",
+          "effect": {
+            "kind": "push",
+            "from": "caster",
+            "distance": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "skill.barrage",
+      "display_name": "Barrage",
+      "ap_cost": 1,
+      "power": 2,
+      "range": 2,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 1,
+      "tags": [
+        "Bow",
+        "Attack",
+        "Projectile"
+      ]
+    },
+    {
+      "id": "skill.shackle",
+      "display_name": "Shackle",
+      "ap_cost": 2,
+      "power": 0,
+      "range": 2,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "applies_status": "status.locked_move",
+      "damage_type": "magical",
+      "rune_sockets": 2,
+      "tags": [
+        "Spell",
+        "Curse"
+      ]
+    },
+    {
+      "id": "skill.imp_firebomb",
+      "display_name": "Firebomb",
+      "ap_cost": 2,
+      "power": 2,
+      "range": 3,
+      "shape": "zone",
+      "area_radius": 1,
+      "target": "cell",
+      "damage_type": "magical",
+      "rune_sockets": 2,
+      "tags": [
+        "Spell",
+        "AoE",
+        "Zone"
       ]
     }
   ]

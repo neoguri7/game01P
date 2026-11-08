@@ -13,6 +13,9 @@ namespace game::gameplay {
 inline constexpr std::string_view kStatusKindDot = "dot";
 inline constexpr std::string_view kStatusKindControl = "control";
 inline constexpr std::string_view kStatusKindStat = "stat";
+/// WP-16: move denial (immobilize), not action denial. A `move_lock` status denies only the owner's next
+/// turn's movement — the owner may still use skills (W5 review #8: reusing `control` would read as freeze).
+inline constexpr std::string_view kStatusKindMoveLock = "move_lock";
 
 /// How a `control` status decides its action loss (WP-13; 30-decisions D-12). `turn_start` rolls at the
 /// owner's own turn start (freeze: magnitude 0 = always); `on_apply` rolls once when applied and stores

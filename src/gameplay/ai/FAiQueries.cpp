@@ -17,6 +17,10 @@ namespace {
 
 constexpr int kFarAway = 99;
 
+/// WP-16: a move lock denies mobility, not output — the AI values it at 1/this of the target's threat per
+/// locked turn (half; 잠정값 — the M-FUN report decides whether the data or this constant changes).
+constexpr int kMoveLockOutputDivisor = 2;
+
 struct FEffect {
     int value{0};
     bool kills{false};
@@ -217,7 +221,11 @@ int ValueOfStatus(const FBtContext& ctx, const FResolvedStatus& status, const FU
         if (gain == 0) {
             return 0;
         }
-        if (definition->kind == gameplay::kStatusKindDot) {
+        if (definition->kind == gameplay::kStatusKindMoveLock) {
+            // WP-16: a move lock costs the victim its mobility, not its output — half its threat per locked
+            // turn (잠정). Hostile: goodForTarget stays false.
+            worth = target.threat * gain / kMoveLockOutputDivisor;
+        } else if (definition->kind == gameplay::kStatusKindDot) {
             worth = std::min(magnitude * gain, target.hp);
         } else if (definition->kind == gameplay::kStatusKindControl) {
             // turn_start control (freeze/legacy paralyze): each denied turn costs the victim's side one turn of output.

@@ -4,17 +4,26 @@
 #include <optional>
 #include <variant>
 
+#include "core/AssetManager.h"
 #include "core/Logger.h"
 #include "ecs/components/FActiveStatuses.h"
+#include "ecs/components/FFaction.h"
 #include "ecs/components/FHealth.h"
+#include "ecs/components/FPosition.h"
 #include "ecs/components/FSkillLoadout.h"
+#include "gameplay/combat/FBattleEvents.h"
 #include "gameplay/combat/FCombatApply.h"
 #include "gameplay/combat/FCombatQuery.h"
+#include "gameplay/combat/FCombatRules.h"
 #include "gameplay/combat/FCombatSheet.h"
 #include "gameplay/combat/FCombatTypes.h"
+#include "gameplay/combat/FSkillApCap.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/grid/FGridQuery.h"
+#include "gameplay/grid/FGridTerrain.h"
+#include "gameplay/grid/FGridTypes.h"
 
 namespace game {
 namespace {
@@ -75,6 +84,123 @@ void ApplyStatusSpec(entt::registry& registry, entt::entity unit, const gameplay
     }
     ApplyStatus(*active, *definition, spec.duration, spec.magnitude);
     RefreshCombatSheet(registry, unit, *content);
+}
+
+/// Moves a displaced unit to `result.finalCell` (grid and world position), reports the walk to the
+/// presentation, and applies the stop-cell trap damage (only when the unit really moved) and the collision
+/// damage (WP-16). Shared by push and pull; the caller owns the collision constant.
+void MoveDisplacedUnit(
+    entt::registry& registry, entt::entity unit, const FPushResult& result, std::string_view verb,
+    int collisionDamage) {
+    auto* cell = registry.try_get<FGridPosition>(unit);
+    if (cell == nullptr) {
+        return;
+    }
+    const int moved = static_cast<int>(result.path.size()) - 1;
+    *cell = result.finalCell;
+    if (auto* position = registry.try_get<FPosition>(unit)) {
+        const auto* metrics = registry.ctx().find<FGridMetrics>();
+        const FGridMetrics fallback{};
+        const glm::vec2 world = GridCellTopLeftToWorld(
+            metrics != nullptr ? *metrics : fallback, result.finalCell.x, result.finalCell.y);
+        *position = FPosition{world.x, world.y}; // the same world mapping the Move command writes
+    }
+
+    auto* log = registry.ctx().find<FCombatLog>();
+    const std::string name = UnitDisplayName(registry, unit);
+    if (log != nullptr && moved > 0) {
+        log->push(name + " is " + std::string{verb} + " " + std::to_string(moved) + ".");
+    }
+    // Only the cell the unit actually ENTERED can hurt: it lands there, it does not cross the earlier
+    // cells (the Move command's per-step rule covers crossers; a displacement is one landing). A push
+    // blocked before the first step must not re-trigger a trap the unit was already standing on.
+    const auto* terrain = registry.ctx().find<FGridTerrain>();
+    if (moved > 0 && terrain != nullptr && terrain->at(result.finalCell.x, result.finalCell.y) == ETile::Trap) {
+        const bool knockedOut = ApplyDamageToUnit(registry, unit, terrain->trapDamage);
+        if (log != nullptr) {
+            log->push(name + " lands on spikes: -" + std::to_string(terrain->trapDamage) + " HP.");
+            if (knockedOut) {
+                log->push(name + " falls!");
+            }
+        }
+    }
+    if (result.hitObstacle && collisionDamage > 0 && IsAlive(registry, unit)) {
+        const bool knockedOut = ApplyDamageToUnit(registry, unit, collisionDamage);
+        if (log != nullptr) {
+            log->push(name + " slams into an obstacle: -" + std::to_string(collisionDamage) + " HP.");
+            if (knockedOut) {
+                log->push(name + " falls!");
+            }
+        }
+    }
+    if (result.path.size() > 1) {
+        if (auto* events = registry.ctx().find<FBattleEvents>()) {
+            events->pending.push_back(
+                FBattleEvent{.kind = FBattleEvent::EKind::Move, .actor = unit, .path = result.path});
+        }
+    }
+}
+
+/// One push (away from the caster) or pull (toward it). `from:"caster"` resolves to the hook owner's cell;
+/// the target is the hit unit. A killing hit does not move its victim — the OnHit dispatch runs after the
+/// damage application, so the victim would already be FDead (WP-16 §설계).
+void ApplyDisplacement(entt::registry& registry, const FEffectContext& context,
+                       const gameplay::FEffectSpec& spec, EDisplacementDirection direction, int collisionDamage) {
+    if (!IsAlive(registry, context.other)) {
+        return;
+    }
+    const auto* fromCell = registry.try_get<FGridPosition>(context.owner);
+    if (fromCell == nullptr) {
+        return;
+    }
+    const FPushResult result = ComputePushDestination(registry, context.other, *fromCell, spec.distance, direction);
+    if (result.path.empty()) {
+        return;
+    }
+    MoveDisplacedUnit(registry, context.other, result,
+                      direction == EDisplacementDirection::Away ? "pushed" : "pulled", collisionDamage);
+}
+
+/// Bounces `amount` damage from the hit unit to the nearest OTHER living unit of the same side within
+/// `distance` (Manhattan; tie = lower entity id), WP-16. The damage goes through ApplyDamageToUnit
+/// directly: the hook pipeline must not re-enter (WP-04 contract). The cell of a victim that died to this
+/// very hit still bounces — FGridPosition outlives FDead.
+void ApplyChain(entt::registry& registry, const FEffectContext& context, const gameplay::FEffectSpec& spec) {
+    const auto* victimCell = registry.try_get<FGridPosition>(context.other);
+    if (victimCell == nullptr) {
+        return;
+    }
+    const bool victimIsParty = registry.all_of<FPartyMember>(context.other);
+    entt::entity linked = entt::null;
+    int bestDistance = spec.distance + 1;
+    for (const entt::entity candidate : registry.view<FGridPosition>()) {
+        if (candidate == context.other || !IsAlive(registry, candidate)) {
+            continue;
+        }
+        if (registry.all_of<FPartyMember>(candidate) != victimIsParty) {
+            continue;
+        }
+        const int distance = GridDistance(*victimCell, registry.get<FGridPosition>(candidate));
+        if (distance > spec.distance) {
+            continue;
+        }
+        if (linked == entt::null || distance < bestDistance ||
+            (distance == bestDistance && entt::to_integral(candidate) < entt::to_integral(linked))) {
+            linked = candidate;
+            bestDistance = distance;
+        }
+    }
+    if (linked == entt::null) {
+        return; // nobody to catch the bounce
+    }
+    const std::string name = UnitDisplayName(registry, linked);
+    const bool knockedOut = ApplyDamageToUnit(registry, linked, spec.amount);
+    if (auto* log = registry.ctx().find<FCombatLog>()) {
+        log->push(name + " is caught in the chain: -" + std::to_string(spec.amount) + " HP.");
+        if (knockedOut) {
+            log->push(name + " falls!");
+        }
+    }
 }
 
 } // namespace
@@ -151,6 +277,43 @@ void RegisterCoreEffects(entt::registry& registry) {
             }
         },
         [](const FEffectSpec& spec) { return !spec.text.empty(); });
+}
+
+void RegisterTempoEffects(entt::registry& registry) {
+    using gameplay::FEffectScope;
+    using gameplay::FEffectSpec;
+    constexpr FEffectScope battle = FEffectScope::Battle;
+
+    // The collision damage is data (its sibling decision D-1 lives in the same balance block): read once at
+    // registration and captured — the appliers are the only consumers. A malformed value keeps the default
+    // here; the boot gate (ValidateSkillApCap) stops the boot on it.
+    int collisionDamage = gameplay::kDefaultPushCollisionDamage;
+    if (const auto* assets = registry.ctx().find<FAssetManager>()) {
+        if (const std::optional<gameplay::FTempoTuning> tuning = gameplay::LoadTempoTuning(*assets)) {
+            collisionDamage = tuning->pushCollisionDamage;
+        }
+    }
+
+    RegisterEffect(registry, kEffectKindPush, battle,
+        [collisionDamage](entt::registry& r, const FEffectContext& context, const FEffectSpec& spec) {
+            ApplyDisplacement(r, context, spec, EDisplacementDirection::Away, collisionDamage);
+        },
+        // The authored vocabulary is `from:"caster"` (WP-04 §1 fixed the 11 keys); anything else is an
+        // authoring error and must fail the boot, not silently push from nowhere.
+        [](const FEffectSpec& spec) { return spec.distance >= 1 && spec.from == "caster"; });
+
+    RegisterEffect(registry, kEffectKindPull, battle,
+        [collisionDamage](entt::registry& r, const FEffectContext& context, const FEffectSpec& spec) {
+            ApplyDisplacement(r, context, spec, EDisplacementDirection::Toward, collisionDamage);
+        },
+        [](const FEffectSpec& spec) { return spec.distance >= 1 && spec.from == "caster"; });
+
+    RegisterEffect(registry, kEffectKindChain, battle,
+        [](entt::registry& r, const FEffectContext& context, const FEffectSpec& spec) {
+            ApplyChain(r, context, spec);
+        },
+        // 0 damage or 0 reach is an authoring error (W2 review: an unset value must never silently pass).
+        [](const FEffectSpec& spec) { return spec.amount > 0 && spec.distance >= 1; });
 }
 
 bool ApplyEffect(entt::registry& registry, const FEffectContext& context, const gameplay::FEffectSpec& spec) {

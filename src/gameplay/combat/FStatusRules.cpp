@@ -108,6 +108,11 @@ FStatusTickResult TickStatuses(
                 } else if (rng.rollChance(ControlTickChance(effect.magnitude, definition->chanceCap))) {
                     result.skipTurn = true;
                 }
+            } else if (definition->kind == gameplay::kStatusKindMoveLock) {
+                // WP-16: 이동 봉쇄는 확정 — 롤 없음(TryApplyStatus도 굴리지 않는다). 소비는 소비자
+                // (TurnFlowSystem, WP-11 리베이스)의 몫이고, 여기서는 로그로 감사 가능하게 보고만 한다.
+                result.moveApZero = true;
+                LOG_INFO("status '{}' denies movement for the coming turn.", effect.statusId);
             }
         }
         --effect.turnsRemaining;

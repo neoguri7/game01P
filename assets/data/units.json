@@ -15,7 +15,7 @@
       "magic_attack": 2,
       "defense": 5,
       "magic_defense": 3,
-      "skills": ["skill.strike", "skill.cleave", "skill.lunge"]
+      "skills": ["skill.strike", "skill.cleave", "skill.lunge", "skill.shove"]
     },
     {
       "id": "char.archer",
@@ -30,7 +30,7 @@
       "magic_attack": 3,
       "defense": 3,
       "magic_defense": 3,
-      "skills": ["skill.arrow", "skill.volley", "skill.snipe"]
+      "skills": ["skill.arrow", "skill.volley", "skill.snipe", "skill.barrage"]
     },
     {
       "id": "char.mage",
@@ -45,7 +45,7 @@
       "magic_attack": 8,
       "defense": 2,
       "magic_defense": 5,
-      "skills": ["skill.bolt", "skill.fog", "skill.heal", "skill.buff", "skill.debuff", "skill.firebolt"]
+      "skills": ["skill.bolt", "skill.fog", "skill.heal", "skill.buff", "skill.debuff", "skill.firebolt", "skill.shackle"]
     },
     {
       "id": "char.healer",
@@ -117,7 +117,7 @@
       "magic_attack": 6,
       "defense": 1,
       "magic_defense": 4,
-      "skills": ["skill.bolt"]
+      "skills": ["skill.bolt", "skill.imp_firebomb"]
     }
   ]
 }

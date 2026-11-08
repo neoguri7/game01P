@@ -90,6 +90,16 @@ void RegisterEffect(entt::registry& registry, std::string_view kind, gameplay::F
 /// apply_status_self, apply_status_target, log. Run-scope effects are registered by WP-09.
 void RegisterCoreEffects(entt::registry& registry);
 
+/// Tempo effect kind names (WP-16 owns these three). push/pull displace the hit unit (`from:"caster"`,
+/// `distance`); chain bounces `amount` damage to the nearest other unit of the hit unit's side.
+inline constexpr std::string_view kEffectKindPush = "push";
+inline constexpr std::string_view kEffectKindPull = "pull";
+inline constexpr std::string_view kEffectKindChain = "chain";
+
+/// Registers the three tempo effects (WP-16): push, pull and chain. The push collision damage is captured
+/// from the tempo tuning (`push_collision_damage` in data/dungeon balance; absent asset/manager = default).
+void RegisterTempoEffects(entt::registry& registry);
+
 /// Applies one typed effect. False (with the reason logged) when the kind is unregistered or its scope
 /// does not match the context — a Battle context must refuse a Run-scope kind and the reverse.
 [[nodiscard]] bool ApplyEffect(

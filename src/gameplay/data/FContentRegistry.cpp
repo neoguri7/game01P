@@ -53,7 +53,8 @@ template <typename TRow, typename TDecode>
 }
 
 [[nodiscard]] bool isKnownStatusKind(std::string_view kind) {
-    return kind == kStatusKindDot || kind == kStatusKindControl || kind == kStatusKindStat;
+    return kind == kStatusKindDot || kind == kStatusKindControl || kind == kStatusKindStat ||
+           kind == kStatusKindMoveLock;
 }
 
 /// Control-status action-loss timing (WP-13, 30-decisions D-12): a closed set the rules switch on.

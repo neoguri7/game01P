@@ -4,6 +4,7 @@
 #include "core/Logger.h"
 #include "gameplay/ai/FAiLibrary.h"
 #include "gameplay/combat/FEffectHooks.h"
+#include "gameplay/combat/FSkillApCap.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FRewardSection.h"
 #include "gameplay/dungeon/FRewards.h"
@@ -52,6 +53,11 @@ bool FGameplayServices::Initialize(entt::registry& registry) {
     RegisterCoreEffects(registry);
     // [WP-09]
     // [WP-16]
+    RegisterTempoEffects(registry);
+    if (!ValidateSkillApCap(*assets, registry.ctx().get<FContentRegistry>())) {
+        LOG_ERROR("skill AP cap validation failed; boot stopped (see the errors above).");
+        return false;
+    }
     // [WP-17]
     // The offer economy is data, not a code default: a missing/invalid rewards.json stops the boot.
     if (!LoadRewards(registry, *assets)) {

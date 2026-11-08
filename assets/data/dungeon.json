@@ -14,7 +14,9 @@
     "level_experience": 25,
     "level_experience_step": 5,
     "enemy_health_per_depth": 5,
-    "enemy_attack_per_depth": 1
+    "enemy_attack_per_depth": 1,
+    "skill_ap_cap": 2,
+    "push_collision_damage": 1
   },
   "stat_upgrades": [
     {"id": "upgrade.attack", "display_name": "Attack", "stat": "attack", "amount": 1, "cost": 2, "cap": 6},

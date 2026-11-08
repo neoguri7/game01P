@@ -170,6 +170,15 @@ private:
         if (auto* events = registry.ctx().find<FBattleEvents>()) events->pending.push_back(std::move(event));
     }
 
+    /// WP-16: inserts `event` at `index` (clamped to the current size) instead of appending, so events
+    /// emitted while the event's own resolution ran — a push's Move from an OnHit hook — stay after it.
+    static void EmitAt(entt::registry& registry, FBattleEvent event, std::size_t index) {
+        if (auto* events = registry.ctx().find<FBattleEvents>()) {
+            const std::size_t at = std::min(index, events->pending.size());
+            events->pending.insert(events->pending.begin() + static_cast<std::ptrdiff_t>(at), std::move(event));
+        }
+    }
+
     static FRejection Resolve(entt::registry& registry, const FActionRequest& request,
                               const gameplay::FContentRegistry& content, FCombatLog* log) {
         const entt::entity actor = request.actor;
@@ -260,6 +269,13 @@ private:
 
         // Shape semantics live in gameplay/combat so the resolver, the HUD and later slices share one
         // definition of what a skill affects (docs/design/skill-rune-progression.md §3.2).
+        // WP-16: hook effects (a push/pull Move event) are emitted while the target loop runs, so this
+        // skill's own event must land BEFORE them or the movement would play before the blow that caused
+        // it. Remember the insertion point and insert instead of push_back.
+        std::size_t eventBase = 0;
+        if (const auto* events = registry.ctx().find<FBattleEvents>()) {
+            eventBase = events->pending.size();
+        }
         FBattleEvent event{.kind = FBattleEvent::EKind::Skill, .actor = actor, .skillId = slot->skillId,
                            .aim = *targetCell, .cells = preview->cells};
         for (const FPreviewTarget& target : preview->targets) {
@@ -357,7 +373,7 @@ private:
                 }
             }
         }
-        Emit(registry, std::move(event));
+        EmitAt(registry, std::move(event), eventBase);
         return FRejection{};
     }
 };

@@ -18,6 +18,10 @@ inline constexpr int kControlLostTurns = 1;
 struct FStatusTickResult {
     int damage{0};
     bool skipTurn{false};
+    /// WP-16 contract: a `move_lock` tick denies the coming turn's movement only — the owner may still use
+    /// skills. The consumer zeroes the move pool from this flag (TurnFlowSystem's WP-11 rebase line
+    /// `if (tick.moveApZero && points) points->move = 0;`); this WP only reports it.
+    bool moveApZero{false};
 };
 
 /// What a status is worth once applied: the definition plus the rune deltas, clamped the way ApplyStatus

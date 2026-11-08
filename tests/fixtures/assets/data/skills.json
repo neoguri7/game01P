@@ -204,6 +204,84 @@
         "Projectile",
         "Fire"
       ]
+    },
+    {
+      "id": "skill.shove",
+      "display_name": "Shove",
+      "ap_cost": 1,
+      "power": 1,
+      "range": 1,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 1,
+      "tags": [
+        "Melee",
+        "Attack"
+      ],
+      "hooks": [
+        {
+          "id": "hook.shove_push",
+          "event": "on_hit",
+          "effect": {
+            "kind": "push",
+            "from": "caster",
+            "distance": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "skill.barrage",
+      "display_name": "Barrage",
+      "ap_cost": 1,
+      "power": 2,
+      "range": 2,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 1,
+      "tags": [
+        "Bow",
+        "Attack",
+        "Projectile"
+      ]
+    },
+    {
+      "id": "skill.shackle",
+      "display_name": "Shackle",
+      "ap_cost": 2,
+      "power": 0,
+      "range": 2,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "applies_status": "status.locked_move",
+      "damage_type": "magical",
+      "rune_sockets": 2,
+      "tags": [
+        "Spell",
+        "Curse"
+      ]
+    },
+    {
+      "id": "skill.imp_firebomb",
+      "display_name": "Firebomb",
+      "ap_cost": 2,
+      "power": 2,
+      "range": 3,
+      "shape": "zone",
+      "area_radius": 1,
+      "target": "cell",
+      "damage_type": "magical",
+      "rune_sockets": 2,
+      "tags": [
+        "Spell",
+        "AoE",
+        "Zone"
+      ]
     }
   ]
 }
