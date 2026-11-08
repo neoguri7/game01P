@@ -185,12 +185,14 @@ std::expected<FRunMember, std::string> MemberFromJson(const nlohmann::json& json
         *field.target = static_cast<int>(*value);
     }
 
-    // Replaying the allocations in order proves every node exists and was reachable when it was taken.
+    // Replaying the allocations in order proves each node is legal at its position: unknown ids, the root,
+    // a node already at max rank, an either/or conflict, or a node with no allocated (or root) neighbor are
+    // rejected. Adjacency is undirected, so a child listed before its parent loads when they are adjacent;
+    // a repeatable node's later copies are self-adjacent, so the old hard-coded "already taken" ban is gone.
     const auto nodes = ReadTextList(json, "allocated_nodes");
     if (!nodes) return std::unexpected(nodes.error());
     for (const auto& node : *nodes) {
-        const bool taken = std::ranges::find(member.allocatedNodes, node) != member.allocatedNodes.end();
-        if (taken || rules.passiveTree->Find(node) == nullptr || !rules.passiveTree->CanAllocate(member.allocatedNodes, node)) {
+        if (rules.passiveTree->Find(node) == nullptr || !rules.passiveTree->CanAllocate(member.allocatedNodes, node)) {
             return Fail("allocated_nodes", "names a node that cannot be allocated");
         }
         member.allocatedNodes.push_back(node);

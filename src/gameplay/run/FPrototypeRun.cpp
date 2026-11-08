@@ -27,7 +27,8 @@ std::optional<FPrototypeRun> FPrototypeRun::Load(const gameplay::FContentRegistr
             run.runeInventory.push_back(runeId);
         }
 
-        const auto passiveTreeDocument = FJsonLoader::Load(document->at("passive_tree").get<std::string>());
+        // WP-32a: the ship tree is schema 2 (FPassiveTree::Load validates both 1 and 2 itself).
+        const auto passiveTreeDocument = FJsonLoader::Load(document->at("passive_tree").get<std::string>(), 2);
         if (!passiveTreeDocument) return std::nullopt;
         const auto tree = FPassiveTree::Load(*passiveTreeDocument);
         if (!tree) return std::nullopt;
