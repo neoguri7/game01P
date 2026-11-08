@@ -1,6 +1,7 @@
 #include "gameplay/combat/FSkillResolver.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdlib>
 
 #include "gameplay/combat/FCombatRules.h"
@@ -48,8 +49,14 @@ FResolvedSkill ResolveSkill(
     resolved.target = skill.target;
     resolved.damageType = skill.damageType;
     addStatus(resolved.statuses, skill.appliesStatus);
+    resolved.hooks = skill.hooks; // the skill's own hooks fire before its runes' (slot order contract)
 
     int powerDelta = 0;
+    // WP-04 §5 흡혈 이관: 실행은 훅 파이프라인이 맡는다. 합성 훅은 첫 life_on_hit 룬의 위치에 놓이고
+    // 수치는 룬 합산값(resolved.lifeOnHit)을 그대로 써서 기존 직접 회복과 같은 양을 회복한다.
+    bool leechSynthesized = false;
+    std::size_t leechPosition = 0;
+    std::string leechSource;
     for (const gameplay::FRuneContent* rune : runes) {
         if (rune == nullptr) {
             continue;
@@ -64,6 +71,24 @@ FResolvedSkill ResolveSkill(
         resolved.lifeOnHit += rune->lifeOnHit;
         powerDelta += rune->powerDelta;
         resolved.runeIds.push_back(rune->id);
+        for (const gameplay::FHook& hook : rune->hooks) {
+            resolved.hooks.push_back(hook);
+        }
+        if (rune->lifeOnHit > 0 && !leechSynthesized) {
+            leechSynthesized = true;
+            leechPosition = resolved.hooks.size(); // right after the first leech rune's own hooks
+            leechSource = rune->id;
+        }
+    }
+    if (leechSynthesized && resolved.lifeOnHit > 0) {
+        gameplay::FHook leech;
+        leech.event = gameplay::EHookEvent::OnHit;
+        leech.eventName = gameplay::HookEventName(gameplay::EHookEvent::OnHit);
+        leech.effect.kind = std::string(gameplay::kEffectKindHealSelf);
+        leech.effect.amount = resolved.lifeOnHit;
+        leech.source = "rune:" + leechSource;
+        leech.id = leech.source + "#leech";
+        resolved.hooks.insert(resolved.hooks.begin() + static_cast<std::ptrdiff_t>(leechPosition), std::move(leech));
     }
 
     // Status deltas are summed in a second pass so the numbers do not depend on rune order either
@@ -113,12 +138,20 @@ std::optional<FResolvedSkill> ResolveSkillSlot(
     return ResolveSkill(*skill, runes);
 }
 
-int ComputeSkillDamage(
+FDamageTerms ComputeSkillDamageTerms(
     const FStats& attacker, int attackModifier, const FResolvedSkill& skill, const FStats& defender) {
     const bool magical = skill.damageType == gameplay::kDamageTypeMagical;
-    const int offense = (magical ? attacker.magicAttack : attacker.attack) + attackModifier;
-    const int defense = magical ? defender.magicDefense : defender.defense;
-    return ComputeDamage(offense, skill.power, defense);
+    FDamageTerms terms;
+    terms.offense = (magical ? attacker.magicAttack : attacker.attack) + attackModifier;
+    terms.power = skill.power;
+    terms.defense = magical ? defender.magicDefense : defender.defense;
+    terms.damage = ComputeDamage(terms.offense, terms.power, terms.defense);
+    return terms;
+}
+
+int ComputeSkillDamage(
+    const FStats& attacker, int attackModifier, const FResolvedSkill& skill, const FStats& defender) {
+    return ComputeSkillDamageTerms(attacker, attackModifier, skill, defender).damage;
 }
 
 int ComputeSkillHeal(const FStats& caster, const FResolvedSkill& skill) {

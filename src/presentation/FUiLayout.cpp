@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <optional>
 #include <string_view>
 #include <utility>
 
@@ -68,6 +69,61 @@ std::expected<FUiLayoutSpec, std::string> Parse(const nlohmann::json& document) 
     spec.bands = *bands;
     if (spec.bands.left + spec.bands.right >= spec.minWidth || spec.bands.top + spec.bands.bottom >= spec.designHeight) {
         return std::unexpected("bands leave no viewport");
+    }
+
+    // WP-12: the density threshold is data, not a renderer constant. The whole "combat" object is optional
+    // so an older document keeps the default; a present value must be a positive integer.
+    if (const auto combat = document.find("combat"); combat != document.end()) {
+        if (!combat->is_object()) return std::unexpected("combat must be an object");
+        if (const auto threshold = combat->find("intent_compact_threshold"); threshold != combat->end()) {
+            if (!threshold->is_number_integer()) {
+                return std::unexpected("combat.intent_compact_threshold must be a whole number");
+            }
+            spec.intentCompactThreshold = threshold->get<int>();
+            if (spec.intentCompactThreshold < 1) {
+                return std::unexpected("combat.intent_compact_threshold must be positive");
+            }
+        }
+    }
+
+    // WP-24b: the onboarding card placement is optional (older documents keep the defaults); when present
+    // every number must be sane and the design canvas must leave a usable side card beside the modal band.
+    if (const auto onboarding = document.find("onboarding"); onboarding != document.end()) {
+        if (!onboarding->is_object()) return std::unexpected("onboarding must be an object");
+        const auto number = [&](const char* key, float& target) -> std::optional<std::string> {
+            const auto value = onboarding->find(key);
+            if (value == onboarding->end()) return std::nullopt;
+            if (!value->is_number()) return std::string("onboarding.") + key + " must be a number";
+            target = value->get<float>();
+            return std::nullopt;
+        };
+        if (const auto error = number("strip_width", spec.onboarding.stripWidth)) return std::unexpected(*error);
+        if (const auto error = number("side_width", spec.onboarding.sideWidth)) return std::unexpected(*error);
+        if (const auto error = number("top_margin", spec.onboarding.topMargin)) return std::unexpected(*error);
+        if (const auto error = number("side_margin", spec.onboarding.sideMargin)) return std::unexpected(*error);
+        if (const auto error = number("padding", spec.onboarding.padding)) return std::unexpected(*error);
+        if (const auto error = number("modal_clearance_width", spec.onboarding.modalClearanceWidth)) {
+            return std::unexpected(*error);
+        }
+        const FOnboardingSpec& card = spec.onboarding;
+        if (card.stripWidth <= 0.f || card.stripWidth > spec.designWidth) {
+            return std::unexpected("onboarding.strip_width must be positive and not exceed design.width");
+        }
+        if (card.sideWidth <= 0.f || card.sideWidth > spec.designWidth) {
+            return std::unexpected("onboarding.side_width must be positive and not exceed design.width");
+        }
+        if (card.topMargin < 0.f) return std::unexpected("onboarding.top_margin must not be negative");
+        if (card.sideMargin < 0.f) return std::unexpected("onboarding.side_margin must not be negative");
+        if (card.padding < 0.f || card.padding * 2.f >= std::min(card.stripWidth, card.sideWidth)) {
+            return std::unexpected("onboarding.padding must not be negative and must leave room for text");
+        }
+        if (card.modalClearanceWidth <= 0.f || card.modalClearanceWidth >= spec.minWidth) {
+            return std::unexpected("onboarding.modal_clearance_width must be positive and below design.min_width");
+        }
+        const float sideRoomAtMin = (spec.minWidth - card.modalClearanceWidth) * .5f - 2.f * card.sideMargin;
+        if (sideRoomAtMin < kOnboardingSideMinWidth) {
+            return std::unexpected("onboarding leaves no usable side card beside the modal at design.min_width");
+        }
     }
 
     const auto& zones = document.at("zones");
@@ -141,6 +197,7 @@ FUiLayout ComputeUiLayout(const FUiLayoutSpec& spec, float screenWidth, float sc
     layout.leftRail = {0.f, top, left, bottom - top};
     layout.rightRail = {right, top, screenWidth - right, bottom - top};
     layout.viewport = {left, top, right - left, bottom - top};
+    layout.intentCompactThreshold = spec.intentCompactThreshold;
 
     constexpr auto specZones = ZoneTable<FZoneSpec>();
     constexpr auto rectZones = ZoneTable<FRect>();
@@ -156,6 +213,34 @@ FUiLayout ComputeUiLayout(const FUiLayoutSpec& spec, float screenWidth, float sc
         arenaBottom = std::min(arenaBottom, zone->y);
     }
     layout.arena = {left, arenaTop, right - left, std::max(1.f, arenaBottom - arenaTop)};
+
+    // WP-24b: two onboarding anchors inside the arena. `strip` is centered under the top band (battle hint);
+    // `side` sits in the right margin beside the centered run-phase modal column (reward/camp hint). The
+    // authored numbers scale with the layout; the modal band stays in screen pixels because those views do.
+    const FOnboardingSpec& card = spec.onboarding;
+    const float cardTop = std::round(layout.arena.y + card.topMargin * scale);
+    const float cardHeight = std::max(1.f, layout.arena.bottom() - cardTop);
+    const float margin = card.sideMargin * scale;
+    const float stripWidth = std::min(std::max(1.f, card.stripWidth * scale),
+                                      std::max(1.f, layout.arena.w - 2.f * margin));
+    layout.onboarding.strip = {
+        std::round(layout.arena.x + (layout.arena.w - stripWidth) * .5f),
+        cardTop,
+        std::round(stripWidth),
+        std::round(cardHeight),
+    };
+    const float clearance = std::max(1.f, card.modalClearanceWidth);
+    layout.onboarding.modalColumn = {
+        std::round((screenWidth - clearance) * .5f),
+        layout.arena.y,
+        clearance,
+        layout.arena.h,
+    };
+    const float sideX = layout.onboarding.modalColumn.right() + margin;
+    const float sideRoom = std::max(1.f, screenWidth - margin - sideX);
+    const float sideWidth = std::min(std::max(1.f, card.sideWidth * scale), sideRoom);
+    layout.onboarding.side = {std::round(sideX), cardTop, std::round(sideWidth), std::round(cardHeight)};
+    layout.onboarding.padding = card.padding * scale;
     return layout;
 }
 

@@ -5,6 +5,7 @@
 
 #include <tracy/Tracy.hpp>
 
+#include <algorithm>
 #include <span>
 #include <string>
 #include <string_view>
@@ -19,6 +20,8 @@ constexpr FContentSchema kUnitSchema{"data/units", "units", "id", 1, std::span<c
 constexpr FContentSchema kSkillSchema{"data/skills", "skills", "id", 1, std::span<const FContentField>{kSkillFields}};
 constexpr FContentSchema kRuneSchema{"data/runes", "runes", "id", 1, std::span<const FContentField>{kRuneFields}};
 constexpr FContentSchema kStatusSchema{"data/statuses", "statuses", "id", 1, std::span<const FContentField>{kStatusFields}};
+// WP-25: the engine table is the one optional table of this slice (see the load comment in load()).
+constexpr FContentSchema kEngineSchema{"data/engine_ignition", "engines", "id", 1, std::span<const FContentField>{kEngineFields}};
 
 /// Loads one asset and projects every row. False means the asset was unusable and the reason is logged.
 template <typename TRow, typename TDecode>
@@ -53,7 +56,13 @@ template <typename TRow, typename TDecode>
 }
 
 [[nodiscard]] bool isKnownStatusKind(std::string_view kind) {
-    return kind == kStatusKindDot || kind == kStatusKindControl || kind == kStatusKindStat;
+    return kind == kStatusKindDot || kind == kStatusKindControl || kind == kStatusKindStat ||
+           kind == kStatusKindMoveLock;
+}
+
+/// Control-status action-loss timing (WP-13, 30-decisions D-12): a closed set the rules switch on.
+[[nodiscard]] bool isKnownStatusMode(std::string_view mode) {
+    return mode == kStatusModeTurnStart || mode == kStatusModeOnApply;
 }
 
 } // namespace
@@ -74,6 +83,20 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
     }
     if (!loadTable(assets, kStatusSchema, registry.statuses, decodeStatus)) {
         return std::nullopt;
+    }
+    // WP-25: engine ignition is a run feature with a data-side off switch (empty engines = no ignition) and
+    // the document may be absent entirely — the fixtures and the content-only test boots carry no engine
+    // table, and a boot must not break just because a mod/one-root setup lacks it. A PRESENT document is
+    // loaded and validated exactly like the required tables (failure below), so authoring typos still fail
+    // the boot. `resolvePath` is the silent existence probe: `digest` would log a false ERROR for every
+    // legitimate engine-less boot (R19 logging is for real failures), so the off state is announced by
+    // exactly one INFO line instead.
+    if (assets.resolvePath(kEngineSchema.assetId).has_value()) {
+        if (!loadTable(assets, kEngineSchema, registry.engines, decodeEngine)) {
+            return std::nullopt;
+        }
+    } else {
+        LOG_INFO("content: no engine_ignition document; engine ignition is off.");
     }
 
     // A row's own vocabulary is checked here, not by the generic loader: `shape`/`axis`/`kind` are
@@ -108,6 +131,14 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
             LOG_ERROR("content: status '{}' has unknown kind '{}'.", status.id, status.kind);
             return std::nullopt;
         }
+        if (!isKnownStatusMode(status.mode)) {
+            LOG_ERROR("content: status '{}' has unknown mode '{}'.", status.id, status.mode);
+            return std::nullopt;
+        }
+        if (status.chanceCap < 0 || status.chanceCap > 100) {
+            LOG_ERROR("content: status '{}' has chance_cap {} outside 0..100.", status.id, status.chanceCap);
+            return std::nullopt;
+        }
     }
 
     // Cross-table references are checked here, in the one place that owns all tables (R22): a typo in an
@@ -136,10 +167,91 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
             return std::nullopt;
         }
     }
+    // WP-22: the tag vocabulary is derived from the content itself. `tags` is a free-form string in the
+    // schema (FSkillContent/FRuneContent), but rune equip gates speak it through CheckRuneTagRequirements
+    // (fixed point = base skill tags ∪ every attached rune's adds_tags). A requires_all/any tag that no
+    // skill carries and no rune adds can never be satisfied — the rune would be dead content nobody can
+    // equip — so it fails the boot, naming rune and tag (R19). An excludes tag outside the vocabulary
+    // excludes nothing; a vacuous exclusion is legal (legacy rune.fire excludes "Heal"/"Support"), so it
+    // only warns. Duplicate tag signatures are deliberately NOT rejected: the same Fire rune fitting two
+    // melee skills is normal, and role overlap is a content-review matter, not a boot gate (W7 review ★6).
+    {
+        std::vector<std::string> knownTags;
+        const auto rememberTag = [&knownTags](const std::string& tag) {
+            if (std::ranges::find(knownTags, tag) == knownTags.end()) {
+                knownTags.push_back(tag);
+            }
+        };
+        for (const FSkillContent& skill : registry.skills.rows) {
+            for (const std::string& tag : skill.tags) {
+                rememberTag(tag);
+            }
+        }
+        for (const FRuneContent& rune : registry.runes.rows) {
+            for (const std::string& tag : rune.addsTags) {
+                rememberTag(tag);
+            }
+        }
+        for (const FRuneContent& rune : registry.runes.rows) {
+            for (const std::string& tag : rune.requiresAllTags) {
+                if (std::ranges::find(knownTags, tag) == knownTags.end()) {
+                    LOG_ERROR("content: rune '{}' requires_all_tags '{}', which no skill tag or rune "
+                              "adds_tags provides.", rune.id, tag);
+                    return std::nullopt;
+                }
+            }
+            for (const std::string& tag : rune.requiresAnyTags) {
+                if (std::ranges::find(knownTags, tag) == knownTags.end()) {
+                    LOG_ERROR("content: rune '{}' requires_any_tags '{}', which no skill tag or rune "
+                              "adds_tags provides.", rune.id, tag);
+                    return std::nullopt;
+                }
+            }
+            for (const std::string& tag : rune.excludesTags) {
+                if (std::ranges::find(knownTags, tag) == knownTags.end()) {
+                    LOG_WARN("content: rune '{}' excludes_tags '{}', which no skill tag or rune adds_tags "
+                             "provides; the exclusion is vacuous.", rune.id, tag);
+                }
+            }
+        }
+    }
+    // WP-25 engines: the trigger kind is a closed set the system switches on, the rune/status references must
+    // resolve, and the row must carry a journal line — an engine that cannot fire or cannot speak is an
+    // authoring bug, not a quiet no-op. Duplicate engine ids are rejected by FContentLoader's row identity
+    // check (a second row with the same id would be shadowed by FContentTable::find).
+    for (const FEngineContent& engine : registry.engines.rows) {
+        if (engine.requiresRunes.empty()) {
+            LOG_ERROR("content: engine '{}' has no requires_runes.", engine.id);
+            return std::nullopt;
+        }
+        for (const std::string& runeId : engine.requiresRunes) {
+            if (registry.runes.find(runeId) == nullptr) {
+                LOG_ERROR("content: engine '{}' requires unknown rune '{}'.", engine.id, runeId);
+                return std::nullopt;
+            }
+        }
+        if (engine.triggerKind != kEngineTriggerStatusOnTarget) {
+            LOG_ERROR("content: engine '{}' has unknown trigger kind '{}'.", engine.id, engine.triggerKind);
+            return std::nullopt;
+        }
+        if (registry.statuses.find(engine.triggerStatusId) == nullptr) {
+            LOG_ERROR("content: engine '{}' references unknown trigger status '{}'.",
+                      engine.id, engine.triggerStatusId);
+            return std::nullopt;
+        }
+        if (engine.minMagnitude < 0) {
+            LOG_ERROR("content: engine '{}' has negative min_magnitude {}.", engine.id, engine.minMagnitude);
+            return std::nullopt;
+        }
+        if (engine.log.empty()) {
+            LOG_ERROR("content: engine '{}' has an empty log.", engine.id);
+            return std::nullopt;
+        }
+    }
 
-    LOG_INFO("content ready: {} unit(s), {} skill(s), {} rune(s), {} status(es).",
+    LOG_INFO("content ready: {} unit(s), {} skill(s), {} rune(s), {} status(es), {} engine(s).",
              registry.units.rows.size(), registry.skills.rows.size(), registry.runes.rows.size(),
-             registry.statuses.rows.size());
+             registry.statuses.rows.size(), registry.engines.rows.size());
     return registry;
 }
 

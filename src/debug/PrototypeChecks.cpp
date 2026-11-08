@@ -317,7 +317,7 @@ bool RunPrototypeChecks(
         }
         check(battleOutcome->resolved && battleOutcome->victory, "prepared party clears room through actual battle state");
         battleOutcome->exitRequested = true;
-        check(battleState.Update(routed, 0.f) == EStateTransition::ToHub, "battle result advances app flow");
+        check(battleState.Update(routed, 0.f) == FStateTransition{EStateChangeKind::ReplaceTop, std::string(kForestHubId)}, "battle result advances app flow");
         battleState.OnExit(routed);
         check(routed.view<FGridPosition>().begin() == routed.view<FGridPosition>().end()
               && !routed.ctx().contains<FBattleOutcome>(), "battle scene unload removes entities and context");
@@ -329,10 +329,10 @@ bool RunPrototypeChecks(
             confirm.type = SDL_EVENT_KEY_DOWN;
             confirm.key.scancode = SDL_SCANCODE_RETURN;
             (void)routedInput.processEvent(confirm);
-            check(hub.Update(routed, 0.f) == EStateTransition::ToBattle, "event continuation reaches next battle");
+            check(hub.Update(routed, 0.f) == FStateTransition{EStateChangeKind::ReplaceTop, std::string(kForestBattleId)}, "event continuation reaches next battle");
             routedInput.beginFrame();
         } else if (routedRun.CurrentRoom()->kind == EPrototypeRoom::Battle) {
-            check(hub.Update(routed, 0.f) == EStateTransition::ToBattle, "room flow enters next battle");
+            check(hub.Update(routed, 0.f) == FStateTransition{EStateChangeKind::ReplaceTop, std::string(kForestBattleId)}, "room flow enters next battle");
         }
         hub.OnExit(routed);
     }

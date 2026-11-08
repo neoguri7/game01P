@@ -7,6 +7,7 @@
 #include "ecs/components/FGridPosition.h"
 #include "ecs/components/FSkillLoadout.h"
 #include "ecs/components/FStats.h"
+#include "gameplay/data/FEffectContent.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/data/FRuneContent.h"
 #include "gameplay/data/FSkillContent.h"
@@ -37,6 +38,10 @@ struct FResolvedSkill {
     int lifeOnHit{0};                   // §3.3 흡혈: 피해를 준 공격자의 HP 회복(명중당)
     std::vector<FResolvedStatus> statuses; // base skill + element runes, with enhance-rune deltas
     std::vector<std::string> runeIds;      // provenance for tooltips/diagnostics
+    // WP-04: the typed hooks this skill resolves to — skill's own hooks first, then each rune's in equip
+    // order, with the leech `on_hit -> heal_self` hook synthesized at the first life_on_hit rune's
+    // position. Execution is the hook pipeline's business; this vector is the merged data.
+    std::vector<gameplay::FHook> hooks;
 };
 
 /// Applies runes in order: form runes replace the shape, element runes add a status, enhance runes move
@@ -58,6 +63,21 @@ struct FResolvedSkill {
 /// attacker's stat-status sum. The action resolver and anything that predicts a hit (the enemy AI) both go
 /// through here, so a prediction can never drift from the real outcome.
 [[nodiscard]] int ComputeSkillDamage(
+    const FStats& attacker, int attackModifier, const FResolvedSkill& skill, const FStats& defender);
+
+/// The terms of one hit exactly as ComputeSkillDamage computes them — one source for the numbers and for
+/// anything that shows the arithmetic (preview, combat log reason). `offense` already includes
+/// `attackModifier`; `damage` is the floored result (max(1, offense + power - defense), FCombatRules).
+struct FDamageTerms {
+    int offense{0};
+    int power{0};
+    int defense{0};
+    int damage{0};
+};
+
+/// Same rule as ComputeSkillDamage, keeping the terms it used. Callers that only want the number call
+/// ComputeSkillDamage (which delegates here); callers that also show the arithmetic read all four fields.
+[[nodiscard]] FDamageTerms ComputeSkillDamageTerms(
     const FStats& attacker, int attackModifier, const FResolvedSkill& skill, const FStats& defender);
 
 /// Healing granted by a support skill to one ally; zero for a skill without power.

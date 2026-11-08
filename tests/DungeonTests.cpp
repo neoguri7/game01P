@@ -27,10 +27,14 @@
 #include "gameplay/combat/FCombatApply.h"
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FAutoAction.h"
+#include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FDungeonCamp.h"
 #include "core/AnimationLibrary.h"
 #include "gameplay/dungeon/FDungeonSave.h"
+#include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRoomGenerator.h"
+#include "gameplay/dungeon/FRunSequence.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/grid/FGridQuery.h"
 #include "gameplay/grid/FCameraMath.h"
@@ -40,10 +44,17 @@
 #include "presentation/FUiFrame.h"
 #include "presentation/FUiLayout.h"
 #include "states/FEmberBattleState.h"
+#include "states/FEmberHubState.h"
 #include "states/FEmberMenuRequest.h"
+#include "states/FEmberTitleState.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FDungeonArt.h"
+#include "presentation/FDungeonViews.h"
+#include "presentation/FModalViewRegistry.h"
+#include "gameplay/dungeon/FRunFlow.h"
 #include "core/InputState.h"
+
+#include "TestSupport.h"
 
 namespace {
 
@@ -66,7 +77,7 @@ struct FFixture {
         std::filesystem::create_directories("out");
         checkpoint = std::filesystem::path("out") / ("test-checkpoint-" +
             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
-        game::FAssetManager::Initialize(registry);
+        game::FAssetManager::Initialize(registry, TestAssetRoots());
         CHECK(game::gameplay::FGameplayServices::Initialize(registry));
         CHECK(game::InitializeDungeon(registry, checkpoint.string()));
         runSave = registry.ctx().get<game::FDungeonSave>().path;
@@ -103,7 +114,7 @@ struct FFixture {
     }
 
     void nextRoom() {
-        CHECK(battle.Update(registry, 0) == EStateTransition::ToBattle);
+        CHECK((battle.Update(registry, 0) == FStateTransition{EStateChangeKind::Root, std::string(kEmberBattleId)}));
         battle.OnExit(registry);
         battle.OnEnter(registry);
     }
@@ -118,7 +129,7 @@ struct FTestContent {
         std::filesystem::create_directories(root / "data");
         // The passive tree is shared content; tests keep a copy so growth validation fails for the
         // document under test, not because the temp root lacks the tree.
-        std::ifstream treeFile("assets/data/passive-tree.json");
+        std::ifstream treeFile(FixtureDataPath("passive-tree.json"));
         CHECK(treeFile.good());
         std::ofstream treeOut(root / "data" / "passive-tree.json");
         treeOut << nlohmann::json::parse(treeFile).dump();
@@ -244,19 +255,36 @@ void AutoActionTokenBoundary() {
     FFixture fixture;
     auto& registry = fixture.registry;
     const auto token = fixture.token();
+    // The two cells are named once: they are used for placement and for the reach precondition, so the check
+    // cannot drift from the placement.
+    const game::FGridPosition actorCell{3, 3};
+    const game::FGridPosition enemyCell{3, 2};
     registry.ctx().get<game::FGridTerrain>().cells.fill(game::ETile::Floor);
-    registry.get<game::FGridPosition>(token.actor) = {3, 3};
+    registry.get<game::FGridPosition>(token.actor) = actorCell;
     const auto enemy = game::FindNearestAlive(registry, token.actor, false);
     CHECK(enemy != entt::null);
-    registry.get<game::FGridPosition>(enemy) = {3, 2};
+    registry.get<game::FGridPosition>(enemy) = enemyCell;
     registry.ctx().erase<game::FTurnRuntime>();
     CHECK(!registry.ctx().contains<game::FTurnRuntime>());
     const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
+    // The boundary under test is that the AI answers without an FTurnRuntime and that the request carries the
+    // token/actor. Freeze the move for this first call so repositioning is not an option: the actor must attack
+    // the enemy, which is inside its skill reach. The reach is read from the actor's resolved loadout, so a
+    // fixture change cannot silently make the scenario unattackable.
+    auto& points = registry.get<game::FActionPoints>(token.actor);
+    const int savedMoveAp = points.move;
+    points.move = 0;
+    int reach = 0;
+    for (const auto& slot : registry.get<game::FSkillLoadout>(token.actor).slots) {
+        if (const auto resolved = game::ResolveSkillSlot(slot, content)) reach = std::max(reach, resolved->range);
+    }
+    CHECK(game::GridDistance(registry.get<game::FGridPosition>(token.actor),
+                             registry.get<game::FGridPosition>(enemy)) <= reach);
     const auto skill = game::ChooseAutoAction(registry, token, false, content);
     CHECK(skill.has_value() && std::holds_alternative<game::FActionRequest>(*skill));
     CHECK(std::get<game::FActionRequest>(*skill).token == token);
     CHECK(std::get<game::FActionRequest>(*skill).actor == token.actor);
-    auto& points = registry.get<game::FActionPoints>(token.actor);
+    points.move = savedMoveAp;
     points.skill = 0;
     // Without skill AP the AI no longer shuffles next to an enemy it is already facing (a wasted move); it
     // moves when moving gets it somewhere. Put the actor and the enemies in opposite corners, out of every
@@ -457,16 +485,17 @@ void BalanceDrivenChoiceUi() {
     CHECK(renderer != nullptr);
     FFixture fixture;
     auto& registry = fixture.registry;
-    std::ifstream source("assets/data/dungeon.json");
+    std::ifstream source(FixtureDataPath("dungeon.json"));
     auto data = nlohmann::json::parse(source);
     for (const auto& [key, value] : std::vector<std::pair<const char*, int>>{
-             {"event_heal", 42}, {"event_materials", 6}, {"camp_heal", 61}}) {
+             {"event_heal", 42}, {"event_materials", 6}}) {
         data["balance"][key] = value;
     }
-    data["stat_upgrades"][0]["cost"] = 5;  // 재강화 라벨이 데이터를 따라가는지 확인
+    data["recovery"]["camp_auto_heal"] = 61;     // 캠프 도착 회복 문구가 데이터를 따라가는지 확인
+    data["camp"]["upgrade_cost_steps"] = nlohmann::json::array({5, 7, 9, 11, 13});  // 첫 구매 5 (곡선은 비내림차순)
     FTestContent content(data);
     registry.ctx().erase<game::FAssetManager>();
-    registry.ctx().emplace<game::FAssetManager>(std::vector<std::string>{content.root.string(), "assets"});
+    registry.ctx().emplace<game::FAssetManager>(std::vector<std::string>{content.root.string(), kTestFixtureRoot, kShipAssetRoot});
     CHECK(game::InitializeDungeon(registry, fixture.checkpoint.string()));
     registry.ctx().emplace<game::FEngineWindowState>().width = 1280;
     registry.ctx().get<game::FEngineWindowState>().height = 800;
@@ -488,7 +517,9 @@ void BalanceDrivenChoiceUi() {
         for (int frame = 0; frame < 3; ++frame) {
             ImGui::NewFrame();
             if (frame == 2) ImGui::LogToFile(0, (content.root / "ui.log").string().c_str());
-            game::RenderDungeonOverlay(registry, time, systems);
+            const auto* view = game::FindModalView(registry, game::RunModalIdForPhase(phase));
+            CHECK(view != nullptr);
+            view->render(registry);
             if (frame == 2) ImGui::LogFinish();
             ImGui::Render();
         }
@@ -496,12 +527,27 @@ void BalanceDrivenChoiceUi() {
         CHECK(capture.good());
         log.append(std::istreambuf_iterator<char>(capture), std::istreambuf_iterator<char>());
     }
+    const int chestLoss0 = game::ChestHpLossFor(registry, run.party[0]);
+    CHECK(chestLoss0 > 0);  // 만피 파티도 상자 대가는 실 HP로 지불한다(사전 표시 = 실제 손실)
+    const auto session = game::BuildCampSession(registry);
+    const std::string healLabel = "Heal party  /  " + std::to_string(session.paidHealCost) +
+        " materials  /  +" + std::to_string(session.paidHealPercent) + "% max HP each";
+    const std::string respecLabel =
+        "Reallocate passive nodes  /  " + std::to_string(session.respecCost) + " materials";
+    std::string offerLabel = "Buy rune offer  /  " + std::to_string(session.runeOfferCost) + " materials";
+    if (session.runeOfferDiscounted) offerLabel += " (special)";
     for (const char* label : {"ROOM SECURED", "Level 1   EXP 0 / 25   Node points 0",
-             "Rest at the shrine  /  heal 42 HP", "Open the cache  /  gain 6 materials",
-             "Healed up to 61 HP. Allocate nodes, reinforce stats and fit runes for free before descending.",
-             "Attack +1  (5 materials, 0/6)"}) {
+             "Rest at the shrine  /  heal 42 HP", "Open the cache  /  gain 6 materials"}) {
         CHECK(log.find(label) != std::string::npos);
     }
+    CHECK(log.find("Healed up to 61 HP") != std::string::npos);
+    CHECK(log.find("costs party HP") != std::string::npos);
+    CHECK(log.find("HP cost: " + game::MemberName(run.party[0]) + " " + std::to_string(chestLoss0)) !=
+          std::string::npos);
+    CHECK(log.find("Attack +1  (5 materials, 0/6)") != std::string::npos);
+    CHECK(log.find(healLabel) != std::string::npos);
+    CHECK(log.find(respecLabel) != std::string::npos);
+    CHECK(log.find(offerLabel) != std::string::npos);
     run.phase = game::EDungeonPhase::Reward;
     CHECK(game::UpgradeDungeonStat(registry, 0, 0).has_value());  // 강화는 캠프 전용
     game::ContinueDungeonReward(registry);
@@ -525,9 +571,16 @@ void CompleteRun(std::uint32_t seed) {
         while (!registry.ctx().get<game::FBattleOutcome>().resolved && steps++ < 5000) fixture.step();
         CHECK(steps < 5000);
         CHECK(registry.ctx().get<game::FBattleOutcome>().victory);
-        CHECK(fixture.battle.Update(registry, 0) == EStateTransition::None);
+        CHECK((fixture.battle.Update(registry, 0) == FStateTransition{EStateChangeKind::Push, std::string(game::kRunModalReward)}));
         auto& run = registry.ctx().get<game::FDungeonRun>();
         CHECK(run.phase == game::EDungeonPhase::Reward);
+        // The room no longer grants a rune: it opens an offer, and the pick is the grant (WP-17). The frozen
+        // fixture authors rune_offer.chance = 1.0, so every monster room opens an offer — the strict count
+        // holds even though dungeon 1 no longer has a boss slot (WP-08; the boss guarantee was never the
+        // reason an offer appeared here).
+        CHECK(registry.ctx().get<game::FRewards>().offer.active);
+        CHECK(run.runes.size() == static_cast<std::size_t>(room));
+        CHECK(game::ResolveRuneOffer(registry, 0));
         CHECK(run.runes.size() == static_cast<std::size_t>(room + 1));
         // 정본 §6: 캐릭터별 EXP가 임계를 넘으면 레벨업 + 노드 포인트 1.
         for (const auto& member : run.party) {
@@ -548,7 +601,8 @@ void CompleteRun(std::uint32_t seed) {
         if (room == 0) {
             CHECK(run.phase == game::EDungeonPhase::Event);
             game::ChooseDungeonEvent(registry, false);
-            CHECK(run.materials == 4);
+            CHECK(run.materials == game::DungeonBalance(registry, "room_materials") +
+                                       game::DungeonBalance(registry, "event_materials"));
         }
         if (room < 2) fixture.nextRoom();
     }
@@ -570,8 +624,10 @@ void CompleteRun(std::uint32_t seed) {
     const auto upgrade = std::ranges::find(growth.statUpgrades, "upgrade.attack", &game::FStatUpgrade::id);
     CHECK(upgrade != growth.statUpgrades.end());
     const int materials = run.materials;
+    const int upgradeCost = game::UpgradeCostOf(registry.ctx().get<game::FCampTables>(),
+                                                registry.ctx().get<game::FCampProgress>());
     CHECK(!game::UpgradeDungeonStat(registry, 0, static_cast<std::size_t>(upgrade - growth.statUpgrades.begin())).has_value());
-    CHECK(run.materials == materials - upgrade->cost && run.party.front().bonusAttack == 1);
+    CHECK(run.materials == materials - upgradeCost && run.party.front().bonusAttack == 1);
     game::LeaveDungeonCamp(registry);
     CHECK(run.depth == 2 && run.room == 0);
     fixture.nextRoom();
@@ -587,7 +643,14 @@ void CompleteRun(std::uint32_t seed) {
     game::StartDungeonRun(registry, 999);
     const auto& restarted = registry.ctx().get<game::FDungeonRun>();
     CHECK(restarted.depth == 2 && restarted.room == 0);
-    CHECK(restarted.materials == 0 && restarted.runes.empty());
+    // WP-08/D-7: a checkpoint start grants the start support — materials scale with the cleared index
+    // (computed from the rules, not copied from a table constant).
+    const auto* sequence = game::FindRunSequence(registry);
+    CHECK(sequence != nullptr);
+    const int startIndex = registry.ctx().get<game::FDungeonCheckpoint>().cleared;
+    CHECK(restarted.materials ==
+          std::min(startIndex * sequence->startSupport.materialsPerDungeon, sequence->startSupport.materialsCap));
+    CHECK(restarted.runes.empty());
     CHECK(restarted.party.front().level == 1 && restarted.party.front().passivePoints == 0
           && restarted.party.front().allocatedNodes.empty() && restarted.party.front().bonusAttack == 0);
     std::cout << "  Seed " << seed << ": " << firstRoom << " -> full dungeon + checkpoint + next depth\n";
@@ -649,20 +712,25 @@ void PerCharacterRunGrowth() {
     };
     const std::size_t attackUpgrade = upgradeIndex("upgrade.attack");
     const std::size_t speedUpgrade = upgradeIndex("upgrade.speed");
+    auto& campProgress = registry.ctx().get<game::FCampProgress>();
+    const auto& campTables = registry.ctx().get<game::FCampTables>();
     run.materials = 5;
     CHECK(game::ValidateDungeonStatUpgrade(registry, 0, attackUpgrade).has_value());  // 캠프 전용
     run.phase = game::EDungeonPhase::Camp;
+    const int firstCost = game::UpgradeCostOf(campTables, campProgress);
     CHECK(!game::UpgradeDungeonStat(registry, 0, attackUpgrade).has_value());
-    CHECK(run.party[0].bonusAttack == 1 && run.materials == 3);
-    run.materials = 1;
+    CHECK(run.party[0].bonusAttack == 1 && run.materials == 5 - firstCost);
+    const int nextCost = game::UpgradeCostOf(campTables, campProgress);
+    run.materials = nextCost - 1;
     CHECK(game::UpgradeDungeonStat(registry, 0, attackUpgrade).has_value());  // 비용 부족
-    CHECK(run.party[0].bonusAttack == 1 && run.materials == 1);
+    CHECK(run.party[0].bonusAttack == 1 && run.materials == nextCost - 1);
     run.materials = 100;
     run.party[0].bonusAttack = growth.statUpgrades[attackUpgrade].cap;
     CHECK(game::UpgradeDungeonStat(registry, 0, attackUpgrade).has_value());  // 상한
     CHECK(run.party[0].bonusAttack == growth.statUpgrades[attackUpgrade].cap && run.materials == 100);
+    const int speedCost = game::UpgradeCostOf(campTables, campProgress);
     CHECK(!game::UpgradeDungeonStat(registry, 0, speedUpgrade).has_value());
-    CHECK(run.party[0].bonusSpeed == 1 && run.materials == 96);
+    CHECK(run.party[0].bonusSpeed == 1 && run.materials == 100 - speedCost);
 
     // 다음 런은 0부터: 성장은 런 스코프다.
     game::StartDungeonRun(registry, 77);
@@ -733,6 +801,7 @@ void SaveAndContinue() {
     CHECK(ReadJson(saved().path)["run"]["phase"] == "battle");
     game::CompleteDungeonBattle(registry, true);
     CHECK(saved().phase == game::EDungeonPhase::Reward && ReadJson(saved().path)["run"]["phase"] == "reward");
+    CHECK(registry.ctx().get<game::FRewards>().offer.active);
 
     const auto& growth = registry.ctx().get<game::FDungeonGrowth>();
     const auto node = std::ranges::find_if(growth.passiveTree.nodes, [&](const game::FPassiveNode& candidate) {
@@ -741,6 +810,7 @@ void SaveAndContinue() {
     CHECK(node != growth.passiveTree.nodes.end());
     CHECK(game::AllocateDungeonNode(registry, 0, node->id));
     CHECK(ReadJson(saved().path)["run"]["party"][0]["allocated_nodes"].size() == 1);
+    CHECK(game::ResolveRuneOffer(registry, 0));  // the reward step waits for the offer decision
     game::ContinueDungeonReward(registry);
     CHECK(saved().phase == game::EDungeonPhase::Event);
     game::ChooseDungeonEvent(registry, false);
@@ -764,7 +834,7 @@ void SaveAndContinue() {
     // A fresh boot finds the save and tells the menu what is in it.
     {
         entt::registry reboot;
-        game::FAssetManager::Initialize(reboot);
+        game::FAssetManager::Initialize(reboot, TestAssetRoots());
         CHECK(game::gameplay::FGameplayServices::Initialize(reboot));
         CHECK(game::InitializeDungeon(reboot, fixture.checkpoint.string()));
         const auto& found = reboot.ctx().get<game::FDungeonSave>();
@@ -811,7 +881,7 @@ void SaveAndContinue() {
     {
         FFixture leave;
         leave.registry.ctx().get<game::FDungeonRun>().leaveRequested = true;
-        CHECK(leave.battle.Update(leave.registry, 0) == EStateTransition::ToHub);
+        CHECK((leave.battle.Update(leave.registry, 0) == FStateTransition{EStateChangeKind::Root, std::string(kEmberTitleId)}));
         CHECK(!leave.registry.ctx().contains<game::FDungeonRun>());
         CHECK(leave.registry.ctx().get<game::FDungeonSave>().exists && std::filesystem::exists(leave.runSave));
         CHECK(game::ContinueDungeonRun(leave.registry));
@@ -821,7 +891,7 @@ void SaveAndContinue() {
     {
         FFixture abandon;
         abandon.registry.ctx().get<game::FDungeonRun>().abandonRequested = true;
-        CHECK(abandon.battle.Update(abandon.registry, 0) == EStateTransition::ToHub);
+        CHECK((abandon.battle.Update(abandon.registry, 0) == FStateTransition{EStateChangeKind::Root, std::string(kEmberTitleId)}));
         CHECK(!abandon.registry.ctx().contains<game::FDungeonRun>());
         CHECK(!abandon.registry.ctx().get<game::FDungeonSave>().exists && !std::filesystem::exists(abandon.runSave));
     }
@@ -840,11 +910,15 @@ void SaveAndContinue() {
         r.ctx().erase<game::FDungeonRun>();
         CHECK(game::ContinueDungeonRun(r));
         CHECK(r.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Reward);
+        // The offer survived the save round-trip and still gates the reward step.
+        CHECK(r.ctx().get<game::FRewards>().offer.active);
+        CHECK(game::ResolveRuneOffer(r, -1));
         between.battle.OnExit(r);
         between.battle.OnEnter(r);
         CHECK(game::AliveCount(r, false) == 0 && game::AliveCount(r, true) == 4);
         CHECK(r.ctx().get<game::FBattleOutcome>().resolved && r.ctx().get<game::FBattleOutcome>().victory);
-        CHECK(between.battle.Update(r, 0) == EStateTransition::None);
+        CHECK((between.battle.Update(r, 0) == FStateTransition{EStateChangeKind::Push, std::string(game::kRunModalReward)}));
+        CHECK((between.battle.Update(r, 0) == FStateTransition{}));  // the once-guard: the modal is not re-pushed
         CHECK(r.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Reward);
         game::ContinueDungeonReward(r);
         CHECK(r.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Event);
@@ -857,7 +931,7 @@ void SaveAndContinue() {
         r.ctx().erase<game::FDungeonRun>();
         r.ctx().get<game::FMenuRequest>().value = game::EMenuRequest::Continue;
         const auto next = ResolveEmberMenuRequest(r);
-        CHECK(next.has_value() && *next == EStateTransition::ToBattle);
+        CHECK(next.has_value() && (*next == FStateTransition{EStateChangeKind::Root, std::string(kEmberBattleId)}));
         CHECK(r.ctx().contains<game::FDungeonRun>() && r.ctx().get<game::FMenuRequest>().value == game::EMenuRequest::None);
         r.ctx().erase<game::FDungeonRun>();
         std::filesystem::remove(menu.runSave);
@@ -1124,7 +1198,7 @@ void GeneratedRooms() {
 }
 
 void InvalidRuneDrops() {
-    std::ifstream originalFile("assets/data/dungeon.json");
+    std::ifstream originalFile(FixtureDataPath("dungeon.json"));
     const auto original = nlohmann::json::parse(originalFile);
     FTestContent content(original);
     const nlohmann::json invalidDrops[]{nlohmann::json::array(), nullptr,
@@ -1159,7 +1233,7 @@ void InvalidRuneDrops() {
     for (const auto& data : invalidDocuments) {
         content.write(data);
         entt::registry registry;
-        game::FAssetManager::Initialize(registry);
+        game::FAssetManager::Initialize(registry, TestAssetRoots());
         CHECK(game::gameplay::FGameplayServices::Initialize(registry));
         registry.ctx().erase<game::FAssetManager>();
         registry.ctx().emplace<game::FAssetManager>(std::vector<std::string>{content.root.string()});

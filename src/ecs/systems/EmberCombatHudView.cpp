@@ -1,9 +1,12 @@
 #include "ecs/systems/EmberCombatHudSystem.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <map>
 #include <string>
 #include <utility>
+#include <vector>
 #include <imgui.h>
 #include "core/InputState.h"
 #include "ecs/components/FActionPoints.h"
@@ -17,9 +20,15 @@
 #include "gameplay/combat/FCombatRules.h"
 #include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/combat/FSkillResolver.h"
+#include "gameplay/combat/FStatusRules.h"
+#include "gameplay/data/FContentRegistry.h"
+#include "gameplay/data/FStatusContent.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/grid/FGridQuery.h"
 #include "gameplay/grid/FGridTerrain.h"
+#include "presentation/FBattleAnim.h"
 #include "presentation/FDungeonArt.h"
+#include "presentation/FSettings.h"
 #include "presentation/FUiFrame.h"
 #include "presentation/FUiTheme.h"
 
@@ -34,6 +43,55 @@ constexpr float kBodySize = 15.f;
 // hud_panel's nine-slice corner, in the picture's own pixels (assets/art/asset_contract.json).
 constexpr float kPanelCorner = 24.f;
 constexpr ImVec4 kClear{0.f, 0.f, 0.f, 0.f};
+
+// WP-12 overlay metrics (design px). Board plates that relate to a cell use the WORLD scale (view->scale)
+// for their offsets — the sprite and its HP bar are world art — while their font sizes use the layout scale.
+constexpr float kIntentGlyphPx = 22.f;
+constexpr float kIntentNumberPx = 13.f;
+constexpr float kIntentPlusPx = 10.f;
+constexpr float kIntentPlatePad = 3.f;
+constexpr float kIntentPlateGap = 3.f;
+constexpr float kIntentLethalBorder = 2.f;
+constexpr float kIntentStackStep = 30.f;     // one plate height between same-cell plates (valid + invalid)
+constexpr float kUnitPlateClearance = 4.f;   // gap between a unit's HP bar and a board plate
+constexpr float kEmptyCellPlateLift = 6.f;   // plate bottom above an empty cell's centre
+constexpr float kPreviewNumberPx = 13.f;
+constexpr float kRibbonPortraitMax = 21.f;
+constexpr float kRibbonRoundPx = 11.f;
+constexpr float kRibbonMarkerPx = 11.f;
+constexpr float kThreatNumberPx = 13.f;
+constexpr float kThreatPlatePad = 3.f;
+constexpr float kThreatPlateInset = 2.f;
+constexpr float kStatusSummaryPx = 10.f;
+constexpr float kDotPlatePad = 2.f;
+constexpr float kDotPlateInset = 2.f;
+constexpr float kStatusGemRadius = 3.f;
+constexpr float kStatusGemStep = 8.f;
+constexpr int kStatusGemMax = 5;
+constexpr float kStatusTopInset = 7.f;
+constexpr float kDamagePopPx = 18.f;
+constexpr float kDamagePopRise = 26.f;
+
+constexpr ImU32 kIntentDim = IM_COL32(115, 115, 115, 255);
+constexpr ImU32 kIntentNumber = IM_COL32(255, 226, 190, 255);
+constexpr ImU32 kIntentLethal = IM_COL32(255, 70, 60, 255);
+constexpr ImU32 kIntentBack = IM_COL32(8, 8, 12, 220);
+constexpr ImU32 kThreatText = IM_COL32(255, 130, 95, 255);
+constexpr ImU32 kLethalText = IM_COL32(255, 70, 60, 255);
+constexpr ImU32 kHealText = IM_COL32(110, 230, 130, 255);
+constexpr ImU32 kDamagePopText = IM_COL32(255, 96, 80, 255);
+constexpr ImU32 kStatusDot = IM_COL32(240, 130, 50, 255);
+constexpr ImU32 kStatusControl = IM_COL32(180, 100, 240, 255);
+constexpr ImU32 kStatusStat = IM_COL32(100, 200, 120, 255);
+constexpr ImU32 kStatusMoveLock = IM_COL32(90, 150, 240, 255);
+constexpr ImU32 kStatusOther = IM_COL32(160, 160, 160, 255);
+
+EDungeonSprite IntentGlyphSprite(const std::string& glyph) {
+    if (glyph == "boots") return EDungeonSprite::IconBoots;
+    if (glyph == "bow") return EDungeonSprite::IconBow;
+    if (glyph == "spell") return EDungeonSprite::IconSpell;
+    return EDungeonSprite::IconSword;
+}
 
 EDungeonSprite SpriteOf(const entt::registry& registry, entt::entity entity) {
     const auto* art = registry.try_get<FUnitArt>(entity);
@@ -87,6 +145,150 @@ void Label(ImDrawList* draw, ImVec2 at, float size, ImU32 color, const char* tex
 
 float LabelWidth(float size, const char* text) { return ImGui::GetFont()->CalcTextSizeA(size, 1000.f, 0.f, text).x; }
 
+/// Bottom line of a board plate over `cell`: clear of the occupant's HP bar when a living unit stands
+/// there, a low line beside the diamond otherwise. World offsets use the iso scale, mirroring DrawUnit.
+float PlateBottom(entt::registry& registry, const FIsoView& view, int x, int y) {
+    const glm::vec2 center = view.cellCenter(x, y);
+    const entt::entity occupant = FindGridOccupant(registry, x, y);
+    if (occupant != entt::null && IsAlive(registry, occupant)) {
+        return center.y - (kUnitHeadAboveFeet + kUnitHealthBarInset + kUnitHealthBarHeight + kUnitPlateClearance) *
+                              view.scale;
+    }
+    return center.y - kEmptyCellPlateLift * view.scale;
+}
+
+/// A dark rounded plate (alpha >= 210) behind one line of text, so a number never sits bare over sprite art.
+void DrawPlateBehindText(ImDrawList* draw, ImVec2 at, float width, float height, float pad, float radius,
+                         ImU32 color = kIntentBack) {
+    draw->AddRectFilled({at.x - pad, at.y - pad}, {at.x + width + pad, at.y + height + pad}, color, radius);
+}
+
+/// Same RGB, replaced alpha — for the fading damage pops.
+ImU32 WithAlpha(ImU32 color, int alpha) {
+    return (color & ~IM_COL32_A_MASK) | (static_cast<ImU32>(std::clamp(alpha, 0, 255)) << IM_COL32_A_SHIFT);
+}
+
+/// Board tooltip drawn on the background list: the intent overlay runs outside any ImGui window, and this
+/// keeps the hover text independent of the window stack.
+void DrawHoverText(ImDrawList* draw, const char* text, float size) {
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+    const ImVec2 extent = ImGui::GetFont()->CalcTextSizeA(size, 1000.f, 0.f, text);
+    const ImVec2 min{mouse.x + 14.f, mouse.y + 18.f};
+    draw->AddRectFilled({min.x - 4.f, min.y - 2.f}, {min.x + extent.x + 4.f, min.y + extent.y + 2.f},
+                        IM_COL32(10, 10, 14, 220), 3.f);
+    Label(draw, min, size, pal::kText, text);
+}
+
+/// WP-12 status badge colour by kind (existing vocabulary, no new art).
+ImU32 StatusColor(const gameplay::FStatusContent* definition) {
+    if (definition == nullptr) return kStatusOther;
+    if (definition->kind == gameplay::kStatusKindDot) return kStatusDot;
+    if (definition->kind == gameplay::kStatusKindControl) return kStatusControl;
+    if (definition->kind == gameplay::kStatusKindStat) return kStatusStat;
+    if (definition->kind == gameplay::kStatusKindMoveLock) return kStatusMoveLock;
+    return kStatusOther;
+}
+
+/// Readable status summary for the always-visible line. `headline` is "2 status 3t" (count + longest
+/// remaining duration); `dot` is "Burn 4" when exactly one dot is active, "dot 4" otherwise. The party card
+/// draws them on two short lines (72px card); the unit readout joins them.
+struct FStatusSummary {
+    std::string headline;
+    std::string dot;
+
+    [[nodiscard]] bool empty() const noexcept { return headline.empty(); }
+    [[nodiscard]] std::string joined() const { return dot.empty() ? headline : headline + ", " + dot; }
+};
+
+FStatusSummary SummarizeStatuses(entt::registry& registry, entt::entity unit) {
+    const auto* active = registry.try_get<FActiveStatuses>(unit);
+    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
+    if (active == nullptr || active->effects.empty() || content == nullptr) return {};
+    int nextTick = 0;
+    int longest = 0;
+    std::string singleDot;
+    int dotCount = 0;
+    for (const FStatusEffect& effect : active->effects) {
+        longest = std::max(longest, effect.turnsRemaining);
+        const auto* definition = content->statuses.find(effect.statusId);
+        if (definition != nullptr && definition->kind == gameplay::kStatusKindDot) {
+            nextTick += std::max(0, effect.magnitude);
+            ++dotCount;
+            singleDot = definition->displayName;
+        }
+    }
+    FStatusSummary summary;
+    summary.headline = std::to_string(active->effects.size()) + " status " + std::to_string(longest) + "t";
+    if (nextTick > 0) {
+        summary.dot = (dotCount == 1 ? singleDot : std::string("dot")) + " " + std::to_string(nextTick);
+    }
+    return summary;
+}
+
+/// One gem per status (kind colour, capped) plus the decided turn-loss marker. `bottom` puts the row at
+/// the card's lower edge (the portrait well's top-right is taken by the threat plate).
+void DrawStatusGems(entt::registry& registry, ImDrawList* draw, entt::entity unit, ImVec2 min, ImVec2 max, float u,
+                    bool bottom = false) {
+    const auto* active = registry.try_get<FActiveStatuses>(unit);
+    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
+    if (active == nullptr || active->effects.empty() || content == nullptr) return;
+    const std::vector<const gameplay::FStatusContent*> definitions = CollectStatuses(*active, *content);
+    if (IsTurnSkipped(*active, definitions)) {
+        Label(draw, {min.x + 4.f * u, min.y + 4.f * u}, kStatusSummaryPx * u, kLethalText, "SKIP");
+    }
+    const float rowY = bottom ? max.y - 6.f * u : min.y + kStatusTopInset * u;
+    float x = max.x - 6.f * u;
+    const int gems = std::min(static_cast<int>(active->effects.size()), kStatusGemMax);
+    for (int index = 0; index < gems; ++index) {
+        const auto* definition = content->statuses.find(active->effects[static_cast<std::size_t>(index)].statusId);
+        draw->AddCircleFilled({x, rowY}, kStatusGemRadius * u, StatusColor(definition));
+        draw->AddCircle({x, rowY}, kStatusGemRadius * u, IM_COL32(8, 8, 12, 220), 12, 1.f * u);
+        x -= kStatusGemStep * u;
+    }
+}
+
+/// Hover detail: duration/magnitude per status, the tick chance and the decided skip. An `on_apply`
+/// control's roll happened when it landed, so only its decided outcome (skipPending) is shown — never an
+/// "apply chance" (D-12).
+std::string StatusTooltip(entt::registry& registry, entt::entity unit) {
+    const auto* active = registry.try_get<FActiveStatuses>(unit);
+    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
+    if (active == nullptr || active->effects.empty() || content == nullptr) return {};
+    const std::vector<const gameplay::FStatusContent*> definitions = CollectStatuses(*active, *content);
+    std::string text;
+    for (const FStatusEffect& effect : active->effects) {
+        const auto* definition = content->statuses.find(effect.statusId);
+        if (definition == nullptr) continue;
+        if (!text.empty()) text += '\n';
+        text += definition->displayName + " (" + std::to_string(effect.turnsRemaining) + "t)";
+        if (definition->kind == gameplay::kStatusKindDot) {
+            text += " / " + std::to_string(effect.magnitude) + " dmg/turn";
+        } else if (definition->kind == gameplay::kStatusKindControl) {
+            if (!IsOnApplyControl(*definition)) {
+                // A turn_start control's roll still lies ahead: show the tick chance it will use.
+                text += " / " + std::to_string(ControlTickChance(effect.magnitude, definition->chanceCap)) + "%";
+            }
+        } else if (definition->kind == gameplay::kStatusKindStat) {
+            text += " / " + std::to_string(effect.magnitude);
+        }
+        if (effect.skipPending) text += " / turn loss decided";
+    }
+    if (IsTurnSkipped(*active, definitions)) text += "\nTurn skipped";
+    return text;
+}
+
+/// D-12 apply chance belongs to the skill that is about to be used, not to an applied status: the resolver
+/// supplies the real rune `magnitudeDelta`, so nothing is re-derived from stored state.
+void AppendControlChances(std::string& text, const gameplay::FContentRegistry& content,
+                          const FResolvedSkill& skill) {
+    for (const FResolvedStatus& status : skill.statuses) {
+        const auto* definition = content.statuses.find(status.statusId);
+        if (definition == nullptr || !IsOnApplyControl(*definition)) continue;
+        text += "\n" + definition->displayName + ": " +
+                std::to_string(ControlApplyChance(*definition, status.magnitudeDelta)) + "% to apply";
+    }
+}
+
 // The three small clusters along the top edge: room name, initiative order and run status.
 void TopBar(entt::registry& registry, const FUiLayout& layout, const FDungeonRun& run, const FTurnSnapshot& snapshot) {
     if (!ui::BeginZone("Expedition", Min(layout.topBar), Size(layout.topBar))) {
@@ -108,13 +310,15 @@ void TopBar(entt::registry& registry, const FUiLayout& layout, const FDungeonRun
 
     const FRect& order = zones.turnOrder;
     DrawDungeonImage(registry, EDungeonSprite::HudTurnBar, draw, Min(order), Max(order));
-    const float portrait = std::min(26.f * u, order.h);
+    // WP-12: two compressed rows inside the same turn_order zone — the current round (settled order,
+    // unchanged) and the marker that the next round is decided when it starts. No next-round preview.
+    const float portrait = std::min(kRibbonPortraitMax * u, order.h * .62f);
     float x = order.x + 12.f * u;
-    const float y = order.y + (order.h - portrait) * .5f;
+    const float y = order.y + 1.f * u;
     char round[32];
     std::snprintf(round, sizeof round, "ROUND %llu", static_cast<unsigned long long>(snapshot.roundNumber));
-    Label(draw, {x, y + (portrait - 12.f * u) * .5f}, 12.f * u, pal::kMuted, round);
-    x += 58.f * u;
+    Label(draw, {x, y + (portrait - kRibbonRoundPx * u) * .5f}, kRibbonRoundPx * u, pal::kMuted, round);
+    x += 54.f * u;
     const float last = order.right() - 8.f * u;
     for (const auto& entry : snapshot.entries) {
         if (entry.state == ETurnEntryState::Skipped || entry.state == ETurnEntryState::Completed) continue;
@@ -128,6 +332,13 @@ void TopBar(entt::registry& registry, const FUiLayout& layout, const FDungeonRun
         if (ImGui::IsMouseHoveringRect(min, max)) ImGui::SetTooltip("%s", UnitDisplayName(registry, entry.entity).c_str());
         x += portrait + 3.f * u;
     }
+    // Row 2: the speculative marker, in light parchment and clipped to the zone (never spills out). It must
+    // fit the authored 320px bar at this size; the assert catches a font or string change early.
+    const float markerPx = kRibbonMarkerPx * u;
+    IM_ASSERT(LabelWidth(markerPx, kNextRoundMarker) <= order.w - 24.f * u);
+    const ImVec2 markerAt{order.x + 12.f * u, order.bottom() - markerPx - 1.f * u};
+    const ImVec4 markerClip{order.x + 12.f * u, markerAt.y, order.right() - 12.f * u, order.bottom()};
+    draw->AddText(ImGui::GetFont(), markerPx, markerAt, pal::kText, kNextRoundMarker, nullptr, 0.f, &markerClip);
 
     ui::DrawRecess(draw, Min(zones.status), Max(zones.status));
     char depth[96];
@@ -200,8 +411,11 @@ void TargetCard(entt::registry& registry, const FUiLayout& layout, const FTurnSn
             ImGui::PushID(static_cast<int>(entt::to_integral(target)));
             ImGui::BeginDisabled(points.skill < skill->apCost || !queue.pending.empty());
             if (ui::Button(name.c_str(), {0.f, 24.f * u})) {
-                queue.pending.push_back(FActionRequest{actor, target, slots[selectedSkill].skillId, *snapshot.currentTurn,
-                                                       registry.get<FGridPosition>(target)});
+                // 관례 a: the button submits immediately; a refusal is recorded and logged inside the API.
+                [[maybe_unused]] const bool submitted = SubmitHudAction(
+                    registry,
+                    FActionRequest{actor, target, slots[selectedSkill].skillId, *snapshot.currentTurn,
+                                   registry.get<FGridPosition>(target)});
             }
             ImGui::EndDisabled();
             ImGui::PopID();
@@ -247,7 +461,19 @@ void UnitReadout(entt::registry& registry, const FUiLayout& layout, const FTurnS
           IM_COL32(245, 232, 205, 255), numbers);
 
     const float rowY = zone.y + 50.f * u;
+    // WP-12: status badges on the readout (count / next tick / skip marker; details and the tick chance in
+    // the tooltip). The readout is wide enough for the joined summary on one line.
+    DrawStatusGems(registry, draw, actor, {left, zone.y + 8.f * u}, {left + width, zone.y + 20.f * u}, u);
+    const FStatusSummary statusSummary = SummarizeStatuses(registry, actor);
+    if (!statusSummary.empty()) {
+        const std::string joined = statusSummary.joined();
+        Label(draw, {left, zone.y + 64.f * u}, kStatusSummaryPx * u, pal::kMuted, joined.c_str());
+    }
     if (!playerTurn) {
+        if (!statusSummary.empty() &&
+            ImGui::IsMouseHoveringRect({left, zone.y + 56.f * u}, {left + width, zone.bottom()})) {
+            ImGui::SetTooltip("%s", StatusTooltip(registry, actor).c_str());
+        }
         Label(draw, {left, rowY}, 13.f * u, pal::kEnemy, "Planning...");
         return;
     }
@@ -261,6 +487,10 @@ void UnitReadout(entt::registry& registry, const FUiLayout& layout, const FTurnS
     };
     gems("M", left, points.move, points.moveMax, pal::kMove);
     gems("S", left + width * .5f, points.skill, points.skillMax, pal::kSkill);
+    if (!statusSummary.empty() &&
+        ImGui::IsMouseHoveringRect({left, zone.y + 56.f * u}, {left + width, zone.bottom()})) {
+        ImGui::SetTooltip("%s", StatusTooltip(registry, actor).c_str());
+    }
 }
 
 void PartyPortraits(entt::registry& registry, const FUiLayout& layout, const FTurnSnapshot& snapshot) {
@@ -268,6 +498,7 @@ void PartyPortraits(entt::registry& registry, const FUiLayout& layout, const FTu
     const FRect& zone = layout.zones.party;
     ImDrawList* draw = ImGui::GetWindowDrawList();
     const float well = 72.f * u;
+    const FCombatInfoSnapshot* info = FindCombatInfoSnapshot(registry);
     float x = zone.x;
     for (const auto entity : registry.view<FPartyMember, FHealth>()) {
         const auto& hp = registry.get<FHealth>(entity);
@@ -283,8 +514,53 @@ void PartyPortraits(entt::registry& registry, const FUiLayout& layout, const FTu
         if (current) draw->AddRect({min.x - 1.f, min.y - 1.f}, {max.x + 1.f, max.y + 1.f}, pal::kGoldBright, 2.f, 0, 2.f);
         ui::DrawLifeBar(draw, {min.x + 2.f * u, zone.y + 74.f * u}, {max.x - 2.f * u, zone.y + 82.f * u},
                         static_cast<float>(hp.current) / std::max(1, hp.max));
+
+        // WP-12: this round's promised damage is always visible (no hover) on a plate inside the portrait well;
+        // lethal is red. The old bottom-right corner sat on the frame's rivet and was half covered.
+        int incoming = 0;
+        bool lethal = false;
+        if (info != nullptr) {
+            for (const FThreatTotal& threat : info->threats) {
+                if (threat.unit != entity) continue;
+                incoming = threat.incomingThisRound;
+                lethal = threat.lethalThisRound;
+                break;
+            }
+        }
+        if (incoming > 0) {
+            char value[16];
+            std::snprintf(value, sizeof value, "-%d", incoming);
+            const float size = kThreatNumberPx * u;
+            const float pad = kThreatPlatePad * u;
+            const float width = LabelWidth(size, value);
+            const ImVec2 plateMax{innerMax.x - kThreatPlateInset * u,
+                                  innerMin.y + kThreatPlateInset * u + size + 2.f * pad};
+            const ImVec2 plateMin{plateMax.x - width - 2.f * pad, plateMax.y - size - 2.f * pad};
+            draw->AddRectFilled(plateMin, plateMax, kIntentBack, 2.f * u);
+            if (lethal) draw->AddRect(plateMin, plateMax, kIntentLethal, 2.f * u, 0, kIntentLethalBorder * u);
+            Label(draw, {plateMin.x + pad, plateMin.y + pad}, size, lethal ? kLethalText : kThreatText, value);
+        }
+        // The card keeps only what fits legibly: gems + SKIP (drawn below/above) and the dot's next tick on
+        // its own plate. The "N status Nt" headline lives in the card tooltip with the per-status detail.
+        const FStatusSummary statusSummary = SummarizeStatuses(registry, entity);
+        if (!statusSummary.dot.empty()) {
+            const float size = kStatusSummaryPx * u;
+            const float pad = kDotPlatePad * u;
+            const float width = LabelWidth(size, statusSummary.dot.c_str());
+            const ImVec2 at{innerMin.x + kDotPlateInset * u + pad, innerMax.y - kDotPlateInset * u - pad - size};
+            DrawPlateBehindText(draw, at, width, size, pad, 2.f * u);
+            Label(draw, at, size, kStatusDot, statusSummary.dot.c_str());
+        }
+        DrawStatusGems(registry, draw, entity, min, max, u, true);
+        if (lethal) draw->AddRect({min.x - 2.f, min.y - 2.f}, {max.x + 2.f, max.y + 2.f}, kIntentLethal, 2.f, 0, 2.f);
+
         if (ImGui::IsMouseHoveringRect(min, max)) {
-            ImGui::SetTooltip("%s\nHP %d / %d", UnitDisplayName(registry, entity).c_str(), hp.current, hp.max);
+            const std::string statusTip = StatusTooltip(registry, entity);
+            std::string tip = UnitDisplayName(registry, entity) + "\nHP " + std::to_string(hp.current) + " / " +
+                              std::to_string(hp.max);
+            if (!statusSummary.empty()) tip += "\n" + statusSummary.headline;
+            if (!statusTip.empty()) tip += "\n" + statusTip;
+            ImGui::SetTooltip("%s", tip.c_str());
         }
         x += 84.f * u;
     }
@@ -338,9 +614,13 @@ void SkillSlots(entt::registry& registry, const FUiLayout& layout, const FTurnSn
         std::snprintf(key, sizeof key, "%d", index + 1);
         Label(draw, {min.x + 6.f * u, min.y + 3.f * u}, 13.f * u, pal::kGoldBright, key);
         if (hot && resolved) {
-            ImGui::SetTooltip("%s\nAP %d | range %d | power %d | %s\nRunes: %zu | statuses: %zu",
-                row ? row->displayName.c_str() : slots[index].skillId.c_str(), resolved->apCost, resolved->range,
-                resolved->power, resolved->shape.c_str(), slots[index].runeIds.size(), resolved->statuses.size());
+            std::string tip = std::string(row ? row->displayName : slots[index].skillId) + "\nAP " +
+                std::to_string(resolved->apCost) + " | range " + std::to_string(resolved->range) + " | power " +
+                std::to_string(resolved->power) + " | " + resolved->shape + "\nRunes: " +
+                std::to_string(slots[index].runeIds.size()) + " | statuses: " +
+                std::to_string(resolved->statuses.size());
+            AppendControlChances(tip, content, *resolved);
+            ImGui::SetTooltip("%s", tip.c_str());
         }
         ImGui::PopID();
     }
@@ -373,26 +653,46 @@ void Journal(entt::registry& registry, const FUiLayout& layout) {
     ImGui::EndTooltip();
 }
 
-// The controls stay out of the way behind a small help mark.
-void Hints(const FUiLayout& layout) {
+// The controls stay out of the way behind a small help mark; the right half is the battle-speed toggle
+// (WP-12, no new zone: the hints zone is split in place).
+void Hints(entt::registry& registry, const FUiLayout& layout) {
     const float u = layout.scale;
     const FRect& zone = layout.zones.hints;
     ImDrawList* draw = ImGui::GetWindowDrawList();
     ui::DrawRecess(draw, Min(zone), Max(zone));
+    const FRect ask{zone.x, zone.y, zone.w * .5f, zone.h};
+    const FRect speed{zone.x + zone.w * .5f, zone.y, zone.w * .5f, zone.h};
     const float size = 22.f * u;
-    Label(draw, {zone.x + (zone.w - LabelWidth(size, "?")) * .5f, zone.y + (zone.h - size) * .5f}, size, pal::kMuted, "?");
-    if (!ImGui::IsMouseHoveringRect(Min(zone), Max(zone))) return;
-    ImGui::BeginTooltip();
-    ImGui::TextUnformatted("WASD move  |  1-4 skill");
-    ImGui::TextUnformatted("Space: end turn");
-    ImGui::TextColored({.35f, .88f, 1.f, 1.f}, "Cyan");
-    ImGui::SameLine(0.f, 0.f);
-    ImGui::TextUnformatted(" reach  ");
-    ImGui::SameLine(0.f, 0.f);
-    ImGui::TextColored({1.f, .43f, .35f, 1.f}, "Red");
-    ImGui::SameLine(0.f, 0.f);
-    ImGui::TextUnformatted(" hit");
-    ImGui::EndTooltip();
+    Label(draw, {ask.x + (ask.w - LabelWidth(size, "?")) * .5f, ask.y + (ask.h - size) * .5f}, size, pal::kMuted, "?");
+    if (ImGui::IsMouseHoveringRect(Min(ask), Max(ask))) {
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted("WASD move  |  1-4 skill");
+        ImGui::TextUnformatted("Space: end turn");
+        ImGui::TextColored({.35f, .88f, 1.f, 1.f}, "Cyan");
+        ImGui::SameLine(0.f, 0.f);
+        ImGui::TextUnformatted(" reach  ");
+        ImGui::SameLine(0.f, 0.f);
+        ImGui::TextColored({1.f, .43f, .35f, 1.f}, "Red");
+        ImGui::SameLine(0.f, 0.f);
+        ImGui::TextUnformatted(" hit");
+        ImGui::EndTooltip();
+    }
+
+    // 관례 a: an ImGui button click may call the preference setter immediately; only the snapshot and the
+    // drawing are const. Presentation dt changes, the rules clock does not.
+    const char* label = CurrentSettings(registry).animSpeed >= kAnimSpeedFast ? "2x" : "1x";
+    ImGui::SetCursorScreenPos(Min(speed));
+    ImGui::PushStyleColor(ImGuiCol_Button, kClear);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, kClear);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, kClear);
+    ImGui::PushStyleColor(ImGuiCol_Text, pal::kGoldBrightV);
+    if (ImGui::Button(label, Size(speed))) {
+        ToggleAnimSpeed(registry);
+    }
+    ImGui::PopStyleColor(4);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Battle speed: %s", CurrentSettings(registry).animSpeed >= kAnimSpeedFast ? "2x" : "1x");
+    }
 }
 
 // The picture sits under an ImGui button with a clear face, so the label still reaches ImGui's text log.
@@ -416,6 +716,128 @@ bool EndTurnButton(entt::registry& registry, const FUiLayout& layout, bool enabl
     return pressed;
 }
 
+// WP-12 board text/icons: intent plates (glyph + always-on number), the selected-skill preview numbers and
+// the damage pops. Projection is the same battle isometric view the grid renderer uses (FindBattleIsoView).
+// Every plate over a standing unit sits above its HP bar (world-scale offsets, see PlateBottom).
+void IntentOverlays(entt::registry& registry, const FUiLayout& layout) {
+    const auto* info = FindCombatInfoSnapshot(registry);
+    const auto* grid = registry.ctx().find<FGridMetrics>();
+    if (info == nullptr || info->intents.empty() || grid == nullptr) return;
+    const auto view = ui::FindBattleIsoView(registry, *grid);
+    if (!view) return;
+    const float u = layout.scale;
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
+    // Same-cell valid and invalid badges stay separate in the snapshot (they never hide each other), so the
+    // renderer stacks them: the highest-priority plate keeps the HP-bar anchor, the rest sit one plate above.
+    std::map<std::pair<int, int>, int> cellStacks;
+    for (const FIntentBadge& badge : info->intents) {
+        const float icon = kIntentGlyphPx * u;
+        const float numPx = kIntentNumberPx * u;
+        const float plusPx = kIntentPlusPx * u;
+        const float pad = kIntentPlatePad * u;
+        const float gap = kIntentPlateGap * u;
+
+        char number[16]{};
+        const bool hasNumber = badge.valid && badge.attack && badge.expectedDamage > 0;
+        if (hasNumber) std::snprintf(number, sizeof number, "%d", badge.expectedDamage);
+        char more[8]{};
+        const bool hasMore = !info->compact && badge.stacked > 1;  // compact: numbers stay, badges collapse
+        if (hasMore) std::snprintf(more, sizeof more, "+%d", badge.stacked - 1);
+        const bool showIcon = !info->compact;
+        if (!showIcon && !hasNumber) continue;  // compact support/move intent: no number, nothing to draw
+
+        const float numberW = hasNumber ? LabelWidth(numPx, number) : 0.f;
+        const float moreW = hasMore ? LabelWidth(plusPx, more) : 0.f;
+        const float contentH = std::max({showIcon ? icon : 0.f, numPx, plusPx});
+        float contentW = showIcon ? icon : 0.f;
+        if (showIcon && (numberW > 0.f || moreW > 0.f)) contentW += gap;
+        contentW += numberW;
+        if (moreW > 0.f) contentW += (numberW > 0.f ? gap : 0.f) + moreW;
+
+        const glm::vec2 center = view->cellCenter(badge.cell.x, badge.cell.y);
+        const int stack = cellStacks[{badge.cell.x, badge.cell.y}]++;
+        const float bottom = PlateBottom(registry, *view, badge.cell.x, badge.cell.y) - stack * kIntentStackStep * u;
+        const ImVec2 min{center.x - (contentW + 2.f * pad) * .5f, bottom - (contentH + 2.f * pad)};
+        const ImVec2 max{min.x + contentW + 2.f * pad, bottom};
+        draw->AddRectFilled(min, max, kIntentBack, 3.f * u);
+        if (badge.lethal) draw->AddRect(min, max, kIntentLethal, 3.f * u, 0, kIntentLethalBorder * u);
+        float x = min.x + pad;
+        if (showIcon) {
+            const ImVec2 imin{x, min.y + pad + (contentH - icon) * .5f};
+            const ImVec2 imax{imin.x + icon, imin.y + icon};
+            DrawDungeonImage(registry, IntentGlyphSprite(badge.glyph), draw, imin, imax, {0, 0}, {1, 1},
+                             badge.valid ? IM_COL32_WHITE : kIntentDim);
+            x = imax.x + gap;
+        }
+        if (hasNumber) {
+            Label(draw, {x, min.y + pad + (contentH - numPx) * .5f}, numPx, badge.lethal ? kLethalText : kIntentNumber,
+                  number);
+            x += numberW;
+            if (hasMore) x += gap;
+        }
+        if (hasMore) {
+            Label(draw, {x, min.y + pad + (contentH - plusPx) * .5f}, plusPx, pal::kGoldBright, more);
+        }
+        if (!badge.tooltip.empty() && ImGui::IsMouseHoveringRect(min, max)) {
+            DrawHoverText(draw, badge.tooltip.c_str(), kStatusSummaryPx * u);
+        }
+    }
+}
+
+void PreviewOverlays(entt::registry& registry, const FUiLayout& layout) {
+    const auto* info = FindCombatInfoSnapshot(registry);
+    const auto* grid = registry.ctx().find<FGridMetrics>();
+    if (info == nullptr || info->preview.empty() || grid == nullptr) return;
+    const auto view = ui::FindBattleIsoView(registry, *grid);
+    if (!view) return;
+    const float u = layout.scale;
+    const float size = kPreviewNumberPx * u;
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
+    // A preview on a cell that also carries enemy-intent plates sits above them (same stacking rule).
+    std::map<std::pair<int, int>, int> intentStacks;
+    for (const FIntentBadge& badge : info->intents) ++intentStacks[{badge.cell.x, badge.cell.y}];
+    for (const FPreviewBadge& badge : info->preview) {
+        if (badge.damage <= 0 && badge.heal <= 0) continue;
+        char text[16];
+        if (badge.damage > 0) std::snprintf(text, sizeof text, "-%d", badge.damage);
+        else std::snprintf(text, sizeof text, "+%d", badge.heal);
+        const float width = LabelWidth(size, text);
+        const glm::vec2 center = view->cellCenter(badge.cell.x, badge.cell.y);
+        const auto stack = intentStacks.find({badge.cell.x, badge.cell.y});
+        const int lift = stack != intentStacks.end() ? stack->second : 0;
+        const float bottom = PlateBottom(registry, *view, badge.cell.x, badge.cell.y) - lift * kIntentStackStep * u;
+        const ImVec2 at{center.x - width * .5f, bottom - size};
+        DrawPlateBehindText(draw, at, width, size, kIntentPlatePad * u, 3.f * u);
+        Label(draw, at, size, badge.damage > 0 ? (badge.lethal ? kLethalText : kIntentNumber) : kHealText, text);
+    }
+}
+
+void DamagePopOverlays(entt::registry& registry, const FUiLayout& layout) {
+    const auto* effects = registry.ctx().find<FBattleEffects>();
+    const auto* grid = registry.ctx().find<FGridMetrics>();
+    if (effects == nullptr || effects->pops.empty() || grid == nullptr) return;
+    const auto view = ui::FindBattleIsoView(registry, *grid);
+    if (!view) return;
+    const float u = layout.scale;
+    const float size = kDamagePopPx * u;
+    ImDrawList* draw = ImGui::GetBackgroundDrawList();
+    for (const FDamagePop& pop : effects->pops) {
+        const float life = std::max(pop.lifetime, 1e-3f);
+        const float phase = std::clamp(pop.age / life, 0.f, 1.f);
+        const glm::vec2 center = view->cellCenter(pop.at.x, pop.at.y);
+        char text[16];
+        std::snprintf(text, sizeof text, "-%d", pop.damage);
+        const float width = LabelWidth(size, text);
+        const int cellX = static_cast<int>(std::floor(pop.at.x));
+        const int cellY = static_cast<int>(std::floor(pop.at.y));
+        const float bottom = PlateBottom(registry, *view, cellX, cellY) - kDamagePopRise * phase * view->scale;
+        const ImVec2 at{center.x - width * .5f, bottom - size};
+        const auto alpha = static_cast<int>(255.f * (1.f - phase * phase));
+        DrawPlateBehindText(draw, at, width, size, kIntentPlatePad * u, 3.f * u, WithAlpha(kIntentBack, alpha));
+        Label(draw, at, size, WithAlpha(kDamagePopText, alpha), text);
+    }
+}
+
 } // namespace
 
 void EmberCombatHudSystem::render(entt::registry& registry) {
@@ -429,6 +851,9 @@ void EmberCombatHudSystem::render(entt::registry& registry) {
     const auto snapshot = runtime.controller.snapshot();
 
     TopBar(registry, *layout, run, snapshot);
+    IntentOverlays(registry, *layout);
+    PreviewOverlays(registry, *layout);
+    DamagePopOverlays(registry, *layout);
 
     const bool playerTurn = !outcome->resolved && snapshot.currentTurn && IsAlive(registry, snapshot.currentTurn->actor) &&
         registry.all_of<FPartyMember, FActionPoints, FSkillLoadout>(snapshot.currentTurn->actor);
@@ -443,7 +868,7 @@ void EmberCombatHudSystem::render(entt::registry& registry) {
     SkillSlots(registry, *layout, snapshot, *outcome, playerTurn, selectedSkill, content);
     UnitReadout(registry, *layout, snapshot, *outcome, playerTurn);
     Journal(registry, *layout);
-    Hints(*layout);
+    Hints(registry, *layout);
     if (playerTurn && EndTurnButton(registry, *layout, queue.pending.empty())) {
         runtime.requests.push_back(FEndTurn{*snapshot.currentTurn});
     }

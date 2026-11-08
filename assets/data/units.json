@@ -1,5 +1,5 @@
 {
-  "_comment": "개편 3차: 클래스 3종(전사/궁수/법사)과 적 유닛. 스탯 6종(hp·공격력·마법공격력·속도·방어력·마법방어력) 수치는 잠정값이며 밸런싱 단계에서 이 파일만 고쳐 정한다.",
+  "_comment": "개편 3차: 클래스 3종(전사/궁수/법사)과 적 유닛. 스탯 6종(hp·공격력·마법공격력·속도·방어력·마법방어력) 수치는 잠정값이며 밸런싱 단계에서 이 파일만 고쳐 정한다. WP-22: skills = authored pool; default loadout = first 4 (BuildLoadout); pool order = default priority. M-FUN S2: the mage/healer default four deliberately carry Fire (firebolt), Cold (frost_lance) and Lightning (static) because the reward-offer gate (FRewards::RuneFitsSkills) reads only the default loadout's BASE tags — every rune must be offerable from it. Enemy pools are unchanged.",
   "schema_version": 1,
   "units": [
     {
@@ -15,7 +15,7 @@
       "magic_attack": 2,
       "defense": 5,
       "magic_defense": 3,
-      "skills": ["skill.strike", "skill.cleave", "skill.lunge"]
+      "skills": ["skill.strike", "skill.cleave", "skill.lunge", "skill.shove", "skill.hook", "skill.bash", "skill.charge", "skill.brace"]
     },
     {
       "id": "char.archer",
@@ -30,7 +30,7 @@
       "magic_attack": 3,
       "defense": 3,
       "magic_defense": 3,
-      "skills": ["skill.arrow", "skill.volley", "skill.snipe"]
+      "skills": ["skill.arrow", "skill.volley", "skill.snipe", "skill.barrage", "skill.mark", "skill.pin", "skill.piercing", "skill.storm"]
     },
     {
       "id": "char.mage",
@@ -45,7 +45,7 @@
       "magic_attack": 8,
       "defense": 2,
       "magic_defense": 5,
-      "skills": ["skill.bolt", "skill.fog", "skill.heal", "skill.buff", "skill.debuff", "skill.firebolt"]
+      "skills": ["skill.bolt", "skill.firebolt", "skill.frost_lance", "skill.fog", "skill.heal", "skill.buff", "skill.debuff", "skill.shackle", "skill.flame_field"]
     },
     {
       "id": "char.healer",
@@ -60,7 +60,7 @@
       "magic_attack": 7,
       "defense": 3,
       "magic_defense": 5,
-      "skills": ["skill.heal", "skill.bolt", "skill.buff"]
+      "skills": ["skill.heal", "skill.renew", "skill.buff", "skill.static", "skill.bolt"]
     },
     {
       "id": "enemy.guardian",
@@ -117,7 +117,7 @@
       "magic_attack": 6,
       "defense": 1,
       "magic_defense": 4,
-      "skills": ["skill.bolt"]
+      "skills": ["skill.bolt", "skill.imp_firebomb"]
     }
   ]
 }

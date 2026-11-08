@@ -10,6 +10,11 @@ endif()
 
 project ("game01P")
 
+# The Tracy profiler client opens a listener on all interfaces at startup, so every new exe path gets a Windows
+# Firewall prompt. TRACY_ONLY_LOCALHOST is compile-time-only in Tracy 0.14.1, so opting out has to be a build option.
+# OFF keeps the Tracy headers (they still compile, macros are no-ops without TRACY_ENABLE) but links no client.
+option(GAME01P_ENABLE_TRACY "Link the Tracy profiler client (listens on the network at startup)" ON)
+
 # Recursively find all source and header files in the src directory.
 # CONFIGURE_DEPENDS ensures CMake re-runs if files are added or removed.
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS
@@ -52,11 +57,20 @@ target_link_libraries(game01P_runtime
 		glm::glm
 		imgui::imgui
 		$<IF:$<TARGET_EXISTS:SDL3_image::SDL3_image-shared>,SDL3_image::SDL3_image-shared,SDL3_image::SDL3_image-static>
-		Tracy::TracyClient
 		SDL3_ttf::SDL3_ttf
 		spdlog::spdlog
 		nlohmann_json::nlohmann_json
 )
+
+if(GAME01P_ENABLE_TRACY)
+	# Default: the profiler client, exactly as before the option existed.
+	target_link_libraries(game01P_runtime PUBLIC Tracy::TracyClient)
+else()
+	# Profiler off: still expose the Tracy include directory so src/ headers that #include <tracy/Tracy.hpp> compile
+	# (without TRACY_ENABLE the macros are no-ops). PUBLIC because the test targets include those headers too.
+	target_include_directories(game01P_runtime PUBLIC
+		$<TARGET_PROPERTY:Tracy::TracyClient,INTERFACE_INCLUDE_DIRECTORIES>)
+endif()
 
 set_target_properties(game01P game01P_runtime PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON)
 target_compile_options(game01P PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
@@ -82,9 +96,24 @@ if(BUILD_TESTING)
         WORKING_DIRECTORY "$<TARGET_FILE_DIR:game01P>"
         ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy;SDL_RENDER_DRIVER=software"
         TIMEOUT 30
-        RUN_SERIAL TRUE)
+        RUN_SERIAL TRUE
+        FIXTURES_REQUIRED AssetStage)
+    # The prototype verifier runs ~26 s of scripted checks on a software renderer: give it headroom over the 30 s.
+    set_tests_properties(forest_prototype_checks PROPERTIES TIMEOUT 90)
     set_property(TEST dungeon_battle_smoke APPEND PROPERTY ENVIRONMENT "GAME01P_START=battle")
     set_property(TEST forest_battle_smoke APPEND PROPERTY ENVIRONMENT "GAME01P_START=battle")
+    # WP-00b: every test that boots the game exe writes its saves under the build tree, never the user's
+    # %APPDATA%\Game01P\EmberDungeon. One directory per test keeps the runs independent.
+    set(SMOKE_TESTS dungeon_title_smoke dungeon_battle_smoke forest_title_smoke forest_battle_smoke forest_prototype_checks)
+    foreach(smoke_test IN LISTS SMOKE_TESTS)
+        set_property(TEST ${smoke_test} APPEND PROPERTY ENVIRONMENT
+            "GAME01P_SAVE_DIR=${CMAKE_BINARY_DIR}/test-saves/${smoke_test}")
+    endforeach()
+    # B7: always run asset staging. A JSON-only change does not relink game01P, so the POST_BUILD copy below does not
+    # run; without this fixture the smoke tests would read stale assets.
+    add_test(NAME stage_assets COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:game01P>/assets")
+    set_tests_properties(stage_assets PROPERTIES FIXTURES_SETUP AssetStage)
     if(WIN32)
         add_custom_command(TARGET dungeon_tests POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -95,6 +124,28 @@ if(BUILD_TESTING)
                 $<TARGET_RUNTIME_DLLS:ai_tests> $<TARGET_FILE_DIR:ai_tests>
             COMMAND_EXPAND_LISTS)
     endif()
+    # Feature tests: every tests/features/*_tests.cpp becomes its own executable + ctest entry.
+    # A later WP adds a test file and needs no CMake edit.
+    file(GLOB FEATURE_TEST_SOURCES CONFIGURE_DEPENDS "tests/features/*_tests.cpp")
+    foreach(source IN LISTS FEATURE_TEST_SOURCES)
+        get_filename_component(name "${source}" NAME_WE)
+        add_executable(${name} "${source}")
+        target_link_libraries(${name} PRIVATE game01P_runtime)
+        set_target_properties(${name} PROPERTIES CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON)
+        add_test(NAME ${name} COMMAND ${name})
+        # One save directory per feature test (WP-00b follow-up): without it every test falls back to the caller's
+        # GAME01P_SAVE_DIR, so concurrent or back-to-back runs share checkpoint/run-save files and flake.
+        set_tests_properties(${name} PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+            ENVIRONMENT "GAME01P_SAVE_DIR=${CMAKE_BINARY_DIR}/test-saves/${name}"
+            TIMEOUT 120)
+        if(WIN32)
+            add_custom_command(TARGET ${name} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    $<TARGET_RUNTIME_DLLS:${name}> $<TARGET_FILE_DIR:${name}>
+                COMMAND_EXPAND_LISTS)
+        endif()
+    endforeach()
 endif()
 
 add_custom_command(TARGET game01P POST_BUILD

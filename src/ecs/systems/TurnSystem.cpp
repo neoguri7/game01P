@@ -1,6 +1,9 @@
 #include "ecs/systems/TurnSystem.h"
 #include "core/events/FEventBus.h"
+#include "gameplay/combat/FBattleFlow.h"
+#include <algorithm>
 #include <type_traits>
+#include <utility>
 
 namespace game {
 namespace {
@@ -16,6 +19,15 @@ void FlushEvents(entt::registry& registry, FTurnRuntime& runtime) {
 			std::visit([bus](const auto& typed) { bus->queueFrame(typed); }, event);
 		}
 	}
+}
+
+/// WP-05a: true when the deque already holds a deferred FEndTurn for the same turn. The HUD's end-turn
+/// button can queue the same token twice; the second copy is redundant.
+[[nodiscard]] bool HasQueuedEndTurn(const std::deque<FTurnRequest>& requests, const FTurnToken& token) {
+	return std::ranges::any_of(requests, [&token](const FTurnRequest& request) {
+		const auto* end = std::get_if<FEndTurn>(&request);
+		return end != nullptr && end->token == token;
+	});
 }
 
 } // namespace
@@ -35,7 +47,22 @@ void ecs::TurnSystem::update(entt::registry& registry, float /*deltaTime*/) {
 	runtime->controller.synchronize(registry);
 	FlushEvents(registry, *runtime);
 
-	while (!runtime->requests.empty()) {
+	// WP-05a: an FEndTurn is a *game* decision, so it waits for the presentation to settle. The wait is
+	// level-triggered: the predicate is evaluated every frame, nothing is stored. Only the front request is
+	// rotated to the back; a Start/Stop behind a deferred EndTurn is still processed in this update. The
+	// loop is bounded by the initial size, so a fully deferred queue cannot spin here, and runtime->stop()
+	// clears the deque — a deferred EndTurn is disposed with it.
+	const bool settled = IsPresentationSettled(registry);
+	std::size_t remaining = runtime->requests.size();
+	while (remaining-- > 0 && !runtime->requests.empty()) {
+		if (!settled && std::holds_alternative<FEndTurn>(runtime->requests.front())) {
+			auto deferred = std::move(runtime->requests.front());
+			runtime->requests.pop_front();
+			if (!HasQueuedEndTurn(runtime->requests, std::get<FEndTurn>(deferred).token)) {
+				runtime->requests.push_back(std::move(deferred));
+			}
+			continue;
+		}
 		auto request = std::move(runtime->requests.front());
 		runtime->requests.pop_front();
 		std::visit([&](const auto& typed) {

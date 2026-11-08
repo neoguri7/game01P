@@ -17,6 +17,10 @@ namespace {
 
 constexpr int kFarAway = 99;
 
+/// WP-16: a move lock denies mobility, not output — the AI values it at 1/this of the target's threat per
+/// locked turn (half; 잠정값 — the M-FUN report decides whether the data or this constant changes).
+constexpr int kMoveLockOutputDivisor = 2;
+
 struct FEffect {
     int value{0};
     bool kills{false};
@@ -192,29 +196,48 @@ int ValueOfStatus(const FBtContext& ctx, const FResolvedStatus& status, const FU
     const int duration = EffectiveStatusDuration(*definition, status.durationDelta);
     const int magnitude = EffectiveStatusMagnitude(*definition, status.magnitudeDelta);
     int remaining = 0;
+    bool skipPending = false;
     for (const FStatusEffect& effect : target.effects) {
         if (effect.statusId == status.statusId) {
             remaining = effect.turnsRemaining;
+            skipPending = effect.skipPending;
             break;
         }
-    }
-    const int gain = std::max(0, duration - remaining); // re-applying only refreshes up to the full duration
-    if (gain == 0) {
-        return 0;
     }
 
     int worth = 0;
     bool goodForTarget = false;
-    if (definition->kind == gameplay::kStatusKindDot) {
-        worth = std::min(magnitude * gain, target.hp);
-    } else if (definition->kind == gameplay::kStatusKindControl) {
-        // Control denies turns: each denied turn costs the victim's side one turn of its output.
-        const int chance = magnitude > 0 ? magnitude : 100;
-        worth = target.threat * chance / 100 * gain;
+    if (IsOnApplyControl(*definition)) {
+        // D-12: the loss is decided once at application, so its worth is the expected skip × one lost turn —
+        // the remaining duration (gain) does not enter. A target already holding the decided loss gains
+        // nothing from a re-application (mirror of the gain == 0 rule), and a consumed one rolls anew, so
+        // this branch must not fall into the gain check.
+        if (skipPending) {
+            return 0;
+        }
+        worth = target.threat * ControlApplyChance(*definition, status.magnitudeDelta) / 100 * kControlLostTurns;
     } else {
-        // Stat statuses add `magnitude` to every attack; a unit that never attacks gains nothing.
-        worth = target.canDamage ? magnitude * gain : 0;
-        goodForTarget = true;
+        const int gain = std::max(0, duration - remaining); // re-applying only refreshes up to the full duration
+        if (gain == 0) {
+            return 0;
+        }
+        if (definition->kind == gameplay::kStatusKindMoveLock) {
+            // WP-16: a move lock costs the victim its mobility, not its output — half its threat per locked
+            // turn (잠정). Hostile: goodForTarget stays false.
+            worth = target.threat * gain / kMoveLockOutputDivisor;
+        } else if (definition->kind == gameplay::kStatusKindDot) {
+            worth = std::min(magnitude * gain, target.hp);
+        } else if (definition->kind == gameplay::kStatusKindControl) {
+            // turn_start control (freeze/legacy paralyze): each denied turn costs the victim's side one turn of output.
+            worth = target.threat * ControlTickChance(magnitude, definition->chanceCap) / 100 * gain;
+        } else {
+            // Stat statuses add `magnitude` to every attack; a unit that never attacks gains nothing.
+            // WP-28 A1: a negative magnitude is a weakening status — worth |magnitude| to the caster
+            // (goodForTarget = false), the mirror of the buff branch. The old clamp read it as 0.
+            const int magnitudeStrength = magnitude < 0 ? -magnitude : magnitude;
+            worth = target.canDamage ? magnitudeStrength * gain : 0;
+            goodForTarget = magnitude > 0;
+        }
     }
     const int signedWorth = goodForTarget == targetIsAlly ? worth : -worth;
     return signedWorth * ctx.tuning.statusPercent / 100;

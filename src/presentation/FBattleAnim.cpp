@@ -13,6 +13,7 @@
 #include "ecs/components/FDead.h"
 #include "ecs/components/FGridPosition.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "presentation/FSettings.h"
 
 namespace game {
 namespace {
@@ -161,6 +162,18 @@ void Spawn(entt::registry& registry, FAnimClipId clipId, glm::vec2 from, glm::ve
 /// A blow lands on `target`: the health bar catches up and the unit flinches or falls.
 void React(entt::registry& registry, float delay, const FBattleEvent::FTarget& target) {
     Later(registry, delay, [target](entt::registry& r) {
+        // WP-12 damage pop: the target's own released delta, at the moment the blow lands — every target that
+        // lost HP (hostile or not; an area shot can hurt anyone). Skipped with the animations (the
+        // presentation preference never changes a rule).
+        if (target.healthBefore > target.healthAfter && !CurrentSettings(r).skipAnimations) {
+            if (auto* effects = r.ctx().find<FBattleEffects>(); effects != nullptr) {
+                if (const auto* cell = r.try_get<FGridPosition>(target.unit); cell != nullptr) {
+                    effects->pops.push_back(FDamagePop{
+                        glm::vec2{static_cast<float>(cell->x), static_cast<float>(cell->y)},
+                        target.healthBefore - target.healthAfter, 0.f});
+                }
+            }
+        }
         auto* anim = r.try_get<FUnitAnim>(target.unit);
         const auto* data = r.ctx().find<FBattleAnimData>();
         const auto* library = FAnimationLibrary::Find(r);
@@ -349,6 +362,16 @@ std::expected<FBattleAnimData, std::string> ParseBattleAnim(
         if (attack == nullptr || set.impactFrame < 0 || set.impactFrame >= static_cast<int>(attack->frames.size())) {
             return Fail("units." + unitId, "impact_frame is outside the attack clip");
         }
+        // WP-24a (W3 correction #6): a one-shot action authored loop:true is a data defect, not a boot
+        // failure — the gate deliberately excludes loop clips, so it cannot deadlock, but a looping death
+        // would play under the victory modal forever. Warn so the data author sees it.
+        for (const std::size_t action : {static_cast<std::size_t>(EUnitAnim::Attack),
+                                         static_cast<std::size_t>(EUnitAnim::Death)}) {
+            const FAnimClip* oneShot = library.get(set.clips[action]);
+            if (oneShot != nullptr && oneShot->loop) {
+                LOG_WARN("Unit '{}': loop clip on a one-shot action — gate will wait visually.", unitId);
+            }
+        }
         data.setByUnit.emplace(unitId, data.sets.size());
         data.sets.push_back(set);
     }
@@ -478,6 +501,11 @@ void UpdateBattleAnimations(entt::registry& registry, float dt) {
     std::erase_if(effects->active, [](const FActiveEffect& effect) {
         return effect.duration > 0.f ? effect.age >= effect.duration : effect.player.finished;
     });
+    // WP-12 damage pops: short-lived floating numbers over the released blow.
+    for (FDamagePop& pop : effects->pops) {
+        pop.age += dt;
+    }
+    std::erase_if(effects->pops, [](const FDamagePop& pop) { return pop.age >= pop.lifetime; });
 }
 
 bool DrawAnimFrame(entt::registry& registry, FAnimClipId clipId, std::uint32_t frame, glm::vec2 anchor, float scale,

@@ -1,6 +1,8 @@
 #include "gameplay/dungeon/FDungeonRun.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -14,49 +16,30 @@
 #include "ecs/components/FHealth.h"
 #include "ecs/components/FSpeed.h"
 #include "ecs/components/FStats.h"
+#include "gameplay/combat/FCombatSheet.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FDungeonSave.h"
+#include "gameplay/dungeon/FRunEventLog.h"
+#include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FRunLog.h"
+#include "gameplay/dungeon/FRunSequence.h"
+#include "gameplay/dungeon/FSaveSections.h"
 #include "gameplay/dungeon/FRoomGenerator.h"
 #include "gameplay/factory/FEntityDefinitions.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/battle/FBattleSetup.h"
 
 namespace game {
-namespace {
 
-const nlohmann::json& Definition(entt::registry& registry) {
+const nlohmann::json& DungeonDefinition(entt::registry& registry) {
     return registry.ctx().get<FAssetManager>().digest("data/dungeon")->json();
 }
 
-bool SaveCheckpoint(entt::registry& registry) {
-    auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
-    if (checkpoint.path.empty()) return false;
-    std::ofstream file(checkpoint.path, std::ios::trunc);
-    file << nlohmann::json{{"schema_version", 1}, {"cleared", checkpoint.cleared}}.dump(2);
-    file.flush();
-    if (!file) {
-        checkpoint.error = "Could not save dungeon checkpoint.";
-        LOG_ERROR("{}", checkpoint.error);
-        return false;
-    }
-    checkpoint.error.clear();
-    return true;
-}
+namespace {
 
-void RestoreParty(entt::registry& registry, int amount) {
-    auto& run = registry.ctx().get<FDungeonRun>();
-    for (auto& member : run.party) {
-        member.health += amount;
-    }
-}
-
-// Callers save once their own state change is complete, so Advance does not.
-void Advance(entt::registry& registry) {
-    auto& run = registry.ctx().get<FDungeonRun>();
-    run.phase = EDungeonPhase::Battle;
-    run.advanceRequested = true;
-}
+constexpr const char* kUnreadableSave = "Saved expedition is unreadable. Start a new expedition to replace it.";
 
 std::optional<FDungeonSaveRules> SaveRules(entt::registry& registry) {
     const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
@@ -65,43 +48,74 @@ std::optional<FDungeonSaveRules> SaveRules(entt::registry& registry) {
     FDungeonSaveRules rules;
     rules.content = content;
     rules.passiveTree = &growth->passiveTree;
-    for (const auto& member : Definition(registry).at("party")) rules.partyIds.push_back(member.at("id").get<std::string>());
+    for (const auto& member : DungeonDefinition(registry).at("party")) rules.partyIds.push_back(member.at("id").get<std::string>());
     return rules;
 }
 
-/// Reads and validates the save slot; `savedAt` receives the file's timestamp for the menu.
-std::expected<FDungeonRun, std::string> LoadSavedRun(entt::registry& registry, std::string& savedAt) {
+/// A validated save document and the run it describes. `ParseSavedRun` only validates: it never applies a
+/// section, so the menu refresh can inspect the slot without touching the run's module state.
+struct FLoadedRun {
+    FDungeonRun run;
+    nlohmann::json document;
+    std::string savedAt;
+};
+
+/// Reads and validates the save slot. `savedAt` receives the file's timestamp for the menu.
+std::expected<FLoadedRun, std::string> ParseSavedRun(entt::registry& registry) {
     const auto rules = SaveRules(registry);
     if (!rules) return std::unexpected("expedition content is unavailable");
-    const auto document = ReadSaveFile(registry.ctx().get<FDungeonSave>().path);
+    auto document = ReadSaveFile(registry.ctx().get<FDungeonSave>().path);
     if (!document) return std::unexpected(document.error());
+    FLoadedRun loaded;
     if (const auto stamp = document->find("saved_at"); stamp != document->end() && stamp->is_string()) {
-        savedAt = stamp->get<std::string>().substr(0, 32);
+        loaded.savedAt = stamp->get<std::string>().substr(0, 32);
     }
-    return DungeonRunFromJson(*document, *rules);
+    auto run = DungeonRunFromJson(*document, *rules);
+    if (!run) return std::unexpected(run.error());
+    // WP-08: `room` is the battle ordinal of the dungeon at `depth - 1`; the save's static key range only
+    // bounds it by the slot cap. The dynamic bound comes from the sequence. A v1 save maps identically —
+    // its room is a battle ordinal too, and every dungeon keeps its battle count.
+    if (const auto* sequence = FindRunSequence(registry)) {
+        const auto position = sequence->PositionOf(run->depth - 1);
+        if (run->room >= sequence->BattleCountAt(position)) {
+            return std::unexpected("room does not match the dungeon sequence");
+        }
+    }
+    loaded.run = std::move(*run);
+    loaded.document = std::move(*document);
+    return loaded;
 }
 
-constexpr const char* kUnreadableSave = "Saved expedition is unreadable. Start a new expedition to replace it.";
+/// Continue's load path: validate the document first, then unpack its sections. A section failure leaves
+/// the document's run uninstalled (the caller keeps the current run).
+std::expected<FDungeonRun, std::string> LoadAndUnpackSavedRun(entt::registry& registry, std::string& savedAt) {
+    auto loaded = ParseSavedRun(registry);
+    if (!loaded) return std::unexpected(loaded.error());
+    savedAt = loaded->savedAt;
+    if (const auto unpacked = UnpackSections(registry, loaded->document); !unpacked) {
+        return std::unexpected(unpacked.error());
+    }
+    return std::move(loaded->run);
+}
 
-/// Looks at the save slot at boot so the menu knows whether it can offer Continue.
+/// Looks at the save slot at boot so the menu knows whether it can offer Continue. Parse only — no unpack.
 void RefreshDungeonSave(entt::registry& registry) {
     auto& save = registry.ctx().get<FDungeonSave>();
     save.exists = false;
     save.error.clear();
     std::error_code code;
     if (save.path.empty() || !std::filesystem::exists(save.path, code)) return;
-    std::string savedAt;
-    const auto run = LoadSavedRun(registry, savedAt);
-    if (!run) {
+    const auto loaded = ParseSavedRun(registry);
+    if (!loaded) {
         save.error = kUnreadableSave;
-        LOG_WARN("Ignoring saved expedition '{}': {}", save.path, run.error());
+        LOG_WARN("Ignoring saved expedition '{}': {}", save.path, loaded.error());
         return;
     }
     save.exists = true;
-    save.depth = run->depth;
-    save.room = run->room;
-    save.phase = run->phase;
-    save.savedAt = savedAt;
+    save.depth = loaded->run.depth;
+    save.room = loaded->run.room;
+    save.phase = loaded->run.phase;
+    save.savedAt = loaded->savedAt;
 }
 
 std::optional<std::string> ValidateCampSlot(
@@ -157,6 +171,36 @@ bool IsKnownStatUpgrade(std::string_view stat) {
         || stat == "magic_defense" || stat == "speed";
 }
 
+/// The unit template a run member maps to (`data/dungeon party[].id → unit`, then the content row). The run
+/// keeps placement ids ("party.warrior"); the unit table is keyed by template id ("char.warrior"). Mirrors
+/// how FRewards resolves party skills — a const-registry-safe read for the run HP derivation.
+const gameplay::FUnitContent* RunMemberUnitTemplate(const entt::registry& registry, const FRunMember& member) {
+    const auto* assets = registry.ctx().find<FAssetManager>();
+    const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
+    if (assets == nullptr || content == nullptr) return nullptr;
+    const auto digest = assets->digest("data/dungeon");
+    if (!digest) return nullptr;
+    try {
+        for (const auto& row : digest->json().at("party")) {
+            if (row.at("id").get<std::string>() == member.id) {
+                return content->units.find(row.at("unit").get<std::string>());
+            }
+        }
+    } catch (const nlohmann::json::exception& error) {
+        LOG_WARN("Run member max health could not read the dungeon party: {}", error.what());
+    }
+    return nullptr;
+}
+
+/// The unknown-member report is once per id: views call the max-health helper every frame, and a broken
+/// party id must be loud once — not a per-frame flood.
+void ReportUnknownRunMember(std::string_view id) {
+    static std::set<std::string> reported;
+    if (reported.insert(std::string(id)).second) {
+        LOG_ERROR("Run member '{}' has no unit template in the dungeon party; its max HP is unknown.", id);
+    }
+}
+
 std::vector<std::pair<int, int>> PartyCells(const nlohmann::json& party) {
     std::vector<std::pair<int, int>> cells;
     for (const auto& member : party) cells.emplace_back(member.at("grid_x").get<int>(), member.at("grid_y").get<int>());
@@ -172,9 +216,11 @@ void FinishBattlefield(nlohmann::json& document, const nlohmann::json& data) {
 }
 
 nlohmann::json BuildRoomDocument(const nlohmann::json& data, const gameplay::FRoomGenConfig& config,
-                                 std::uint32_t seed, int depth, int room) {
+                                 std::uint32_t seed, int depth, int room, bool boss,
+                                 gameplay::FGeneratedRoom* generatedOut = nullptr) {
     const auto cells = PartyCells(data.at("party"));
-    const auto generated = gameplay::GenerateRoom(config, {seed, depth, room, room == 2, cells});
+    const auto generated = gameplay::GenerateRoom(config, {seed, depth, room, boss, cells});
+    if (generatedOut != nullptr) *generatedOut = generated;
     nlohmann::json document;
     document["name"] = generated.name;
     document["terrain"] = generated.terrain;
@@ -189,10 +235,89 @@ nlohmann::json BuildRoomDocument(const nlohmann::json& data, const gameplay::FRo
     return document;
 }
 
+constexpr const char* kSaveDirEnv = "GAME01P_SAVE_DIR"; // boundary: env key
+
+/// The GAME01P_SAVE_DIR override, or nullopt when unset or empty. std::getenv, not SDL_getenv: SDL caches the
+/// environment on first use, so a test that sets the variable later would not be seen.
+std::optional<std::filesystem::path> SaveDirOverride() {
+    const char* value = nullptr;
+#ifdef _MSC_VER
+#pragma warning(suppress: 4996) // std::getenv: read-only, no buffer to overflow
+#endif
+    value = std::getenv(kSaveDirEnv);
+    if (value == nullptr || *value == '\0') return std::nullopt;
+    return std::filesystem::path(value);
+}
+
 } // namespace
 
 int DungeonBalance(entt::registry& registry, const char* key) {
-    return Definition(registry).at("balance").at(key).get<int>();
+    return DungeonDefinition(registry).at("balance").at(key).get<int>();
+}
+
+const FDungeonRecovery& DungeonRecovery(const entt::registry& registry) {
+    if (const auto* recovery = registry.ctx().find<FDungeonRecovery>()) return *recovery;
+    // A missing block is a wiring error, not a content default: never invent recovery numbers here — an
+    // in-code copy of the data is the double-source the W6 review rejected. Zeroed = no healing.
+    static const FDungeonRecovery kZero;
+    static bool reported = false;
+    if (!reported) {
+        reported = true;
+        LOG_ERROR("FDungeonRecovery is missing: InitializeDungeon did not load the recovery block.");
+    }
+    return kZero;
+}
+
+int KoRecoverFloor(int maxHealth, double fraction) {
+    const int floored = static_cast<int>(std::floor(static_cast<double>(maxHealth) * fraction));
+    return std::max(1, floored);
+}
+
+int DungeonMemberMaxHealth(const entt::registry& registry, const FRunMember& member) {
+    const auto* unit = RunMemberUnitTemplate(registry, member);
+    if (unit == nullptr) {
+        // Unknown member: return an unknown maximum instead of 0 + bonuses. A 0 would make the heal clamp
+        // and the chest cost silently corrupt the run HP (callers treat <= 0 as unknown).
+        ReportUnknownRunMember(member.id);
+        return 0;
+    }
+    int maxHealth = static_cast<int>(unit->maxHealth);
+    maxHealth += member.bonusHealth;
+    if (const auto* growth = registry.ctx().find<FDungeonGrowth>()) {
+        maxHealth += growth->passiveTree.Bonuses(member.allocatedNodes).maxHealth;
+    }
+    return maxHealth;
+}
+
+int DungeonEffectiveHealth(const entt::registry& registry, const FRunMember& member) {
+    const int maxHealth = DungeonMemberMaxHealth(registry, member);
+    if (maxHealth <= 0) return member.health < 0 ? 0 : member.health;  // 알 수 없는 최대: 클램프 금지
+    if (member.health < 0) return maxHealth;                           // 미포착 = 만피 센티넬
+    return std::min(member.health, maxHealth);
+}
+
+int ChestHpLoss(int maxHealth, int effectiveHealth, double fraction) {
+    const int cost = static_cast<int>(std::floor(static_cast<double>(maxHealth) * fraction));
+    return std::min(cost, std::max(0, effectiveHealth - 1));
+}
+
+int ChestHpLossFor(const entt::registry& registry, const FRunMember& member) {
+    const int maxHealth = DungeonMemberMaxHealth(registry, member);
+    if (maxHealth <= 0) return 0;  // 알 수 없는 멤버: 손실 0 (실패는 한 번 로그된다 — 0으로 클램프 금지)
+    return ChestHpLoss(maxHealth, DungeonEffectiveHealth(registry, member),
+                       DungeonRecovery(registry).eventChestHpCostFraction);
+}
+
+int ApplyChestHpCost(entt::registry& registry) {
+    auto& run = registry.ctx().get<FDungeonRun>();
+    int totalLoss = 0;
+    for (auto& member : run.party) {
+        const int loss = ChestHpLossFor(registry, member);
+        if (loss <= 0) continue;
+        member.health = DungeonEffectiveHealth(registry, member) - loss;
+        totalLoss += loss;
+    }
+    return totalLoss;
 }
 
 bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std::string savePath) {
@@ -200,14 +325,14 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
     if (!asset) return false;
     const auto& data = asset->json();
     try {
-        if (!data.at("schema_version").is_number_integer() || data.at("schema_version") != 1 ||
+        if (!data.at("schema_version").is_number_integer() || data.at("schema_version") != 2 ||
             !data.at("party").is_array() || data.at("party").size() != 4 ||
             !data.at("generation").is_object()) {
-            LOG_ERROR("Dungeon needs schema version 1, four party members and a room generation block.");
+            LOG_ERROR("Dungeon needs schema version 2, four party members and a room generation block.");
             return false;
         }
         for (const char* key : {"move_range", "trap_damage", "room_heal", "event_heal", "event_materials",
-                               "camp_heal", "room_materials", "room_experience",
+                               "room_materials", "room_experience",
                                "level_experience", "level_experience_step",
                                "enemy_health_per_depth", "enemy_attack_per_depth"}) {
             const auto& value = data.at("balance").at(key);
@@ -248,10 +373,9 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
             upgrade.displayName = row.at("display_name").get<std::string>();
             upgrade.stat = row.at("stat").get<std::string>();
             upgrade.amount = row.at("amount").get<int>();
-            upgrade.cost = row.at("cost").get<int>();
             upgrade.cap = row.at("cap").get<int>();
             if (upgrade.id.empty() || upgrade.displayName.empty() || !IsKnownStatUpgrade(upgrade.stat)
-                || upgrade.amount < 1 || upgrade.amount > 100 || upgrade.cost < 0 || upgrade.cost > 100
+                || upgrade.amount < 1 || upgrade.amount > 100
                 || upgrade.cap < upgrade.amount || upgrade.cap > 100 || !upgradeIds.insert(upgrade.id).second) {
                 LOG_ERROR("Dungeon stat upgrade '{}' is invalid.", upgrade.id);
                 return false;
@@ -261,6 +385,53 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
         // 재초기화(테스트/디버그)에도 안전하도록 기존 ctx 성장 콘텐츠를 덮어쓴다.
         registry.ctx().erase<FDungeonGrowth>();
         registry.ctx().emplace<FDungeonGrowth>(std::move(growth));
+        // WP-10: 캠프 가격표와 회복 예산 블록. 정수 0–1000 루프 밖의 별도 검증이다(배열·실수 키).
+        // 어느 하나라도 어긋나면 부팅 실패 — 수치를 추측한 캠프 경제로 시작하지 않는다.
+        FCampTables camp;
+        camp.actionsPerCamp = data.at("camp").at("actions_per_camp").get<int>();
+        for (const auto& step : data.at("camp").at("upgrade_cost_steps")) {
+            camp.upgradeCostSteps.push_back(step.get<int>());
+        }
+        for (const auto& step : data.at("camp").at("rune_offer_draw_cost_steps")) {
+            camp.runeOfferDrawCostSteps.push_back(step.get<int>());
+        }
+        camp.runeOfferCampCap = data.at("camp").at("rune_offer_camp_cap").get<int>();
+        camp.specialDiscount = data.at("camp").at("special_discount").get<int>();
+        camp.respecCost = data.at("camp").at("respec_cost").get<int>();
+        if (camp.actionsPerCamp < 0 || camp.runeOfferCampCap < 0 || camp.specialDiscount < 0 ||
+            camp.respecCost < 0 || camp.upgradeCostSteps.empty() || camp.runeOfferDrawCostSteps.empty()) {
+            LOG_ERROR("Dungeon camp block is invalid (negative counters, cap or an empty price curve).");
+            return false;
+        }
+        for (const auto* steps : {&camp.upgradeCostSteps, &camp.runeOfferDrawCostSteps}) {
+            int previous = 0;
+            for (const int step : *steps) {
+                if (step < 1 || step < previous) {
+                    LOG_ERROR("Dungeon camp cost curves must be positive and non-decreasing.");
+                    return false;
+                }
+                previous = step;
+            }
+        }
+        FDungeonRecovery recovery;
+        recovery.koRecoverFraction = data.at("recovery").at("ko_recover_fraction").get<double>();
+        recovery.campAutoHeal = data.at("recovery").at("camp_auto_heal").get<int>();
+        recovery.campHealCost = data.at("recovery").at("camp_heal_cost").get<int>();
+        recovery.campHealPercent = data.at("recovery").at("camp_heal_percent").get<int>();
+        recovery.eventChestHpCostFraction = data.at("recovery").at("event_chest_hp_cost_fraction").get<double>();
+        recovery.freeHealCapFraction = data.at("recovery").at("free_heal_cap_fraction").get<double>();
+        if (!(recovery.koRecoverFraction >= 0.0 && recovery.koRecoverFraction <= 1.0) ||
+            !(recovery.eventChestHpCostFraction >= 0.0 && recovery.eventChestHpCostFraction <= 1.0) ||
+            !(recovery.freeHealCapFraction >= 0.0 && recovery.freeHealCapFraction <= 1.0) ||
+            recovery.campAutoHeal < 0 || recovery.campHealCost < 0 || recovery.campHealPercent < 0 ||
+            recovery.campHealPercent > 100) {
+            LOG_ERROR("Dungeon recovery block is invalid (fractions 0..1, heal percent 0..100).");
+            return false;
+        }
+        registry.ctx().erase<FCampTables>();
+        registry.ctx().emplace<FCampTables>(std::move(camp));
+        registry.ctx().erase<FDungeonRecovery>();
+        registry.ctx().emplace<FDungeonRecovery>(recovery);
         const auto& content = registry.ctx().get<gameplay::FContentRegistry>();
         const auto drops = data.find("rune_drops");
         if (drops == data.end() || !drops->is_array() || drops->empty()) {
@@ -287,21 +458,56 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
             LOG_ERROR("Dungeon generation needs room names, known weighted enemies, a known boss and valid count ranges.");
             return false;
         }
-        // Probe a spread of generated rooms so bad content stops the boot instead of a later battle.
-        for (std::uint32_t seed = 1; seed <= 6; ++seed) {
-            for (int room = 0; room < 3; ++room) {
-                entt::registry probe;
-                FScene scene(probe, "validation");
-                scene.Load();
-                const auto document = BuildRoomDocument(data, *config, seed, 1, room);
-                const auto battlefield = FEntityFactory::CreateBattlefield(scene, document);
-                if (!battlefield) {
-                    LOG_ERROR("Generated dungeon room invalid: {}", battlefield.error().message);
-                    return false;
+        // WP-08: the room sequence (themes -> dungeons -> room slots) is the only source of room count,
+        // boss placement and the cycle table. Parsed and validated here; installed before the probe reads it.
+        std::string sequenceError;
+        auto sequence = FRunSequence::Load(data, sequenceError);
+        if (!sequence) {
+            LOG_ERROR("Dungeon sequence invalid: {}", sequenceError);
+            return false;
+        }
+        registry.ctx().erase<FRunSequence>();
+        registry.ctx().emplace<FRunSequence>(std::move(*sequence));
+        const auto& rooms = registry.ctx().get<FRunSequence>();
+        // Probe one representative of every unique (family, boss) tuple actually authored; the room
+        // generation failure class is decided by (family, boss, pool, seed) — the ordinal only feeds Mix.
+        // Cost is bounded by the tuple count, not the slot count (WP-08 §4).
+        constexpr int kProbeSeeds = 3;
+        FDungeonBootProbe probe;
+        std::vector<std::pair<std::string, std::string>> probedTuples;
+        for (int index = 0; index < rooms.TotalDungeons(); ++index) {
+            const auto position = rooms.PositionOf(index);
+            const int battleCount = rooms.BattleCountAt(position);
+            for (int ordinal = 0; ordinal < battleCount; ++ordinal) {
+                const auto* slot = rooms.BattleSlotAt(position, ordinal);
+                if (slot == nullptr) continue;
+                const std::pair<std::string, std::string> tuple{slot->family, slot->boss};
+                if (std::ranges::find(probedTuples, tuple) != probedTuples.end()) continue;
+                probedTuples.push_back(tuple);
+                for (std::uint32_t seed = 1; seed <= kProbeSeeds; ++seed) {
+                    entt::registry probeRegistry;
+                    FScene scene(probeRegistry, "validation");
+                    scene.Load();
+                    // WP-08b: the family is per slot — copy the parsed config and set it (never mutate the
+                    // shared config; the probe walks several families).
+                    auto tupleConfig = *config;
+                    tupleConfig.family = slot->family;
+                    const auto document =
+                        BuildRoomDocument(data, tupleConfig, seed, index + 1, ordinal, !slot->boss.empty());
+                    const auto battlefield = FEntityFactory::CreateBattlefield(scene, document);
+                    if (!battlefield) {
+                        LOG_ERROR("Generated dungeon room invalid: {}", battlefield.error().message);
+                        return false;
+                    }
+                    if (!SetupCombatUnits(probeRegistry, *battlefield, content)) return false;
+                    ++probe.iterations;
                 }
-                if (!SetupCombatUnits(probe, *battlefield, content)) return false;
             }
         }
+        probe.tuples = static_cast<int>(probedTuples.size());
+        LOG_INFO("[room] probe tuples={} iterations={}", probe.tuples, probe.iterations);
+        registry.ctx().erase<FDungeonBootProbe>();
+        registry.ctx().emplace<FDungeonBootProbe>(probe);
     } catch (const nlohmann::json::exception& error) {
         LOG_ERROR("Dungeon content invalid: {}", error.what());
         return false;
@@ -310,18 +516,33 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
     registry.ctx().erase<FDungeonCheckpoint>();
     auto& checkpoint = registry.ctx().emplace<FDungeonCheckpoint>();
     // Callers that pick their own checkpoint file (tests) get a run save beside it; otherwise both live in the
-    // preference directory.
+    // preference directory, or in GAME01P_SAVE_DIR when that override is set.
     const bool defaultStorage = checkpointPath.empty();
-    std::string storageDirectory;
+    std::filesystem::path storageDirectory;
+    bool prefPathFailed = false;
     if (defaultStorage) {
-        if (const char* path = SDL_GetPrefPath("Game01P", "EmberDungeon")) {
+        if (const auto override = SaveDirOverride()) {
+            // The override never falls back to the preference directory: that is the user's real save.
+            std::error_code code;
+            std::filesystem::create_directories(*override, code);
+            if (code) {
+                LOG_ERROR("GAME01P_SAVE_DIR '{}' could not be created: {}", override->string(), code.message());
+            } else {
+                storageDirectory = *override;
+                LOG_INFO("save dir override: {}", storageDirectory.string());
+            }
+        } else if (const char* path = SDL_GetPrefPath("Game01P", "EmberDungeon")) {
             storageDirectory = path;
-            checkpointPath = storageDirectory + "checkpoint.json";
+        } else {
+            prefPathFailed = true;
         }
+    }
+    if (defaultStorage && !storageDirectory.empty()) {
+        checkpointPath = (storageDirectory / "checkpoint.json").string();
     }
     if (savePath.empty()) {
         if (!defaultStorage) savePath = checkpointPath + ".run.json";
-        else if (!storageDirectory.empty()) savePath = storageDirectory + "run_save.json";
+        else if (!storageDirectory.empty()) savePath = (storageDirectory / "run_save.json").string();
     }
     registry.ctx().erase<FDungeonSave>();
     registry.ctx().emplace<FDungeonSave>().path = std::move(savePath);
@@ -345,7 +566,7 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
         }
     } else {
         checkpoint.error = "Checkpoint storage unavailable.";
-        LOG_ERROR("SDL_GetPrefPath: {}", SDL_GetError());
+        if (prefPathFailed) LOG_ERROR("SDL_GetPrefPath: {}", SDL_GetError());
     }
     if (!checkpoint.error.empty()) { LOG_WARN("{}", checkpoint.error); }
     registry.ctx().erase<FMenuRequest>();
@@ -353,26 +574,58 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
     return true;
 }
 
-void StartDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh) {
+void InstallDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh) {
+    InstallDungeonRunAt(registry, seed, fresh ? 0 : registry.ctx().get<FDungeonCheckpoint>().cleared);
+}
+
+void InstallDungeonRunAt(entt::registry& registry, std::uint32_t seed, int clearedIndex) {
+    // D-21: a run can start at any dungeon up to the checkpoint; the checkpoint itself never goes down.
+    const auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
+    const int index = std::clamp(clearedIndex, 0, std::max(0, checkpoint.cleared));
     registry.ctx().erase<FDungeonRun>();
     auto& run = registry.ctx().emplace<FDungeonRun>();
     run.seed = seed == 0 ? 1 : seed;
-    run.depth = fresh ? 1 : registry.ctx().get<FDungeonCheckpoint>().cleared + 1;
-    run.cleared = run.depth - 1;
-    for (const auto& member : Definition(registry).at("party")) {
+    run.depth = index + 1;
+    run.cleared = index;
+    // WP-08/D-7: the start-support materials scale with the start index (min(index x per, cap)); a fresh
+    // run (index 0) starts empty. The rune-offer half of the support lives in StartRunAt (it writes the
+    // rewards module after its reset).
+    if (const auto* sequence = FindRunSequence(registry)) {
+        run.materials = sequence->StartMaterials(index);
+    }
+    for (const auto& member : DungeonDefinition(registry).at("party")) {
         FRunMember runMember;
         runMember.id = member.at("id").get<std::string>();
         runMember.displayName = member.at("display_name").get<std::string>();
         run.party.push_back(std::move(runMember));
     }
-    SaveDungeonRun(registry);
+    // A new run starts with a clean preserved-section slate and its own event log.
+    ClearPreserved(registry);
+    registry.ctx().erase<FRunEventLog>();
+    registry.ctx().emplace<FRunEventLog>();
+    // WP-10: a new run starts with the camp counters at zero. Continue does NOT pass through here — it
+    // unpacks `run.ext.camp` before installing the run, so the saved curve indices survive.
+    registry.ctx().erase<FCampProgress>();
+    registry.ctx().emplace<FCampProgress>();
+    // WP-19a: the run log starts here (before the run's first save, so the save section carries its id).
+    BeginRunLog(registry);
+}
+
+void StartDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh) {
+    StartRun(registry, seed, fresh);
 }
 
 bool SaveDungeonRun(entt::registry& registry) {
     auto* save = registry.ctx().find<FDungeonSave>();
     const auto* run = registry.ctx().find<FDungeonRun>();
     if (save == nullptr || save->path.empty() || run == nullptr || run->phase == EDungeonPhase::Defeat) return false;
-    const auto document = DungeonRunToJson(*run);
+    auto document = DungeonRunToJson(*run);
+    // Section pack failures are a whole-save failure: the previous file stays and the run stays.
+    if (const auto packed = PackSections(registry, document); !packed) {
+        save->error = "Could not save the expedition (section data failed).";
+        LOG_ERROR("Expedition save aborted (sections): {}", packed.error());
+        return false;
+    }
     std::string reason;
     if (!WriteSaveFile(save->path, document, reason)) {
         save->error = "Could not save the expedition.";
@@ -392,7 +645,7 @@ void DeleteDungeonSave(entt::registry& registry) {
     auto* save = registry.ctx().find<FDungeonSave>();
     if (save == nullptr) return;
     std::error_code code;
-    if (!save->path.empty()) std::filesystem::remove(save->path, code);
+    if (!save->path.empty()) RemoveSaveFile(save->path, code);
     if (code) {
         save->error = "Could not delete the saved expedition.";
         LOG_ERROR("Could not delete '{}': {}", save->path, code.message());
@@ -406,9 +659,9 @@ bool ContinueDungeonRun(entt::registry& registry) {
     auto* save = registry.ctx().find<FDungeonSave>();
     if (save == nullptr || save->path.empty()) return false;
     std::string savedAt;
-    auto run = LoadSavedRun(registry, savedAt);
+    auto run = LoadAndUnpackSavedRun(registry, savedAt);
     if (!run) {
-        // The slot is no use to anyone now; the menu stops offering it and says why.
+        // The slot is no use to anyone now; the menu stops offering it and says why. The current run is untouched.
         save->exists = false;
         save->error = kUnreadableSave;
         LOG_WARN("Continue failed for '{}': {}", save->path, run.error());
@@ -416,139 +669,99 @@ bool ContinueDungeonRun(entt::registry& registry) {
     }
     registry.ctx().erase<FDungeonRun>();
     registry.ctx().emplace<FDungeonRun>(std::move(*run));
+    registry.ctx().erase<FRunEventLog>();
+    registry.ctx().emplace<FRunEventLog>();
+    // WP-08: a phase=event save whose gap no longer has an event slot advances past it (never replays the
+    // cleared battle) — the rule lives in FRunFlow.cpp, the run phase machine's single writer.
+    NormalizeResumedRunPhase(registry);
     save->error.clear();
     return true;
 }
 
 nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
     auto& run = registry.ctx().get<FDungeonRun>();
-    const auto& data = Definition(registry);
+    const auto& data = DungeonDefinition(registry);
     const auto& content = registry.ctx().get<gameplay::FContentRegistry>();
     // Initialization already proved the block valid; a failure here means content changed underneath us.
     const auto config = ParseRoomGeneration(data, content);
     if (!config) return nlohmann::json::object();
-    auto document = BuildRoomDocument(data, *config, run.seed, run.depth, run.room);
+    // WP-08: the boss flag comes from the sequence slot of the current battle ordinal — never a room index.
+    // WP-08b: the template family comes from the same slot (per-slot by copying the parsed config).
+    const FRunRoomSlot* slot = nullptr;
+    if (const auto* sequence = FindRunSequence(registry)) {
+        const auto position = sequence->PositionOf(run.depth - 1);
+        slot = sequence->BattleSlotAt(position, run.room);
+    }
+    auto slotConfig = *config;
+    if (slot != nullptr) slotConfig.family = slot->family;
+    gameplay::FGeneratedRoom generated;
+    auto document = BuildRoomDocument(data, slotConfig, run.seed, run.depth, run.room, slot != nullptr && !slot->boss.empty(),
+                                      &generated);
     run.roomName = document.at("name").get<std::string>();
+    // WP-19a: a saved-phase continue (Reward/Event/Camp/Defeat) also builds the field but must not record a
+    // battle that will not happen; only a real Battle phase writes dungeon_enter/room_start. The emergent
+    // room metric (WP-08b) logs on the same real-battle condition — never from the boot probe.
+    if (run.phase == EDungeonPhase::Battle) {
+        LogDungeonEnter(registry);
+        LogRoomStart(registry);
+        const auto metrics = gameplay::MeasureRoom(generated, PartyCells(data.at("party")));
+        const auto strength = gameplay::FamilyStrengthOf(slotConfig.family);
+        LOG_INFO("[room] family={} strength={} walls={} reachable={:.2f} min_path={} cover={} traps={}",
+                 slotConfig.family, strength ? gameplay::FamilyStrengthName(*strength) : "unknown", metrics.walls,
+                 metrics.reachableRatio, metrics.minPath, metrics.coverCells, metrics.traps);
+    }
     return document;
 }
 
 void ApplyRunParty(entt::registry& registry) {
-    const auto& run = registry.ctx().get<FDungeonRun>();
-    const auto* growth = registry.ctx().find<FDungeonGrowth>();
-    if (growth == nullptr) LOG_ERROR("Run growth content is missing; node bonuses are not applied.");
-    for (const auto entity : registry.view<FUnitData, FHealth, FStats>()) {
-        auto& health = registry.get<FHealth>(entity);
-        auto& stats = registry.get<FStats>(entity);
-        if (registry.all_of<FPartyMember>(entity)) {
-            const auto& id = registry.get<FUnitData>(entity).definition.id;
-            const auto found = std::ranges::find(run.party, id, &FRunMember::id);
-            if (found == run.party.end()) continue;
-            const FPassiveStatBonuses nodes = growth != nullptr
-                ? growth->passiveTree.Bonuses(found->allocatedNodes) : FPassiveStatBonuses{};
-            health.max += found->bonusHealth + nodes.maxHealth;
-            if (found->health >= 0) health.current = std::clamp(found->health, 1, health.max);
-            else health.current = health.max;
-            stats.attack += found->bonusAttack + nodes.attack;
-            stats.magicAttack += found->bonusMagic + nodes.magicAttack;
-            stats.defense += found->bonusDefense + nodes.defense;
-            stats.magicDefense += found->bonusMagicDefense + nodes.magicDefense;
-            if (auto* speed = registry.try_get<FSpeed>(entity)) speed->value += found->bonusSpeed + nodes.speed;
-            if (!found->skills.empty()) registry.get<FSkillLoadout>(entity).slots = found->skills;
-        } else {
-            const int extra = std::min(run.depth - 1, 100);
-            health.max += extra * DungeonBalance(registry, "enemy_health_per_depth") + run.room * 5;
-            health.current = health.max;
-            stats.attack += extra * DungeonBalance(registry, "enemy_attack_per_depth") + run.room;
-            stats.magicAttack += extra * DungeonBalance(registry, "enemy_attack_per_depth") + run.room;
-        }
+    // WP-03: 런 보너스는 제자리 가산이 아니라 RefreshCombatSheet의 파생 계산이 소유한다(멱등 —
+    // 호출마다 값이 부푸는 결함 제거). 순서가 계약이다: 갱신(갱신 후 max) → ApplyBattleStart(HP/로드아웃).
+    if (const auto* content = registry.ctx().find<gameplay::FContentRegistry>()) {
+        RefreshAllCombatSheets(registry, *content);
     }
+    ApplyBattleStart(registry);
 }
 
 void CaptureRunParty(entt::registry& registry) {
     auto& run = registry.ctx().get<FDungeonRun>();
+    // WP-10 / D-18: the KO floor is data (`recovery.ko_recover_fraction`), max(1, floor(maxHp × fraction)).
+    const double fraction = DungeonRecovery(registry).koRecoverFraction;
     for (const auto entity : registry.view<FPartyMember, FUnitData, FHealth, FSkillLoadout>()) {
         const auto& id = registry.get<FUnitData>(entity).definition.id;
         auto member = std::ranges::find(run.party, id, &FRunMember::id);
         if (member == run.party.end()) continue;
         const auto& health = registry.get<FHealth>(entity);
-        member->health = std::max(health.current, health.max / 3);
+        member->health = std::max(health.current, KoRecoverFloor(health.max, fraction));
         member->skills = registry.get<FSkillLoadout>(entity).slots;
     }
 }
 
+// Legacy wrappers (WP-02a): the call sites stay in tests/DungeonTests.cpp, FEmberBattleState and
+// FDungeonOverlay; moving them is a later separate WP (WP-08 keeps signature, name and body). The bodies
+// live in FRunFlow; these keep the signatures and log the failure the old void functions could not report.
 void CompleteDungeonBattle(entt::registry& registry, bool victory) {
-    auto& run = registry.ctx().get<FDungeonRun>();
-    if (run.phase != EDungeonPhase::Battle) return;
-    CaptureRunParty(registry);
-    if (!victory) {
-        run.phase = EDungeonPhase::Defeat;
-        run.message = "The expedition is lost. Run growth and runes reset on retry.";
-        DeleteDungeonSave(registry);  // a lost run cannot be continued
-        return;
+    if (const auto result = ResolveRoomVictory(registry, victory); !result) {
+        LOG_ERROR("Room victory could not be resolved: {}", result.error());
     }
-    RestoreParty(registry, DungeonBalance(registry, "room_heal"));
-    run.materials += DungeonBalance(registry, "room_materials");
-    const auto& drops = Definition(registry).at("rune_drops");
-    run.runes.push_back(drops.at((run.seed + run.depth * 3u + run.room) % drops.size()).get<std::string>());
-    // 정본 §6: 런 EXP는 캐릭터별로 쌓이고 레벨업마다 노드 포인트 1을 준다(런마다 0부터).
-    const int experienceReward = DungeonBalance(registry, "room_experience");
-    int levelsGained = 0;
-    if (const auto* growth = registry.ctx().find<FDungeonGrowth>()) {
-        for (auto& member : run.party) {
-            member.experience += experienceReward;
-            while (member.experience >= growth->ExperienceForNextLevel(member.level)) {
-                member.experience -= growth->ExperienceForNextLevel(member.level);
-                ++member.level;
-                ++member.passivePoints;
-                ++levelsGained;
-            }
-        }
-    }
-    run.phase = EDungeonPhase::Reward;
-    run.message = "Room secured. Each member gains " + std::to_string(experienceReward) + " EXP.";
-    if (levelsGained > 0) run.message += " Level up: allocate a passive node.";
-    LOG_INFO("Dungeon {} room {} cleared. {} EXP per member.", run.depth, run.room + 1, experienceReward);
-    SaveDungeonRun(registry);
 }
 
 void ContinueDungeonReward(entt::registry& registry) {
-    auto& run = registry.ctx().get<FDungeonRun>();
-    if (run.phase != EDungeonPhase::Reward) return;
-    if (run.room == 0) {
-        run.phase = EDungeonPhase::Event;
-        run.message = "A quiet shrine offers shelter, or a sealed cache of reinforcement materials.";
-    } else if (run.room == 2) {
-        run.phase = EDungeonPhase::Camp;
-        run.cleared = run.depth;
-        auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
-        checkpoint.cleared = std::max(checkpoint.cleared, std::min(run.cleared, 999));
-        (void)SaveCheckpoint(registry);
-        RestoreParty(registry, DungeonBalance(registry, "camp_heal"));
-        run.message = "Dungeon cleared. Checkpoint reached. Rest, fit runes, reinforce stats, then descend.";
-    } else {
-        ++run.room;
-        Advance(registry);
+    if (const auto result = ApplyRunIntent(registry, ERunIntent::ContinueReward); !result) {
+        LOG_ERROR("Reward step could not be continued: {}", result.error());
     }
-    SaveDungeonRun(registry);
 }
 
 void ChooseDungeonEvent(entt::registry& registry, bool rest) {
-    auto& run = registry.ctx().get<FDungeonRun>();
-    if (run.phase != EDungeonPhase::Event) return;
-    if (rest) RestoreParty(registry, DungeonBalance(registry, "event_heal"));
-    else run.materials += DungeonBalance(registry, "event_materials");
-    ++run.room;
-    Advance(registry);
-    SaveDungeonRun(registry);
+    if (const auto result = ApplyRunIntent(registry, rest ? ERunIntent::ChooseEventRest : ERunIntent::ChooseEventLoot);
+        !result) {
+        LOG_ERROR("Event choice could not be applied: {}", result.error());
+    }
 }
 
 void LeaveDungeonCamp(entt::registry& registry) {
-    auto& run = registry.ctx().get<FDungeonRun>();
-    if (run.phase != EDungeonPhase::Camp) return;
-    run.depth = std::min(run.depth + 1, 1000);
-    run.room = 0;
-    Advance(registry);
-    SaveDungeonRun(registry);
+    if (const auto result = ApplyRunIntent(registry, ERunIntent::LeaveCamp); !result) {
+        LOG_ERROR("Camp could not be left: {}", result.error());
+    }
 }
 
 int FDungeonGrowth::ExperienceForNextLevel(int level) const {
@@ -580,11 +793,15 @@ std::optional<std::string> ValidateDungeonStatUpgrade(
     const auto* run = registry.ctx().find<FDungeonRun>();
     const auto* growth = registry.ctx().find<FDungeonGrowth>();
     if (run == nullptr || growth == nullptr) return "Run state is unavailable.";
+    const auto* camp = registry.ctx().find<FCampTables>();
+    const auto* progress = registry.ctx().find<FCampProgress>();
+    if (camp == nullptr || progress == nullptr) return "Camp content is unavailable.";
     if (run->phase != EDungeonPhase::Camp) return "Stats can be reinforced at camp only.";
     if (memberIndex >= run->party.size()) return "Unknown party member.";
     if (upgradeIndex >= growth->statUpgrades.size()) return "Unknown stat upgrade.";
     const FStatUpgrade& upgrade = growth->statUpgrades[upgradeIndex];
-    if (run->materials < upgrade.cost) return "Not enough reinforcement materials.";
+    // The price is the run-cumulative curve, never a per-row constant (WP-10 §2).
+    if (run->materials < UpgradeCostOf(*camp, *progress)) return "Not enough reinforcement materials.";
     if (DungeonMemberStatBonus(run->party[memberIndex], upgrade.stat) + upgrade.amount > upgrade.cap) {
         return "This stat is at its run cap.";
     }
@@ -595,6 +812,8 @@ std::optional<std::string> UpgradeDungeonStat(
     entt::registry& registry, std::size_t memberIndex, std::size_t upgradeIndex) {
     if (const auto problem = ValidateDungeonStatUpgrade(registry, memberIndex, upgradeIndex)) return problem;
     auto& run = registry.ctx().get<FDungeonRun>();
+    auto& progress = DungeonCampProgress(registry);
+    const int cost = UpgradeCostOf(DungeonCampTables(registry), progress);
     const FStatUpgrade upgrade = registry.ctx().get<FDungeonGrowth>().statUpgrades[upgradeIndex];
     FRunMember& member = run.party[memberIndex];
     if (upgrade.stat == "health") {
@@ -605,7 +824,92 @@ std::optional<std::string> UpgradeDungeonStat(
     else if (upgrade.stat == "defense") member.bonusDefense += upgrade.amount;
     else if (upgrade.stat == "magic_defense") member.bonusMagicDefense += upgrade.amount;
     else if (upgrade.stat == "speed") member.bonusSpeed += upgrade.amount;
-    run.materials -= upgrade.cost;
+    run.materials -= cost;
+    // The curve index is a stored counter, not a derivation from bonus*/amount: reward/event effects may
+    // move those fields and a derived index would silently drift (WP-10 §1).
+    progress.upgradesTotal += 1;
+    // WP-19a: one line per purchase. The id is the contract name `upgrade.<stat>`; the member index rides
+    // along (0..3, -1 = party-wide/unknown).
+    AppendRunEvent(
+        registry, ERunEventKind::CampSpent, "upgrade." + upgrade.stat, cost, static_cast<int>(memberIndex));
+    SaveDungeonRun(registry);
+    return std::nullopt;
+}
+
+std::optional<std::string> ValidateDungeonCampHeal(const entt::registry& registry) {
+    const auto* run = registry.ctx().find<FDungeonRun>();
+    if (run == nullptr) return "Run state is unavailable.";
+    if (run->phase != EDungeonPhase::Camp) return "The party can be healed at camp only.";
+    const auto& recovery = DungeonRecovery(registry);
+    if (run->materials < recovery.campHealCost) return "Not enough reinforcement materials.";
+    bool anyHealable = false;
+    bool anyBelowMax = false;
+    for (const auto& member : run->party) {
+        if (member.health < 0) continue;  // -1 = unclaimed = full: the sentinel never needs healing
+        const int maxHealth = DungeonMemberMaxHealth(registry, member);
+        if (maxHealth <= 0) continue;  // unknown maximum: cannot prove it needs healing (logged by the helper)
+        const int amount = maxHealth * recovery.campHealPercent / 100;
+        if (amount <= 0) continue;  // percent 0: the purchase would buy nothing
+        anyHealable = true;
+        if (member.health < maxHealth) {
+            anyBelowMax = true;
+            break;
+        }
+    }
+    if (!anyHealable) return "The camp heal would restore nothing.";
+    if (!anyBelowMax) return "The party is already at full health.";
+    return std::nullopt;
+}
+
+std::optional<std::string> PayDungeonCampHeal(entt::registry& registry) {
+    if (const auto problem = ValidateDungeonCampHeal(registry)) return problem;
+    auto& run = registry.ctx().get<FDungeonRun>();
+    const auto& recovery = DungeonRecovery(registry);
+    for (auto& member : run.party) {
+        if (member.health < 0) continue;  // -1 = unclaimed = already full: the sentinel skips paid healing too
+        const int maxHealth = DungeonMemberMaxHealth(registry, member);
+        if (maxHealth <= 0) continue;  // unknown maximum: skip (logged once), never clamp to 0
+        const int amount = maxHealth * recovery.campHealPercent / 100;  // the data rule, no code floor
+        member.health = std::min(member.health + amount, maxHealth);
+    }
+    run.materials -= recovery.campHealCost;
+    AppendRunEvent(registry, ERunEventKind::CampSpent, "heal", recovery.campHealCost, -1);
+    SaveDungeonRun(registry);
+    return std::nullopt;
+}
+
+std::optional<std::string> ValidateDungeonRespec(const entt::registry& registry) {
+    const auto* run = registry.ctx().find<FDungeonRun>();
+    const auto* camp = registry.ctx().find<FCampTables>();
+    if (run == nullptr || camp == nullptr) return "Run state is unavailable.";
+    if (run->phase != EDungeonPhase::Camp) return "Nodes can be reallocated at camp only.";
+    if (run->materials < camp->respecCost) return "Not enough reinforcement materials.";
+    bool anyAllocated = false;
+    for (const auto& member : run->party) {
+        if (!member.allocatedNodes.empty()) {
+            anyAllocated = true;
+            break;
+        }
+    }
+    if (!anyAllocated) return "No allocated passive nodes to reallocate.";
+    return std::nullopt;
+}
+
+std::optional<std::string> RespecDungeonNodes(entt::registry& registry) {
+    if (const auto problem = ValidateDungeonRespec(registry)) return problem;
+    auto& run = registry.ctx().get<FDungeonRun>();
+    const int cost = DungeonCampTables(registry).respecCost;
+    for (auto& member : run.party) {
+        // Only nodes move: bought stat bonuses and the upgrade curve counter are never refunded (WP-10 §6).
+        member.passivePoints += static_cast<int>(member.allocatedNodes.size());
+        member.allocatedNodes.clear();
+        // Clearing a node can lower the run max HP: clamp, or a full-HP member would sit above the new
+        // derivation and break the §4 displayed-equals-applied invariant.
+        const int maxHealth = DungeonMemberMaxHealth(registry, member);
+        if (member.health >= 0 && maxHealth > 0) member.health = std::min(member.health, maxHealth);
+    }
+    run.materials -= cost;
+    AppendRunEvent(registry, ERunEventKind::CampSpent, "respec", cost, -1);
     SaveDungeonRun(registry);
     return std::nullopt;
 }

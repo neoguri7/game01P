@@ -1,0 +1,99 @@
+#pragma once
+
+#include <cstdint>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include <entt/entt.hpp>
+
+namespace game {
+
+struct FAssetManager;
+
+/// WP-17: the reward-offer knobs as authored in `assets/data/rewards.json`. Only the offer economy lives
+/// here — materials/EXP payouts stay in `data/dungeon.json balance` (one canonical source per number).
+struct FRewardTables {
+    int count{3};                            // cards per offer (an upper bound: the legal pool can be smaller)
+    double chance{0.7};                      // per-monster-room chance, 0..1
+    int pityThreshold{2};                    // dry-streak length that forces the next monster-room offer; 0 = off
+    int minLegalCandidates{2};               // fewer legal candidates than this: no offer at all (0 reads as 1)
+    int skipRefundMaterials{1};              // materials paid when the player skips
+    int duplicateRefundMaterials{1};         // materials paid for an already-owned pick (refund policy)
+    std::string duplicatePolicy{"refund"};   // "refund" | "allow"
+    std::string bossOffer{"guaranteed"};     // "guaranteed" | "extra" | "none"
+};
+
+inline constexpr std::string_view kRewardDuplicatePolicyRefund = "refund";
+inline constexpr std::string_view kRewardDuplicatePolicyAllow = "allow";
+
+inline constexpr std::string_view kRewardBossOfferGuaranteed = "guaranteed";
+inline constexpr std::string_view kRewardBossOfferExtra = "extra";
+inline constexpr std::string_view kRewardBossOfferNone = "none";
+
+struct FRuneOffer {
+    bool active{false};
+    std::vector<std::string> candidates;
+};
+
+/// The reward module's state: the loaded tables plus the run-scoped dry streak, the deterministic draw
+/// cursor and the open offer. It lives in the registry context and is saved through the `offers` section.
+struct FRewards {
+    FRewardTables tables;
+    std::uint32_t runSeed{0};
+    int pity{0};
+    std::uint32_t nextDrawIndex{0};
+    FRuneOffer offer;
+    bool bossExtraPending{false};  // boss_offer="extra": a second offer follows the first decision
+};
+
+/// Boot load (fail-fast): `data/rewards` through the asset boundary + FJsonLoader. A missing file or a
+/// validation failure returns false and the boot stops — an offer economy with guessed numbers is worse
+/// than no boot. Re-initialization replaces the module state (it never keeps a stale copy).
+[[nodiscard]] bool LoadRewards(entt::registry& registry, const FAssetManager& assets);
+
+/// Registers the `offers` save section (B4). Call once, under the [WP-17] anchor in the composition root.
+void RegisterRewardSection(entt::registry& registry);
+
+/// Clears the run-scoped reward state unconditionally (pity, draw cursor, open offer, boss extra flag) and
+/// tags it with the installed run's seed. A new run with the same seed must also start clean.
+void ResetRewardsForRun(entt::registry& registry);
+
+/// Resets the module state when the installed run's seed is not the one it was tracking. A load installs
+/// the run after unpacking the section, so this comparison happens lazily on the next reward query.
+void EnsureRewardsForRun(entt::registry& registry);
+
+/// Room clear: decides (and opens) the offer only. It never pays materials or EXP and never changes the
+/// phase. `bossRoom` uses `boss_offer`; a monster room uses chance/pity.
+void RollRoomOffer(entt::registry& registry, bool bossRoom);
+
+/// Resolves the open offer: `pickedIndex < 0` skips (materials refund), otherwise the candidate is granted
+/// (or refunded when already owned and the policy says so). It never changes the phase. False = nothing was
+/// open or the index is out of range (no state change).
+[[nodiscard]] bool ResolveRuneOffer(entt::registry& registry, int pickedIndex);
+
+/// The public draw API (WP-10 camp purchases reuse it): weighted, legal-only candidates. Consumes one draw
+/// index, so a caller gets the next deterministic draw of this (run, depth, room).
+[[nodiscard]] std::vector<std::string> RollRuneCandidates(entt::registry& registry);
+
+/// The same draw without consuming an index (previews/tests).
+[[nodiscard]] std::vector<std::string> PeekRuneCandidates(entt::registry& registry);
+
+struct RuneOfferForecast {
+    bool guaranteed{false};
+    int pity{0};
+    double chance{0.0};
+};
+
+/// The one-line forecast the reward/camp screens show: whether the next monster room is forced by pity and
+/// what the plain chance is.
+[[nodiscard]] RuneOfferForecast RuneOfferForecastOf(entt::registry& registry);
+
+/// The party skills this rune could be fitted to (base skill only: camp can swap runes, so already-fitted
+/// runes and free sockets are ignored). Empty = the rune is not a legal candidate for this party.
+[[nodiscard]] std::vector<std::string> RuneFittingSkillNames(entt::registry& registry, std::string_view runeId);
+
+/// True when the rune is already owned: in the collected inventory or fitted to a party skill.
+[[nodiscard]] bool IsRuneOwned(const entt::registry& registry, std::string_view runeId);
+
+} // namespace game

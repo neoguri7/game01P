@@ -24,6 +24,76 @@ bool IsGridCellOccupied(entt::registry& registry, int x, int y) {
     return FindGridOccupant(registry, x, y) != entt::null;
 }
 
+FPushResult ComputePushDestination(
+    entt::registry& registry, entt::entity target, FGridPosition from, int distance,
+    EDisplacementDirection direction) {
+    FPushResult result;
+    const auto* cell = registry.try_get<FGridPosition>(target);
+    if (cell == nullptr) {
+        return result;
+    }
+    result.finalCell = *cell;
+    result.path.push_back(*cell);
+    if (distance <= 0 || (*cell == from)) {
+        return result; // no direction to speak of (or a zero-length push): nothing moves
+    }
+
+    // The step: the dominant axis of the from -> target delta (tie = x axis); a pull is the same step
+    // reversed. Only one axis ever changes, so a push of an orthogonally adjacent target goes straight back.
+    const int dx = cell->x - from.x;
+    const int dy = cell->y - from.y;
+    int stepX = 0;
+    int stepY = 0;
+    if (std::abs(dx) >= std::abs(dy) && dx != 0) {
+        stepX = dx > 0 ? 1 : -1;
+    } else if (dy != 0) {
+        stepY = dy > 0 ? 1 : -1;
+    } else {
+        return result; // unreachable: from == *cell was handled above
+    }
+    if (direction == EDisplacementDirection::Toward) {
+        stepX = -stepX;
+        stepY = -stepY;
+    }
+
+    const auto* metrics = registry.ctx().find<FGridMetrics>();
+    const FGridMetrics fallback{};
+    const FGridMetrics& grid = metrics != nullptr ? *metrics : fallback;
+    const auto* terrain = registry.ctx().find<FGridTerrain>();
+
+    FGridPosition current = result.finalCell;
+    for (int step = 1; step <= distance; ++step) {
+        const FGridPosition next{current.x + stepX, current.y + stepY};
+        // A pull never carries the target past the caster on the step axis: the last cell before the
+        // caster's column/row is the intended stop (no collision). A non-aligned pull cannot be stopped by
+        // the caster's own cell alone — without this rule it would walk on past the caster.
+        const bool pastCaster =
+            direction == EDisplacementDirection::Toward &&
+            ((stepX > 0 && next.x > from.x) || (stepX < 0 && next.x < from.x) ||
+             (stepY > 0 && next.y > from.y) || (stepY < 0 && next.y < from.y));
+        if (pastCaster) {
+            break;
+        }
+        // Same two boundaries the path search speaks: the metrics grid and the compile-time array size.
+        const bool insideGrid = IsInsideGrid(grid, next.x, next.y) && next.x < kGridWidth && next.y < kGridHeight;
+        const bool wall = terrain != nullptr && terrain->at(next.x, next.y) == ETile::Wall;
+        const bool occupied = IsGridCellOccupied(registry, next.x, next.y);
+        if (!insideGrid || wall || occupied) {
+            // A pull stopping on the caster's own cell is the intended stop, not a collision.
+            const bool intendedStop =
+                direction == EDisplacementDirection::Toward && next.x == from.x && next.y == from.y;
+            if (!intendedStop) {
+                result.hitObstacle = true;
+            }
+            break;
+        }
+        current = next;
+        result.path.push_back(current);
+    }
+    result.finalCell = current;
+    return result;
+}
+
 namespace {
 struct FPathSearch {
     std::array<int, kGridWidth * kGridHeight> distance;

@@ -17,6 +17,7 @@
 #include "ecs/systems/EmberGridRenderSystem.h"
 #include "ecs/systems/CombatOutcomeSystem.h"
 #include "ecs/systems/DebugPrimitiveRenderSystem.h"
+#include "ecs/systems/FBattleFlowSystem.h"
 #include "ecs/systems/GridCameraSystem.h"
 #include "ecs/systems/GridRenderSystem.h"
 #include "ecs/systems/GridSelectSystem.h"
@@ -31,11 +32,13 @@
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/factory/FScene.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/meta/FMetaProgress.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FForestScene.h"
 #include "presentation/FUiFrame.h"
 #include "presentation/FUiTheme.h"
+#include "states/FStateCatalog.h"
 
 #include <cstdlib>
 #include <charconv>
@@ -158,6 +161,8 @@ int main(int argc, char* argv[])
 
     const bool ember = mode == game::EGameMode::Ember;
     if (windowHeight == 0) windowHeight = ember ? 800 : 720;
+    // The catalog owns this mode's state ids and factories; the engine creates no state of its own.
+    engine.setStateCatalog(ember ? game::FStateCatalog::MakeEmber() : game::FStateCatalog::MakeForest());
     if (!engine.initialize(ember ? "Ember Dungeon - Game01P" : "Game01P - Forest Prototype", windowWidth, windowHeight)) {
         return EXIT_FAILURE;
     }
@@ -169,6 +174,8 @@ int main(int argc, char* argv[])
         startupScene.Unload();
         game::ShutdownTurnDemo(engine.getRegistry());
         game::ShutdownTurnRuntime(engine.getRegistry());
+        // [WP-20] no-op when meta was never initialized (forest/verify shutdown paths).
+        game::ShutdownMetaProgress(engine.getRegistry());
         game::gameplay::FGameplayServices::Shutdown(engine.getRegistry());
         game::FAnimationLibrary::Shutdown(engine.getRegistry());
         engine.shutdown();
@@ -180,6 +187,15 @@ int main(int argc, char* argv[])
     }
 
     RegisterSystems(engine.getSystemManager());
+    // System/service registration anchors for later work packages. Systems added after onAllSystemsRegistered()
+    // would miss onRegister(), and before initialize() the registry ctx is empty; edit only under your anchor.
+    // [WP-03] combat refresh
+    // [WP-05a] battle flow
+    engine.getSystemManager().addSystem<game::ecs::FBattleFlowSystem>();
+    // [WP-11] intent system
+    // [WP-15] boss goals
+    // [WP-20] meta save: the service initializes inside the ember block below (it needs InitializeDungeon's checkpoint;
+    // the drawing block lives in FTitleMenuView).
     engine.getSystemManager().onAllSystemsRegistered(engine.getRegistry());
     engine.setOverlayRenderer(ember ? game::RenderDungeonOverlay : game::RenderDebugOverlay);
     if ((!ember || checkAnimation) && !LoadStage0Definitions(startupScene)) {
@@ -216,6 +232,11 @@ int main(int argc, char* argv[])
         if (!game::InitializeDungeon(engine.getRegistry()) || !game::InitializeDungeonArt(engine.getRegistry()) ||
             !game::InitializeForestScene(engine.getRegistry()) || !game::InitializeBattleAnim(engine.getRegistry()) ||
             !game::ui::InitializeUiFrame(engine.getRegistry())) {
+            shutdown();
+            return EXIT_FAILURE;
+        }
+        // [WP-20] meta save: shipped-content fail-fast; resolves/loads/imports after the checkpoint exists.
+        if (!game::InitializeMetaProgress(engine.getRegistry())) {
             shutdown();
             return EXIT_FAILURE;
         }

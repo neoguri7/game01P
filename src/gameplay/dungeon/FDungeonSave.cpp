@@ -1,15 +1,19 @@
 #include "gameplay/dungeon/FDungeonSave.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <format>
 #include <fstream>
 #include <limits>
 #include <string_view>
+#include <system_error>
+#include <thread>
 
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FRunSequence.h"
 
 namespace game {
 namespace {
@@ -22,6 +26,34 @@ constexpr std::size_t kMaxTextLength = 512;
 using FNumber = std::expected<std::int64_t, std::string>;
 using FText = std::expected<std::string, std::string>;
 using FTextList = std::expected<std::vector<std::string>, std::string>;
+
+// Windows refuses to replace or delete a file while another process holds a handle on it
+// (MoveFileExW(REPLACE_EXISTING) -> ERROR_ACCESS_DENIED even when that handle shares delete;
+// DeleteFileW -> ERROR_SHARING_VIOLATION when it does not). On-access antivirus scans and readers open a
+// freshly written file for a few milliseconds, so a single attempt fails intermittently. Retry those codes
+// with a short backoff: 1+2+4+...+64 ms, then 100 ms steps, ~0.6 s in total and only on the failure path.
+constexpr int kTransientFsAttempts = 12;
+
+bool IsTransientFsError(const std::error_code& code) {
+    if (code == std::errc::permission_denied || code == std::errc::device_or_resource_busy) return true;
+#ifdef _WIN32
+    if (code.category() == std::system_category()) {
+        // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+        return code.value() == 5 || code.value() == 32 || code.value() == 33;
+    }
+#endif
+    return false;
+}
+
+template <typename FOperation>
+void RetryTransientFs(FOperation&& operation, std::error_code& code) {
+    for (int attempt = 0;; ++attempt) {
+        code.clear();
+        operation(code);
+        if (!code || attempt + 1 >= kTransientFsAttempts || !IsTransientFsError(code)) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(std::min(1 << attempt, 100)));
+    }
+}
 
 std::unexpected<std::string> Fail(std::string_view key, std::string_view problem) {
     return std::unexpected(std::string(key) + ": " + std::string(problem));
@@ -68,6 +100,23 @@ std::optional<EDungeonPhase> ParsePhase(std::string_view name) {
 
 std::string UtcTimestamp() {
     return std::format("{:%Y-%m-%dT%H:%M:%SZ}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
+}
+
+/// v1 -> v2: keep every core key, introduce the empty `run.ext` section container. Nothing else — the
+/// section mechanism fills ext later, and the core never names a module.
+std::optional<nlohmann::json> MigrateV1ToV2(nlohmann::json document) {
+    if (!document.is_object()) return std::nullopt;
+    if (auto run = document.find("run"); run != document.end() && run->is_object() && run->find("ext") == run->end()) {
+        run->emplace("ext", nlohmann::json::object());
+    }
+    document["schema_version"] = 2;
+    return document;
+}
+
+/// Exact keeps the historical rule (whole party); Subset accepts any non-empty part of it.
+bool PartySizeAccepted(std::size_t size, const FDungeonSaveRules& rules) {
+    if (rules.partyMatch == EPartyMatch::Exact) return size == rules.partyIds.size();
+    return size >= 1 && size <= rules.partyIds.size();
 }
 
 nlohmann::json MemberToJson(const FRunMember& member) {
@@ -180,7 +229,9 @@ nlohmann::json DungeonRunToJson(const FDungeonRun& run) {
                      {"room_name", run.roomName},
                      {"message", run.message},
                      {"runes", run.runes},
-                     {"party", std::move(party)}}}};
+                     {"party", std::move(party)},
+                     // The section container starts empty; PackSections fills it at the save call site.
+                     {"ext", nlohmann::json::object()}}}};
 }
 
 std::expected<FDungeonRun, std::string> DungeonRunFromJson(
@@ -189,15 +240,31 @@ std::expected<FDungeonRun, std::string> DungeonRunFromJson(
     if (!document.is_object()) return Fail("save", "must be an object");
     const auto version = ReadNumber(document, "schema_version", 1, 1'000'000);
     if (!version) return std::unexpected(version.error());
-    if (*version != kDungeonSaveVersion) return Fail("schema_version", "is not supported by this build");
-    const auto found = document.find("run");
-    if (found == document.end() || !found->is_object()) return Fail("run", "must be an object");
+    if (*version > kDungeonSaveVersion) return Fail("schema_version", "is not supported by this build");
+
+    // Older saves are upgraded up front (never on disk — the file is rewritten by the next save); the rest
+    // of this function only ever validates a current document.
+    nlohmann::json migrated;
+    const nlohmann::json* source = &document;
+    if (*version < kDungeonSaveVersion) {
+        auto upgraded = MigrateSaveDocument(document, static_cast<int>(*version), kDungeonSaveVersion);
+        if (!upgraded) return Fail("schema_version", "cannot be migrated by this build");
+        migrated = std::move(*upgraded);
+        source = &migrated;
+    }
+    const auto found = source->find("run");
+    if (found == source->end() || !found->is_object()) return Fail("run", "must be an object");
     const nlohmann::json& data = *found;
+    if (const auto ext = data.find("ext"); ext != data.end() && !ext->is_object()) {
+        return Fail("run.ext", "must be an object");
+    }
 
     FDungeonRun run;
     const auto seed = ReadNumber(data, "seed", 1, std::numeric_limits<std::uint32_t>::max());
     const auto depth = ReadNumber(data, "depth", 1, 1000);
-    const auto room = ReadNumber(data, "room", 0, 2);
+    // WP-08: `room` is the battle ordinal of the dungeon at `depth - 1`; the slot cap is the static upper
+    // bound (the sequence-specific bound is dynamic and lives in ParseSavedRun, which owns the registry).
+    const auto room = ReadNumber(data, "room", 0, kMaxDungeonSlots - 1);
     const auto cleared = ReadNumber(data, "cleared", 0, 999);
     const auto materials = ReadNumber(data, "materials", 0, kMaxCount);
     const auto roomName = ReadText(data, "room_name", true);
@@ -233,7 +300,7 @@ std::expected<FDungeonRun, std::string> DungeonRunFromJson(
     run.runes = *runes;
 
     const auto party = data.find("party");
-    if (party == data.end() || !party->is_array() || party->size() != rules.partyIds.size()) {
+    if (party == data.end() || !party->is_array() || !PartySizeAccepted(party->size(), rules)) {
         return Fail("party", "does not match the expedition party");
     }
     for (const auto& entry : *party) {
@@ -245,6 +312,25 @@ std::expected<FDungeonRun, std::string> DungeonRunFromJson(
         run.party.push_back(std::move(*member));
     }
     return run;
+}
+
+std::optional<nlohmann::json> MigrateSaveDocumentWith(const nlohmann::json& document, int fromVersion,
+                                                      int toVersion, std::span<const FSaveMigrationStep> steps) {
+    if (fromVersion < 1 || toVersion < fromVersion) return std::nullopt;
+    nlohmann::json migrated = document;
+    for (int version = fromVersion; version < toVersion; ++version) {
+        const auto index = static_cast<std::size_t>(version - 1);  // steps[i] upgrades i+1 -> i+2
+        if (index >= steps.size() || !steps[index]) return std::nullopt;
+        auto next = steps[index](std::move(migrated));
+        if (!next) return std::nullopt;
+        migrated = std::move(*next);
+    }
+    return migrated;
+}
+
+std::optional<nlohmann::json> MigrateSaveDocument(const nlohmann::json& document, int fromVersion, int toVersion) {
+    static const std::array<FSaveMigrationStep, 1> steps{MigrateV1ToV2};
+    return MigrateSaveDocumentWith(document, fromVersion, toVersion, steps);
 }
 
 bool WriteSaveFile(const std::filesystem::path& path, const nlohmann::json& document, std::string& error) {
@@ -263,13 +349,17 @@ bool WriteSaveFile(const std::filesystem::path& path, const nlohmann::json& docu
             return false;
         }
     }
-    std::filesystem::rename(temp, path, code);
+    RetryTransientFs([&](std::error_code& attempt) { std::filesystem::rename(temp, path, attempt); }, code);
     if (code) {
         error = "could not replace " + path.string() + ": " + code.message();
         std::filesystem::remove(temp, code);
         return false;
     }
     return true;
+}
+
+void RemoveSaveFile(const std::filesystem::path& path, std::error_code& code) {
+    RetryTransientFs([&](std::error_code& attempt) { std::filesystem::remove(path, attempt); }, code);
 }
 
 std::expected<nlohmann::json, std::string> ReadSaveFile(const std::filesystem::path& path) {

@@ -2,14 +2,15 @@
 
 #include <algorithm>
 #include <queue>
+#include <set>
 
 namespace game::gameplay {
 namespace {
 
 constexpr int kSize = FGeneratedRoom::kSize;
 constexpr int kEdgeMargin = 1;  // the outermost ring stays empty so the room reads as an open map
-constexpr int kEnemyFirstRow = 1;
-constexpr int kEnemyLastRow = 3;
+constexpr int kEnemyFirstRow = kRoomEnemyFirstRow;  // the spawn band contract lives in the header
+constexpr int kEnemyLastRow = kRoomEnemyLastRow;
 constexpr int kClutterFirstRow = 3;
 constexpr int kClutterLastRow = 8;
 
@@ -63,6 +64,17 @@ bool AllConnected(const FBoard& board, std::span<const FCell> units) {
     return std::ranges::all_of(units, [&](FCell unit) { return seen[unit.y][unit.x]; });
 }
 
+/// Deterministic fallback for a heavy layout that (against expectation) split the room: the wall cells are
+/// dismantled piece by piece in the given order until every unit is connected again. With the empty outer
+/// ring the current shapes never fire it; it exists so no family can ever return a broken room.
+void DropWallsUntilConnected(FBoard& board, std::span<const FCell> walls, std::span<const FCell> units) {
+    if (AllConnected(board, units)) return;
+    for (const auto cell : walls) {
+        board[cell.y][cell.x] = '.';
+        if (AllConnected(board, units)) return;
+    }
+}
+
 std::vector<FCell> FeatureShape(FRandom& random, FCell anchor) {
     switch (random.below(5)) {
     case 0: return {anchor};
@@ -91,32 +103,32 @@ std::uint32_t Mix(std::uint32_t seed, int depth, int room) {
     return mixer.next();
 }
 
-} // namespace
+// --- shared room scaffolding (WP-08b: the family layouts reuse the classic head) -----------------
 
-FGeneratedRoom GenerateRoom(const FRoomGenConfig& config, const FRoomRequest& request) {
-    FRandom random(Mix(request.seed, request.depth, request.room));
-    FGeneratedRoom room;
-    room.name = config.names[static_cast<std::size_t>(random.below(static_cast<int>(config.names.size())))];
-
-    FBoard board;
-    for (auto& row : board) row.fill('.');
-
-    std::vector<FCell> units;
-    for (const auto& [x, y] : request.partyCells) units.push_back({x, y});
-
-    // Enemy formation: random cells in the far (top) rows, one unit per cell.
+/// The spawn band slots, one per cell (rows kEnemyFirstRow..kEnemyLastRow, edge margin respected).
+std::vector<FCell> BandSlots() {
     std::vector<FCell> slots;
     for (int y = kEnemyFirstRow; y <= kEnemyLastRow; ++y) {
         for (int x = kEdgeMargin; x < kSize - kEdgeMargin; ++x) slots.push_back({x, y});
     }
+    return slots;
+}
+
+void ShuffleSlots(FRandom& random, std::vector<FCell>& slots) {
     for (std::size_t i = slots.size(); i > 1; --i) {
         std::swap(slots[i - 1], slots[static_cast<std::size_t>(random.below(static_cast<int>(i)))]);
     }
-    int enemyCount = request.boss ? 3 : random.in(config.enemyCount);
+}
+
+/// Enemy placement on a prepared slot list: the slot order is the family's formation. The boss unit leads a
+/// boss room, the weighted pool pick otherwise (draw order preserved from the classic path).
+void PlaceEnemies(FRandom& random, const FRoomGenConfig& config, bool boss, std::span<const FCell> slots,
+                  std::vector<FCell>& units, FGeneratedRoom& room) {
+    int enemyCount = boss ? 3 : random.in(config.enemyCount);
     enemyCount = std::min(enemyCount, static_cast<int>(slots.size()));
     for (int i = 0; i < enemyCount; ++i) {
         FGeneratedEnemy enemy;
-        if (request.boss && i == 0) {
+        if (boss && i == 0) {
             enemy.unit = config.bossUnit;
             enemy.displayName = config.bossName;
         } else {
@@ -129,6 +141,46 @@ FGeneratedRoom GenerateRoom(const FRoomGenConfig& config, const FRoomRequest& re
         units.push_back({enemy.x, enemy.y});
         room.enemies.push_back(std::move(enemy));
     }
+}
+
+/// The classic head: name, empty board, the party, and the shuffled-band formation.
+FGeneratedRoom BeginClassicRoom(FRandom& random, const FRoomGenConfig& config, const FRoomRequest& request,
+                                FBoard& board, std::vector<FCell>& units) {
+    FGeneratedRoom room;
+    room.name = config.names[static_cast<std::size_t>(random.below(static_cast<int>(config.names.size())))];
+    for (auto& row : board) row.fill('.');
+    for (const auto& [x, y] : request.partyCells) units.push_back({x, y});
+    auto slots = BandSlots();
+    ShuffleSlots(random, slots);
+    PlaceEnemies(random, config, request.boss, slots, units, room);
+    return room;
+}
+
+/// The classic scattered traps (the `open` rule), shared by the heavy families.
+void PlaceBandTraps(FRandom& random, FBoard& board, std::span<const FCell> units, int budget) {
+    const auto occupied = [&](FCell cell) { return std::ranges::find(units, cell) != units.end(); };
+    for (int attempt = 0, traps = 0; attempt < 60 && traps < budget; ++attempt) {
+        const FCell cell{kEdgeMargin + random.below(kSize - 2 * kEdgeMargin),
+                         kClutterFirstRow + random.below(kClutterLastRow - kClutterFirstRow + 1)};
+        if (board[cell.y][cell.x] != '.' || occupied(cell)) continue;
+        board[cell.y][cell.x] = '^';
+        ++traps;
+    }
+}
+
+void WriteTerrain(FGeneratedRoom& room, const FBoard& board) {
+    for (int y = 0; y < kSize; ++y) room.terrain[static_cast<std::size_t>(y)] = std::string(board[y].begin(), board[y].end());
+}
+
+// --- per-family generators ----------------------------------------------------------------------
+
+/// `open` (light): the classic algorithm, byte-identical to the pre-WP-08b generator. The draw order here is
+/// load-bearing: a golden test pins its output, so edits must keep every draw in place.
+FGeneratedRoom GenerateOpen(const FRoomGenConfig& config, const FRoomRequest& request) {
+    FRandom random(Mix(request.seed, request.depth, request.room));
+    FBoard board;
+    std::vector<FCell> units;
+    FGeneratedRoom room = BeginClassicRoom(random, config, request, board, units);
 
     const auto occupied = [&](FCell cell) { return std::ranges::find(units, cell) != units.end(); };
 
@@ -160,8 +212,361 @@ FGeneratedRoom GenerateRoom(const FRoomGenConfig& config, const FRoomRequest& re
         ++traps;
     }
 
-    for (int y = 0; y < kSize; ++y) room.terrain[static_cast<std::size_t>(y)] = std::string(board[y].begin(), board[y].end());
+    WriteTerrain(room, board);
     return room;
+}
+
+/// `open_variant` (light): the same wall budget as `open`, but the placement is anchored at the clutter-band
+/// corners, the traps sit at the centre and the spawns take the flanks of the band (still inside it).
+FGeneratedRoom GenerateOpenVariant(const FRoomGenConfig& config, const FRoomRequest& request) {
+    FRandom random(Mix(request.seed, request.depth, request.room));
+    FBoard board;
+    for (auto& row : board) row.fill('.');
+    FGeneratedRoom room;
+    room.name = config.names[static_cast<std::size_t>(random.below(static_cast<int>(config.names.size())))];
+    std::vector<FCell> units;
+    for (const auto& [x, y] : request.partyCells) units.push_back({x, y});
+
+    // Flank spawns: the two outermost columns of each side, shuffled per side, taken alternately. The band
+    // rows never move (the spawn-band contract).
+    std::vector<FCell> leftFlank;
+    std::vector<FCell> rightFlank;
+    for (int y = kEnemyFirstRow; y <= kEnemyLastRow; ++y) {
+        for (int x = kEdgeMargin; x <= kEdgeMargin + 1; ++x) leftFlank.push_back({x, y});
+        for (int x = kSize - 1 - kEdgeMargin; x >= kSize - 2 - kEdgeMargin; --x) rightFlank.push_back({x, y});
+    }
+    ShuffleSlots(random, leftFlank);
+    ShuffleSlots(random, rightFlank);
+    std::vector<FCell> flank;
+    for (std::size_t i = 0; i < std::max(leftFlank.size(), rightFlank.size()); ++i) {
+        if (i < leftFlank.size()) flank.push_back(leftFlank[i]);
+        if (i < rightFlank.size()) flank.push_back(rightFlank[i]);
+    }
+    PlaceEnemies(random, config, request.boss, flank, units, room);
+
+    const auto occupied = [&](FCell cell) { return std::ranges::find(units, cell) != units.end(); };
+
+    // Corner walls: the four corners of the clutter band in a random order; each corner takes a two-cell L
+    // (one of two inward orientations) or a single cell, inside the same wall budget as `open`.
+    const int budget = random.in(config.obstacleCount);
+    std::vector<FCell> corners = {{kEdgeMargin, kClutterFirstRow},
+                                  {kSize - 1 - kEdgeMargin, kClutterFirstRow},
+                                  {kEdgeMargin, kClutterLastRow},
+                                  {kSize - 1 - kEdgeMargin, kClutterLastRow}};
+    ShuffleSlots(random, corners);
+    int placed = 0;
+    for (const FCell corner : corners) {
+        if (placed >= budget) break;
+        const int inwardX = corner.x == kEdgeMargin ? 1 : -1;
+        const int inwardY = corner.y == kClutterFirstRow ? 1 : -1;
+        const std::vector<FCell> horizontal{corner, {corner.x + inwardX, corner.y}};
+        const std::vector<FCell> vertical{corner, {corner.x, corner.y + inwardY}};
+        const bool verticalFirst = random.below(2) == 1;
+        const std::vector<FCell> single{corner};
+        for (const auto* shape : {verticalFirst ? &vertical : &horizontal, verticalFirst ? &horizontal : &vertical, &single}) {
+            if (placed + static_cast<int>(shape->size()) > budget) continue;
+            const bool fits = std::ranges::all_of(*shape, [&](FCell cell) {
+                return InClutterBand(cell.x, cell.y) && board[cell.y][cell.x] == '.' && !occupied(cell);
+            });
+            if (!fits) continue;
+            for (const auto cell : *shape) board[cell.y][cell.x] = '#';
+            if (!AllConnected(board, units)) {
+                for (const auto cell : *shape) board[cell.y][cell.x] = '.';
+                continue;
+            }
+            placed += static_cast<int>(shape->size());
+            break;
+        }
+    }
+
+    // Centre traps: the middle 4x4 of the band, drawn like the classic scatter.
+    const int trapBudget = random.in(config.trapCount);
+    for (int attempt = 0, traps = 0; attempt < 60 && traps < trapBudget; ++attempt) {
+        const FCell cell{kSize / 2 - 2 + random.below(4), kSize / 2 - 2 + random.below(4)};
+        if (board[cell.y][cell.x] != '.' || occupied(cell)) continue;
+        board[cell.y][cell.x] = '^';
+        ++traps;
+    }
+
+    WriteTerrain(room, board);
+    return room;
+}
+
+/// `corridor` (heavy): one wall row across the band with 1-2 gaps of 2-3 cells — the room is crossed only
+/// through the corridors (the outer ring stays open around them). Not bound by `obstacleCount`.
+FGeneratedRoom GenerateCorridor(const FRoomGenConfig& config, const FRoomRequest& request) {
+    FRandom random(Mix(request.seed, request.depth, request.room));
+    FBoard board;
+    std::vector<FCell> units;
+    FGeneratedRoom room = BeginClassicRoom(random, config, request, board, units);
+    const auto occupied = [&](FCell cell) { return std::ranges::find(units, cell) != units.end(); };
+
+    const int wallRow = kClutterFirstRow + random.below(kClutterLastRow - kClutterFirstRow + 1);
+    const int gapCount = 1 + random.below(2);
+    constexpr int kSpan = kSize - 1 - kEdgeMargin - kEdgeMargin + 1;  // columns 1..10
+    std::array<bool, kSize> gap{};
+    for (int g = 0; g < gapCount; ++g) {
+        const int windowStart = kEdgeMargin + g * kSpan / gapCount;
+        const int windowEnd = kEdgeMargin + (g + 1) * kSpan / gapCount - 1;
+        const int width = std::min(2 + random.below(2), windowEnd - windowStart + 1);
+        const int start = windowStart + random.below(windowEnd - windowStart + 1 - width + 1);
+        for (int x = start; x < start + width; ++x) gap[static_cast<std::size_t>(x)] = true;
+    }
+    std::vector<FCell> walls;
+    for (int x = kEdgeMargin; x <= kSize - 1 - kEdgeMargin; ++x) {
+        if (gap[static_cast<std::size_t>(x)]) continue;
+        const FCell cell{x, wallRow};
+        if (occupied(cell)) continue;  // a unit standing in the wall row keeps its cell on floor
+        board[cell.y][cell.x] = '#';
+        walls.push_back(cell);
+    }
+    std::vector<FCell> removal{walls.rbegin(), walls.rend()};
+    DropWallsUntilConnected(board, removal, units);
+
+    const int trapBudget = random.in(config.trapCount);
+    PlaceBandTraps(random, board, units, trapBudget);
+    WriteTerrain(room, board);
+    return room;
+}
+
+/// `cover` (heavy): a 3x3 monolithic block at the band centre plus 2-4 single cover cells — firing lines
+/// break around the mass. Not bound by `obstacleCount`.
+FGeneratedRoom GenerateCover(const FRoomGenConfig& config, const FRoomRequest& request) {
+    FRandom random(Mix(request.seed, request.depth, request.room));
+    FBoard board;
+    std::vector<FCell> units;
+    FGeneratedRoom room = BeginClassicRoom(random, config, request, board, units);
+    const auto occupied = [&](FCell cell) { return std::ranges::find(units, cell) != units.end(); };
+
+    std::vector<FCell> walls;
+    const int blockX = kSize / 2 - 1;
+    const int blockY = (kClutterFirstRow + kClutterLastRow) / 2 - 1;
+    for (int y = blockY; y < blockY + 3; ++y) {
+        for (int x = blockX; x < blockX + 3; ++x) {
+            const FCell cell{x, y};
+            if (occupied(cell) || board[cell.y][cell.x] != '.') continue;
+            board[cell.y][cell.x] = '#';
+            walls.push_back(cell);
+        }
+    }
+    const int coverCount = 2 + random.below(3);
+    for (int attempt = 0, placed = 0; attempt < 60 && placed < coverCount; ++attempt) {
+        const FCell cell{kEdgeMargin + random.below(kSize - 2 * kEdgeMargin),
+                         kClutterFirstRow + random.below(kClutterLastRow - kClutterFirstRow + 1)};
+        if (board[cell.y][cell.x] != '.' || occupied(cell)) continue;
+        board[cell.y][cell.x] = '#';
+        if (!AllConnected(board, units)) {
+            board[cell.y][cell.x] = '.';
+            continue;
+        }
+        walls.push_back(cell);
+        ++placed;
+    }
+    std::vector<FCell> removal{walls.rbegin(), walls.rend()};
+    DropWallsUntilConnected(board, removal, units);
+
+    const int trapBudget = random.in(config.trapCount);
+    PlaceBandTraps(random, board, units, trapBudget);
+    WriteTerrain(room, board);
+    return room;
+}
+
+/// `split` (heavy): a dividing wall column with 1-2 door gaps — the room reads as halves joined through the
+/// doors (and the open outer ring). Not bound by `obstacleCount`.
+FGeneratedRoom GenerateSplit(const FRoomGenConfig& config, const FRoomRequest& request) {
+    FRandom random(Mix(request.seed, request.depth, request.room));
+    FBoard board;
+    std::vector<FCell> units;
+    FGeneratedRoom room = BeginClassicRoom(random, config, request, board, units);
+    const auto occupied = [&](FCell cell) { return std::ranges::find(units, cell) != units.end(); };
+
+    const int column = kSize / 2 - 1 + random.below(3);
+    const int gapCount = 1 + random.below(2);
+    constexpr int kGapSpan = kClutterLastRow - kClutterFirstRow - 1;  // the door rows 4..7
+    std::array<bool, kSize> gap{};
+    for (int g = 0; g < gapCount; ++g) {
+        const int windowStart = kClutterFirstRow + 1 + g * kGapSpan / gapCount;
+        const int windowEnd = kClutterFirstRow + 1 + (g + 1) * kGapSpan / gapCount - 1;
+        const int height = std::min(1 + random.below(2), windowEnd - windowStart + 1);
+        const int start = windowStart + random.below(windowEnd - windowStart + 1 - height + 1);
+        for (int y = start; y < start + height; ++y) gap[static_cast<std::size_t>(y)] = true;
+    }
+    std::vector<FCell> walls;
+    for (int y = kEnemyFirstRow; y <= kClutterLastRow + 2; ++y) {
+        if (gap[static_cast<std::size_t>(y)]) continue;
+        const FCell cell{column, y};
+        if (occupied(cell)) continue;
+        board[cell.y][cell.x] = '#';
+        walls.push_back(cell);
+    }
+    std::vector<FCell> removal{walls.rbegin(), walls.rend()};
+    DropWallsUntilConnected(board, removal, units);
+
+    const int trapBudget = random.in(config.trapCount);
+    PlaceBandTraps(random, board, units, trapBudget);
+    WriteTerrain(room, board);
+    return room;
+}
+
+// --- measurement helpers ------------------------------------------------------------------------
+
+/// Supercover traversal mirroring gameplay/grid/FGridQuery.cpp HasGridLineOfSight (the game's LoS rule):
+/// the original reads the live FGridTerrain from the registry; this is the same walk over a generated
+/// board, collecting every examined cell so a blocking wall set can be reported. `from`/`to` are in-grid.
+void CollectLineCells(FCell from, FCell to, std::vector<FCell>& out) {
+    int x = from.x;
+    int y = from.y;
+    const int dx = to.x - from.x;
+    const int dy = to.y - from.y;
+    const int nx = std::abs(dx);
+    const int ny = std::abs(dy);
+    const int sx = dx > 0 ? 1 : -1;
+    const int sy = dy > 0 ? 1 : -1;
+    int ix = 0;
+    int iy = 0;
+    while (ix < nx || iy < ny) {
+        const int decision = (1 + 2 * ix) * ny - (1 + 2 * iy) * nx;
+        if (decision == 0) {
+            out.push_back({x + sx, y});
+            out.push_back({x, y + sy});
+            x += sx;
+            y += sy;
+            ++ix;
+            ++iy;
+        } else if (decision < 0) {
+            x += sx;
+            ++ix;
+        } else {
+            y += sy;
+            ++iy;
+        }
+        out.push_back({x, y});
+    }
+}
+
+bool InGrid(int x, int y) { return x >= 0 && y >= 0 && x < kSize && y < kSize; }
+
+} // namespace
+
+std::optional<EFamilyStrength> FamilyStrengthOf(std::string_view family) {
+    if (family == "open" || family == "open_variant") return EFamilyStrength::Light;
+    if (family == "corridor" || family == "cover" || family == "split") return EFamilyStrength::Heavy;
+    return std::nullopt;  // unknown names are refused by the loader; never a silent "open"
+}
+
+std::string_view FamilyStrengthName(EFamilyStrength strength) {
+    return strength == EFamilyStrength::Heavy ? "heavy" : "light";
+}
+
+FRoomMetrics MeasureRoom(const FGeneratedRoom& room, std::span<const std::pair<int, int>> partyCells) {
+    FBoard board{};
+    for (int y = 0; y < kSize; ++y) {
+        for (int x = 0; x < kSize; ++x) board[y][x] = room.terrain[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)];
+    }
+    FRoomMetrics metrics;
+    for (const auto& row : room.terrain) {
+        for (const char cell : row) {
+            if (cell == '#') ++metrics.walls;
+            else if (cell == '^') ++metrics.traps;
+        }
+    }
+    const int floorCells = kSize * kSize - metrics.walls;
+
+    std::vector<FCell> party;
+    for (const auto& [x, y] : partyCells) party.push_back({x, y});
+
+    // Reachable ratio: multi-source BFS from the party; walls block, traps are walkable.
+    std::array<bool, kSize * kSize> seen{};
+    std::queue<FCell> open;
+    int reached = 0;
+    for (const FCell cell : party) {
+        if (!InGrid(cell.x, cell.y) || board[cell.y][cell.x] == '#' || seen[cell.y * kSize + cell.x]) continue;
+        seen[cell.y * kSize + cell.x] = true;
+        ++reached;
+        open.push(cell);
+    }
+    while (!open.empty()) {
+        const FCell cell = open.front();
+        open.pop();
+        for (const auto [dx, dy] : {std::pair{1, 0}, std::pair{-1, 0}, std::pair{0, 1}, std::pair{0, -1}}) {
+            const int nx = cell.x + dx;
+            const int ny = cell.y + dy;
+            if (!InGrid(nx, ny) || board[ny][nx] == '#' || seen[ny * kSize + nx]) continue;
+            seen[ny * kSize + nx] = true;
+            ++reached;
+            open.push({nx, ny});
+        }
+    }
+    metrics.reachableRatio = floorCells > 0 ? static_cast<double>(reached) / floorCells : 0.0;
+
+    // min_path: steps from the party to the farthest enemy. Walls block; every other enemy cell blocks too
+    // (the formation is walked around), while the target itself is enterable. Party cells are the sources.
+    metrics.minPath = 0;
+    for (const auto& enemy : room.enemies) {
+        const FCell target{enemy.x, enemy.y};
+        std::array<bool, kSize * kSize> blocked{};
+        for (const auto& other : room.enemies) {
+            if (&other == &enemy) continue;
+            if (InGrid(other.x, other.y)) blocked[other.y * kSize + other.x] = true;
+        }
+        std::array<int, kSize * kSize> distance{};
+        distance.fill(-1);
+        open = {};
+        for (const FCell cell : party) {
+            if (!InGrid(cell.x, cell.y) || board[cell.y][cell.x] == '#' || distance[cell.y * kSize + cell.x] >= 0) continue;
+            distance[cell.y * kSize + cell.x] = 0;
+            open.push(cell);
+        }
+        while (!open.empty()) {
+            const FCell cell = open.front();
+            open.pop();
+            for (const auto [dx, dy] : {std::pair{1, 0}, std::pair{-1, 0}, std::pair{0, 1}, std::pair{0, -1}}) {
+                const int nx = cell.x + dx;
+                const int ny = cell.y + dy;
+                const int index = ny * kSize + nx;
+                if (!InGrid(nx, ny) || board[ny][nx] == '#' || distance[index] >= 0) continue;
+                if (blocked[index] && !(nx == target.x && ny == target.y)) continue;
+                distance[index] = distance[cell.y * kSize + cell.x] + 1;
+                open.push({nx, ny});
+            }
+        }
+        const int steps = distance[target.y * kSize + target.x];
+        if (steps < 0) {
+            metrics.minPath = -1;  // an enemy the party cannot reach: a broken room, visible in the number
+            break;
+        }
+        metrics.minPath = std::max(metrics.minPath, steps);
+    }
+
+    // cover_cells: wall cells that block line of sight between at least one party member and one enemy
+    // (the supercover rule above — the same cells HasGridLineOfSight would refuse to shoot through).
+    std::set<int> covered;
+    std::vector<FCell> line;
+    for (const FCell from : party) {
+        for (const auto& enemy : room.enemies) {
+            line.clear();
+            CollectLineCells(from, {enemy.x, enemy.y}, line);
+            bool blocks = false;
+            for (const FCell cell : line) {
+                if (InGrid(cell.x, cell.y) && board[cell.y][cell.x] == '#') blocks = true;
+            }
+            if (!blocks) continue;
+            for (const FCell cell : line) {
+                if (InGrid(cell.x, cell.y) && board[cell.y][cell.x] == '#') covered.insert(cell.y * kSize + cell.x);
+            }
+        }
+    }
+    metrics.coverCells = static_cast<int>(covered.size());
+    return metrics;
+}
+
+FGeneratedRoom GenerateRoom(const FRoomGenConfig& config, const FRoomRequest& request) {
+    // The loader refuses unknown family names at boot, so the fall-through is the classic layout.
+    if (config.family == "open_variant") return GenerateOpenVariant(config, request);
+    if (config.family == "corridor") return GenerateCorridor(config, request);
+    if (config.family == "cover") return GenerateCover(config, request);
+    if (config.family == "split") return GenerateSplit(config, request);
+    return GenerateOpen(config, request);
 }
 
 } // namespace game::gameplay
