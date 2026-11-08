@@ -70,6 +70,21 @@ std::expected<FUiLayoutSpec, std::string> Parse(const nlohmann::json& document) 
         return std::unexpected("bands leave no viewport");
     }
 
+    // WP-12: the density threshold is data, not a renderer constant. The whole "combat" object is optional
+    // so an older document keeps the default; a present value must be a positive integer.
+    if (const auto combat = document.find("combat"); combat != document.end()) {
+        if (!combat->is_object()) return std::unexpected("combat must be an object");
+        if (const auto threshold = combat->find("intent_compact_threshold"); threshold != combat->end()) {
+            if (!threshold->is_number_integer()) {
+                return std::unexpected("combat.intent_compact_threshold must be a whole number");
+            }
+            spec.intentCompactThreshold = threshold->get<int>();
+            if (spec.intentCompactThreshold < 1) {
+                return std::unexpected("combat.intent_compact_threshold must be positive");
+            }
+        }
+    }
+
     const auto& zones = document.at("zones");
     constexpr auto specZones = ZoneTable<FZoneSpec>();
     for (const auto& [name, member] : specZones) {
@@ -141,6 +156,7 @@ FUiLayout ComputeUiLayout(const FUiLayoutSpec& spec, float screenWidth, float sc
     layout.leftRail = {0.f, top, left, bottom - top};
     layout.rightRail = {right, top, screenWidth - right, bottom - top};
     layout.viewport = {left, top, right - left, bottom - top};
+    layout.intentCompactThreshold = spec.intentCompactThreshold;
 
     constexpr auto specZones = ZoneTable<FZoneSpec>();
     constexpr auto rectZones = ZoneTable<FRect>();

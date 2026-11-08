@@ -12,6 +12,7 @@
   ],
   "design": { "width": 1280, "height": 800, "min_width": 1160 },
   "bands": { "left": 0, "right": 0, "top": 40, "bottom": 96 },
+  "combat": { "intent_compact_threshold": 12 },
   "zones": {
     "title":      { "anchor": "top-left",      "rect": [12, 6, 200, 30] },
     "turn_order": { "anchor": "top-center",    "rect": [480, 4, 320, 32] },

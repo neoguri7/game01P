@@ -11,6 +11,7 @@
 #include "ecs/components/FDead.h"
 #include "ecs/components/FFaction.h"
 #include "ecs/components/FHealth.h"
+#include "ecs/systems/EmberCombatInfo.h"
 #include "gameplay/grid/FGridSelection.h"
 #include "gameplay/grid/FGridTerrain.h"
 #include "presentation/FBattleAnim.h"
@@ -29,6 +30,21 @@ constexpr float kFeetOffset = 8.f;
 constexpr int kLightColumns = 48;
 constexpr int kLightRows = 30;
 constexpr float kBrazierFps = 9.f;
+
+// WP-12 board overlays: distinct from the existing reachable (cyan) and affected (orange-red) fills —
+// danger is a magenta-crimson (an enemy promise), reach is violet (where a hovered enemy could strike).
+constexpr SDL_FColor kIntentDangerFill{0.66f, 0.10f, 0.28f, 0.26f};
+constexpr SDL_Color kIntentDangerLine{240, 64, 110, 200};
+constexpr SDL_FColor kIntentReachFill{0.50f, 0.44f, 1.f, 0.16f};
+constexpr SDL_Color kIntentReachLine{170, 150, 255, 140};
+constexpr SDL_FColor kMovePathFill{1.f, 0.86f, 0.42f, 0.12f};
+constexpr SDL_Color kMovePathLine{255, 224, 128, 115};
+constexpr SDL_Color kMoveDestinationLine{255, 240, 180, 230};
+constexpr SDL_FColor kMoveTrapFill{1.f, 0.32f, 0.10f, 0.20f};
+constexpr SDL_Color kMoveTrapLine{255, 118, 40, 230};
+constexpr float kMoveTrapOutlineInset = 0.f;
+constexpr float kMovePathOutlineInset = 2.f;
+constexpr float kReachOutlineInset = 0.f;
 
 SDL_FColor Color(int r, int g, int b, int a) {
     return {static_cast<float>(r) / 255.f, static_cast<float>(g) / 255.f, static_cast<float>(b) / 255.f,
@@ -293,7 +309,8 @@ void DrawUnit(entt::registry& registry, SDL_Renderer* renderer, const FIsoView& 
     }
     Ring(renderer, feet, 21.f * scale, 10.5f * scale, {faction.r, faction.g, faction.b, static_cast<Uint8>(shownDead ? 70 : 210)});
     const auto sprite = registry.get<FUnitArt>(entity).sprite;
-    const SDL_FRect rect{center.x - 32.f * scale, center.y - 52.f * scale, 64.f * scale, 64.f * scale};
+    const SDL_FRect rect{center.x - kUnitSpriteSize * .5f * scale, center.y - kUnitHeadAboveFeet * scale,
+                         kUnitSpriteSize * scale, kUnitSpriteSize * scale};
     // The animation frames are anchored on the unit's feet, the same point the still picture is placed by.
     const bool animated = anim != nullptr &&
         DrawAnimFrame(registry, anim->player.clip, anim->player.frame, center, scale,
@@ -306,7 +323,8 @@ void DrawUnit(entt::registry& registry, SDL_Renderer* renderer, const FIsoView& 
     if (shownDead) return;
     const auto& health = registry.get<FHealth>(entity);
     const int shownHealth = anim != nullptr && anim->shownHealth >= 0 ? anim->shownHealth : health.current;
-    SDL_FRect bar{center.x - 17.f * scale, rect.y + 2.f * scale, 34.f * scale, 4.f * scale};
+    SDL_FRect bar{center.x - kUnitHealthBarWidth * .5f * scale, rect.y + kUnitHealthBarInset * scale,
+                  kUnitHealthBarWidth * scale, kUnitHealthBarHeight * scale};
     SDL_SetRenderDrawColor(renderer, 6, 6, 10, 230);
     const SDL_FRect back{bar.x - 1.f, bar.y - 1.f, bar.w + 2.f, bar.h + 2.f};
     SDL_RenderFillRect(renderer, &back);
@@ -397,6 +415,39 @@ void EmberGridRenderSystem::render(entt::registry& registry) {
         if (selection->hovered && IsInsideGrid(*grid, selection->hovered->x, selection->hovered->y)) {
             OutlineDiamond(renderer, view, selection->hovered->x, selection->hovered->y, {255, 224, 120, 230}, 0.f);
             OutlineDiamond(renderer, view, selection->hovered->x, selection->hovered->y, {255, 224, 120, 120}, 2.f);
+        }
+    }
+
+    // WP-12: enemy-intent danger cells, the hovered unit's reachable strike cells and the move preview.
+    // Everything is snapshot data; this renderer derives nothing (lead decision 1).
+    if (const auto* info = FindCombatInfoSnapshot(registry); info != nullptr) {
+        for (const FIntentBadge& badge : info->intents) {
+            for (const FGridPosition& cell : badge.dangerCells) {
+                if (!IsInsideGrid(*grid, cell.x, cell.y)) continue;
+                FillDiamond(renderer, view, cell.x, cell.y, kIntentDangerFill);
+                OutlineDiamond(renderer, view, cell.x, cell.y, kIntentDangerLine, kReachOutlineInset);
+            }
+        }
+        for (const FIntentBadge& badge : info->intents) {
+            for (const FGridPosition& cell : badge.reachCells) {
+                if (!IsInsideGrid(*grid, cell.x, cell.y)) continue;
+                FillDiamond(renderer, view, cell.x, cell.y, kIntentReachFill);
+                OutlineDiamond(renderer, view, cell.x, cell.y, kIntentReachLine, kReachOutlineInset);
+            }
+        }
+        for (const FGridPosition& cell : info->movePath) {
+            if (!IsInsideGrid(*grid, cell.x, cell.y)) continue;
+            FillDiamond(renderer, view, cell.x, cell.y, kMovePathFill);
+            OutlineDiamond(renderer, view, cell.x, cell.y, kMovePathLine, kMovePathOutlineInset);
+        }
+        for (const FGridPosition& cell : info->trapCells) {
+            if (!IsInsideGrid(*grid, cell.x, cell.y)) continue;
+            FillDiamond(renderer, view, cell.x, cell.y, kMoveTrapFill);
+            OutlineDiamond(renderer, view, cell.x, cell.y, kMoveTrapLine, kMoveTrapOutlineInset);
+        }
+        if (info->moveDestination && IsInsideGrid(*grid, info->moveDestination->x, info->moveDestination->y)) {
+            OutlineDiamond(renderer, view, info->moveDestination->x, info->moveDestination->y, kMoveDestinationLine,
+                           kReachOutlineInset);
         }
     }
 
