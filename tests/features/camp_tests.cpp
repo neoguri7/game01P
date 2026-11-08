@@ -1081,7 +1081,11 @@ int main() {
             (std::filesystem::current_path() / "out" / "test-saves" / "camp_tests").string();
         std::error_code error;
         std::filesystem::create_directories(path, error);
+#ifdef _WIN32
         _putenv_s("GAME01P_SAVE_DIR", path.c_str());
+#else
+        setenv("GAME01P_SAVE_DIR", path.c_str(), 1);
+#endif
     }
 
     return game_test::RunTests("camp", {
