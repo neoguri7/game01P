@@ -122,6 +122,15 @@ void Engine::setOverlayRenderer(std::function<void(entt::registry&, const Time&,
     overlayRenderer = std::move(renderer);
 }
 
+void Engine::setInputInjector(FInputInjector injector, bool fixedTimestep) {
+    inputInjector_ = std::move(injector);
+    fixedTimestep_ = fixedTimestep;
+}
+
+void Engine::setFrameDriver(FFrameDriver driver) {
+    frameDriver_ = std::move(driver);
+}
+
 void Engine::applyStartupStateOverride() {
     startupStateReady = false;
     flowError = false;
@@ -315,9 +324,14 @@ bool Engine::run(std::uint32_t maxFrames, std::string screenshotPath) {
     maxFrames_ = maxFrames;
     screenshotPath_ = std::move(screenshotPath);
     captureSucceeded_ = true;
+    driverFailed_ = false;
+    quitAfterFrame_ = false;
     std::uint32_t frames = 0;
     while (running) {
-        const float dt = frameTime.updateDeltaTime();
+        const float wallDelta = frameTime.updateDeltaTime();
+        // WP-00c (dev): scripted runs are frame-locked (a TAS-style input file): pass a fixed step so frame N
+        // is the same simulation moment on every run; Time still tracks the wall clock for fps/overlay.
+        const float dt = fixedTimestep_ ? kScriptFixedDeltaSeconds : wallDelta;
 
         if (auto* bus = registry.ctx().find<FEventBus>()) {
             bus->beginFrame();
@@ -330,13 +344,35 @@ bool Engine::run(std::uint32_t maxFrames, std::string screenshotPath) {
         BeginEngineFrameAbility(registry, frameRequest);
         processInput();
         update(dt);
+
+        // WP-00c (dev): a per-frame driver (the run autopilot) acts after the state machine ran and before
+        // rendering, so its transition renders on this frame. Stop/Fail still render this frame.
+        if (frameDriver_ && !stateMachine.stack().empty()) {
+            switch (frameDriver_(registry, stateMachine.stack().back().id)) {
+            case EFrameDriverResult::Continue:
+                break;
+            case EFrameDriverResult::Stop:
+                applyEngineMarkRunningEffect(false);
+                break;
+            case EFrameDriverResult::Fail:
+                driverFailed_ = true;
+                applyEngineMarkRunningEffect(false);
+                break;
+            }
+        }
+
         render();
         EndEngineFrameEffects(registry);
+
+        // WP-00c (dev): an input script's `quit` stops the loop after its frame has rendered.
+        if (quitAfterFrame_) {
+            applyEngineMarkRunningEffect(false);
+        }
 
         FrameMark; // Tracy frame marker
         if (maxFrames_ > 0 && ++frames >= maxFrames_) applyEngineMarkRunningEffect(false);
     }
-    return captureSucceeded_ && !flowError;
+    return captureSucceeded_ && !flowError && !driverFailed_;
 }
 
 void Engine::processInput() {
@@ -347,6 +383,26 @@ void Engine::processInput() {
         .frameIndex = CurrentEngineFrameIndex(registry)
     };
     FInputState* input = BeginEngineInputFrameAbility(registry, inputRequest);
+
+    // WP-00c (dev): scripted input is pushed before the poll loop, so ImGui and the game see ordinary SDL events.
+    if (inputInjector_ && window) {
+        FInjectedFrame injected = inputInjector_(
+            static_cast<std::uint32_t>(CurrentEngineFrameIndex(registry)), SDL_GetWindowID(window.get()));
+        pendingCaptures_.insert(pendingCaptures_.end(), injected.captures.begin(), injected.captures.end());
+        quitAfterFrame_ = quitAfterFrame_ || injected.quit;
+        // `expect state`: the top when this frame begins (before this frame's update); a mismatch fails the run.
+        for (const auto& [line, stateId] : injected.expectStates) {
+            const std::string_view top =
+                stateMachine.stack().empty() ? std::string_view{} : stateMachine.stack().back().id;
+            if (top == stateId) {
+                LOG_INFO("Input script line {}: state '{}' ok", line, stateId);
+            } else {
+                LOG_ERROR("Input script line {}: expected state '{}', top is '{}'", line, stateId, top);
+                driverFailed_ = true;
+                quitAfterFrame_ = true;
+            }
+        }
+    }
 
     const FEngineAbilityRequest pollRequest{
         .ability = EEngineAbility::PollInputEvents,
@@ -453,11 +509,17 @@ void Engine::render() {
 
     (void)ApplyEngineRenderImGuiDrawDataEffect(renderer.get());
     if (!screenshotPath_.empty() && CurrentEngineFrameIndex(registry) == maxFrames_) {
-        SDL_Surface* surface = SDL_RenderReadPixels(renderer.get(), nullptr);
-        captureSucceeded_ = surface && IMG_SavePNG(surface, screenshotPath_.c_str());
-        if (!captureSucceeded_) { LOG_ERROR("Frame capture failed: {}", SDL_GetError()); }
-        SDL_DestroySurface(surface);
+        captureSucceeded_ = saveFrameCapture(screenshotPath_);
     }
+    // WP-00c (dev): `capture` commands save after this frame's ImGui draw without stopping the run.
+    for (const std::string& path : pendingCaptures_) {
+        if (saveFrameCapture(path)) {
+            LOG_INFO("Input script capture saved: {}", path);
+        } else {
+            captureSucceeded_ = false;
+        }
+    }
+    pendingCaptures_.clear();
     const FEngineEffectResult presentResult = ApplyEnginePresentBackbufferEffect(renderer.get());
 
     const FEngineAbilityRequest presentRequest{
@@ -465,6 +527,16 @@ void Engine::render() {
         .frameIndex = renderRequest.frameIndex
     };
     EndEngineRenderAbility(registry, presentRequest, presentResult.applied);
+}
+
+bool Engine::saveFrameCapture(const std::string& path) {
+    SDL_Surface* surface = SDL_RenderReadPixels(renderer.get(), nullptr);
+    const bool saved = surface != nullptr && IMG_SavePNG(surface, path.c_str());
+    if (!saved) {
+        LOG_ERROR("Frame capture failed: {}", SDL_GetError());
+    }
+    SDL_DestroySurface(surface);
+    return saved;
 }
 
 void Engine::shutdown() {

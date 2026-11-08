@@ -2,11 +2,13 @@
 
 #include <SDL3/SDL.h>
 #include <entt/entt.hpp>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "core/SDLDeleter.h"
@@ -26,6 +28,25 @@ namespace game {
 /// top that keeps itself visible under modals to render-only, then enable the top's RequiredSystems.
 /// Returns the required names that are not registered (the caller logs them).
 [[nodiscard]] std::vector<std::string_view> ApplyStackSystemPolicy(const GameStateMachine& machine, SystemManager& systemManager);
+
+/// WP-00c (dev): what a per-frame driver asks the loop to do.
+enum class EFrameDriverResult : std::uint8_t { Continue, Stop, Fail };
+
+/// WP-00c (dev): called once per frame after update() and before render(), with the top state's catalog id.
+using FFrameDriver = std::function<EFrameDriverResult(entt::registry&, std::string_view topStateId)>;
+
+/// WP-00c (dev): what an input injector asks of this frame besides the SDL events it pushed.
+struct FInjectedFrame {
+    std::vector<std::string> captures;                     // PNG paths to save after this frame's ImGui draw
+    bool quit{false};                                      // stop the loop cleanly after this frame
+    std::vector<std::pair<int, std::string>> expectStates;  // (script line, expected top state id)
+};
+
+/// WP-00c (dev): pushes this frame's scripted SDL events before the poll loop (e.g. --input-script).
+using FInputInjector = std::function<FInjectedFrame(std::uint32_t frame, SDL_WindowID window)>;
+
+/// WP-00c (dev): fixed simulation step for scripted runs, so frame N is the same moment on every run.
+inline constexpr float kScriptFixedDeltaSeconds = 1.f / 60.f;
 
 /**
  * Central Engine class.
@@ -47,6 +68,13 @@ public:
     void shutdown();
     void setOverlayRenderer(std::function<void(entt::registry&, const Time&, const SystemManager&)> renderer);
 
+    /// WP-00c (dev): inject this script's due events before each frame's SDL_PollEvent loop; fixedTimestep
+    /// feeds the run loop kScriptFixedDeltaSeconds instead of the wall dt; unset = no injection.
+    void setInputInjector(FInputInjector injector, bool fixedTimestep);
+
+    /// WP-00c (dev): per-frame driver after update() (e.g. the run autopilot); unset = no call.
+    void setFrameDriver(FFrameDriver driver);
+
     /// Inject the app-flow state catalog before initialize(). The engine creates no state itself: the start
     /// state is created once from this catalog in applyStartupStateOverride().
     void setStateCatalog(FStateCatalog catalog);
@@ -66,6 +94,7 @@ private:
     void processInput();
     void update(float dt);
     void render();
+    bool saveFrameCapture(const std::string& path);
     void applyStateTransition(const FStateTransition& transition);
     void syncStateSystemPolicy();
     void updateAppFlowRuntimeState();
@@ -109,6 +138,14 @@ private:
     std::uint32_t maxFrames_{0};
     std::string screenshotPath_;
     bool captureSucceeded_{true};
+
+    // WP-00c (dev) hooks: all inert unless an injector/driver is installed.
+    FInputInjector inputInjector_;
+    bool fixedTimestep_{false};
+    std::vector<std::string> pendingCaptures_;
+    bool quitAfterFrame_{false};
+    FFrameDriver frameDriver_;
+    bool driverFailed_{false};
 };
 
 } // namespace game

@@ -8,6 +8,8 @@
 #include "ecs/components/FPosition.h"
 #include "ecs/components/FSprite.h"
 #include "debug/TurnDemo.h"
+#include "dev/FInputScript.h"
+#include "dev/FRunAutopilot.h"
 #include "ecs/systems/AnimationSystem.h"
 #include "ecs/systems/BattleAnimationSystem.h"
 #include "ecs/systems/ActionResolverSystem.h"
@@ -42,7 +44,12 @@
 
 #include <cstdlib>
 #include <charconv>
+#include <memory>
+#include <optional>
+#include <string>
 #include <string_view>
+#include <system_error>
+#include <vector>
 
 namespace {
 
@@ -113,6 +120,7 @@ int main(int argc, char* argv[])
 {
     std::uint32_t maxFrames = 0;
     std::string screenshotPath;
+    std::string inputScriptPath;
     game::EGameMode mode = game::EGameMode::Ember;
     if (const char* value = SDL_getenv("GAME01P_MODE"); value && std::string_view(value) == "forest") {
         mode = game::EGameMode::Forest;
@@ -133,6 +141,8 @@ int main(int argc, char* argv[])
         else if (argument == "--capture" && index + 1 < argc) {
             screenshotPath = argv[++index];
             if (maxFrames == 0) maxFrames = 12;
+        } else if (argument == "--input-script" && index + 1 < argc) {
+            inputScriptPath = argv[++index];
         } else if (argument == "--frames" && index + 1 < argc) {
             const std::string_view count(argv[++index]);
             const auto result = std::from_chars(count.data(), count.data() + count.size(), maxFrames);
@@ -157,6 +167,18 @@ int main(int argc, char* argv[])
             return EXIT_FAILURE;
         }
     }
+
+    // [WP-00c] dev: parse the input script before the engine opens SDL; a bad script exits naming its line.
+    std::optional<std::vector<game::dev::FScriptCommand>> inputScriptCommands;
+    if (!inputScriptPath.empty()) {
+        auto loadedScript = game::dev::LoadInputScript(inputScriptPath);
+        if (!loadedScript) {
+            SDL_Log("%s", loadedScript.error().message.c_str());
+            return EXIT_FAILURE;
+        }
+        inputScriptCommands = std::move(*loadedScript);
+    }
+
     game::Engine engine;
 
     const bool ember = mode == game::EGameMode::Ember;
@@ -165,6 +187,22 @@ int main(int argc, char* argv[])
     engine.setStateCatalog(ember ? game::FStateCatalog::MakeEmber() : game::FStateCatalog::MakeForest());
     if (!engine.initialize(ember ? "Ember Dungeon - Game01P" : "Game01P - Forest Prototype", windowWidth, windowHeight)) {
         return EXIT_FAILURE;
+    }
+    if (inputScriptCommands) {
+        auto inputScript = std::make_shared<game::dev::FInputScript>(std::move(*inputScriptCommands));
+        engine.setInputInjector(
+            [inputScript](std::uint32_t frame, SDL_WindowID window) {
+                game::dev::FInputScriptFrame scripted = inputScript->inject(frame, window);
+                game::FInjectedFrame injected;
+                injected.captures = std::move(scripted.captures);
+                injected.quit = scripted.quit;
+                injected.expectStates.reserve(scripted.expects.size());
+                for (const game::dev::FScriptCommand& command : scripted.expects) {
+                    injected.expectStates.emplace_back(command.line, command.path);
+                }
+                return injected;
+            },
+            /*fixedTimestep=*/true);
     }
 
     engine.getRegistry().ctx().emplace<game::FGameMode>(mode);
@@ -246,6 +284,53 @@ int main(int argc, char* argv[])
     }
 
     engine.applyStartupStateOverride();
+
+    // [WP-00c] dev autopilot: plays the non-battle run phases through the same model functions the run views
+    // call. Battles stay with GAME01P_AUTOPLAY=1. Unset env = zero behaviour change.
+    std::shared_ptr<game::dev::FRunAutopilot> autopilot;
+    if (const char* policyText = std::getenv(game::dev::kAutopilotEnv); policyText != nullptr && policyText[0] != '\0') {
+        if (!ember) {
+            SDL_Log("GAME01P_AUTOPILOT is ember-only; ignoring it in forest mode.");
+        } else {
+            const bool defaultPolicy = std::string_view(policyText) == "1" || std::string_view(policyText) == "default";
+            const std::string_view policyValue =
+                defaultPolicy ? game::dev::kDefaultAutopilotPolicy : std::string_view(policyText);
+            const auto policy = game::dev::ParseAutopilotPolicy(policyValue);
+            if (!policy) {
+                SDL_Log("GAME01P_AUTOPILOT: %s", policy.error().c_str());
+                shutdown();
+                return EXIT_FAILURE;
+            }
+            int maxRooms = 0;
+            if (const char* roomsText = std::getenv(game::dev::kAutopilotMaxRoomsEnv);
+                roomsText != nullptr && roomsText[0] != '\0') {
+                const std::string_view rooms(roomsText);
+                const auto roomsResult = std::from_chars(rooms.data(), rooms.data() + rooms.size(), maxRooms);
+                if (roomsResult.ec != std::errc{} || roomsResult.ptr != rooms.data() + rooms.size() || maxRooms < 1) {
+                    SDL_Log("GAME01P_AUTOPILOT_MAX_ROOMS must be an integer >= 1.");
+                    shutdown();
+                    return EXIT_FAILURE;
+                }
+            }
+            autopilot = std::make_shared<game::dev::FRunAutopilot>(*policy, maxRooms);
+            engine.setFrameDriver([autopilot](entt::registry& registry, std::string_view topStateId) {
+                switch (autopilot->tick(registry, topStateId)) {
+                case game::dev::EAutopilotStatus::Running:
+                    return game::EFrameDriverResult::Continue;
+                case game::dev::EAutopilotStatus::Finished:
+                    return game::EFrameDriverResult::Stop;
+                case game::dev::EAutopilotStatus::Stuck:
+                    return game::EFrameDriverResult::Fail;
+                }
+                return game::EFrameDriverResult::Continue;
+            });
+            LOG_INFO("[autopilot] policy='{}' max_rooms={}", policyValue, maxRooms);
+            if (const char* autoplay = std::getenv("GAME01P_AUTOPLAY");
+                autoplay == nullptr || std::string_view(autoplay) != "1") {
+                LOG_WARN("[autopilot] GAME01P_AUTOPLAY is not 1: battles will wait for input");
+            }
+        }
+    }
 
     const bool succeeded = engine.run(maxFrames, screenshotPath);
 
