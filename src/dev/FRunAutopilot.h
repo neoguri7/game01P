@@ -14,6 +14,10 @@ namespace game::dev {
 /// functions the run views call (ResolveRuneOffer, PurchaseCampRuneOffer, UpgradeDungeonStat, PostRunIntent,
 /// the title's FMenuRequest) — never through ImGui. Battles stay with GAME01P_AUTOPLAY=1. With GAME01P_SEED
 /// the same policy + seed must produce the same run log. Every decision writes one `[autopilot] ...` LOG_INFO.
+/// Timing: the autopilot keeps the engine's wall-clock dt (only `--input-script` fixes dt to 1/60): decisions are
+/// keyed by run state (top id, depth, room, phase), never by frame, so separate-process runs of one seed produce
+/// identical run logs. Wall-time metrics (battle seconds) of a headless run are therefore not comparable with
+/// windowed runs (software rendering is ~9 fps in Debug).
 
 /// Environment keys (read with std::getenv by the composition root; SDL_getenv caches the environment).
 inline constexpr const char* kAutopilotEnv = "GAME01P_AUTOPILOT";

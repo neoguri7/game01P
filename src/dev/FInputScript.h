@@ -41,6 +41,8 @@ namespace game::dev {
 /// <frame>+2); at the current point the down is at <frame> and the click's up at <frame>+1. `up` pushes motion
 /// first only when the point changed, then the release on the same frame. Scripts never read SDL device state
 /// (SDL_GetMouseState/KeyboardState are not updated by pushed events).
+/// Limit: do not script a `move` to another point in the frame of a new-point `click`/`down` or the frame after —
+/// the delayed press would then re-push motion and press in one frame (the P2 leak). Click, then move.
 
 enum class EScriptCommand : std::uint8_t { Move, Click, Down, Up, Key, Wheel, Capture, Quit, ExpectState };
 

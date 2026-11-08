@@ -1,8 +1,10 @@
 // WP-00c (M3) tests: the windowless input script (parser + SDL injector), the injected SDL path under the
 // dummy video driver + software renderer — into ImGui and into the game's FInputState (the click-timing
 // rule keeps a HUD press out of the grid) — plus `expect state`, the autopilot policy parser, and the run
-// autopilot driving a seeded ship-content run through reward/event/camp into dungeon 2 (twice, identical
-// run-log events; plus an equip=auto drive that fits a picked rune).
+// autopilot driving a seeded run through reward/event/camp into dungeon 2 (twice, identical run-log events;
+// plus an equip=auto drive that fits a picked rune). The run tests read the FROZEN FIXTURE
+// (TestAssetRoots) and force every room victory — the autopilot is the unit under test, so no assertion may
+// depend on a battle outcome (and therefore on ship balance; critic F1).
 #define GAME01P_TEST_SUPPORT_CHECK
 #include "../TestSupport.h"
 
@@ -29,12 +31,7 @@
 #include "core/InputState.h"
 #include "dev/FInputScript.h"
 #include "dev/FRunAutopilot.h"
-#include "ecs/systems/ActionResolverSystem.h"
-#include "ecs/systems/CombatOutcomeSystem.h"
-#include "ecs/systems/TurnFlowSystem.h"
-#include "ecs/systems/TurnSystem.h"
 #include "gameplay/GameplayServices.h"
-#include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/dungeon/FRunFlow.h"
@@ -199,9 +196,11 @@ void RejectsEachErrorKind() {
 // ---------------------------------------------------------------------------------------------
 
 void InjectsClickIntoImGuiUnderDummyDriver() {
-    // The same windowless pair game-headless.ps1 uses; the hints must be set before SDL_Init.
-    CHECK(SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy"));
-    CHECK(SDL_SetHint(SDL_HINT_RENDER_DRIVER, "software"));
+    // The same windowless pair game-headless.ps1 uses. SDL_SetHintWithPriority + SDL_HINT_OVERRIDE: a plain
+    // SDL_SetHint returns false when the same env var is set (SDL3: the env var beats normal priority — the
+    // critic's F2), and the driver CHECK below is the real guarantee.
+    SDL_SetHintWithPriority(SDL_HINT_VIDEO_DRIVER, "dummy", SDL_HINT_OVERRIDE);
+    SDL_SetHintWithPriority(SDL_HINT_RENDER_DRIVER, "software", SDL_HINT_OVERRIDE);
     CHECK(SDL_Init(SDL_INIT_VIDEO));
     CHECK(std::string(SDL_GetCurrentVideoDriver()) == "dummy");
 
@@ -546,24 +545,23 @@ void ParsesAutopilotPolicy() {
 // 5./6. Run autopilot (the content_a FDungeonHarness recipe, test-local)
 // ---------------------------------------------------------------------------------------------
 
-/// A booted ember dungeon with the turn systems wired, plus a private run-log directory so two runs of
-/// the same seed never share log files (the file-id counter would make their log ids differ).
+/// A booted ember dungeon on the FROZEN FIXTURE content (critic F1: TestAssetRoots — never ship balance) plus
+/// a private run-log directory so two runs of the same seed never share log files (the file-id counter would
+/// make their log ids differ).
 struct FHeadlessRunHarness {
     std::filesystem::path checkpoint;
     std::filesystem::path runSave;
     std::filesystem::path logDir;
     entt::registry registry;
-    game::ecs::TurnSystem turns;
 
     explicit FHeadlessRunHarness(std::uint32_t seed, std::string_view label) {
         checkpoint = SaveDirRoot() / ("headless-tools-" + UniqueSuffix(label) + ".json");
         logDir = SaveDirRoot() / ("headless-logs-" + UniqueSuffix(label));
-        game::FAssetManager::Initialize(registry, ShipAssetRoots());
+        game::FAssetManager::Initialize(registry, TestAssetRoots());
         CHECK(game::gameplay::FGameplayServices::Initialize(registry));
         CHECK(game::InitializeDungeon(registry, checkpoint.string()));
         game::InitializeRunLog(registry, logDir.string());
         if (const auto* save = registry.ctx().find<game::FDungeonSave>()) runSave = save->path;
-        turns.onRegister(registry);
         game::StartDungeonRun(registry, seed, true);
     }
 
@@ -582,45 +580,18 @@ struct FHeadlessRunHarness {
     FHeadlessRunHarness(const FHeadlessRunHarness&) = delete;
     FHeadlessRunHarness& operator=(const FHeadlessRunHarness&) = delete;
 
-    struct FBattleResult {
-        bool resolved{false};
-        bool victory{false};
-        int rounds{0};
-        bool roomResolved{false};  // ResolveRoomVictory succeeded while the battle was still entered
-    };
-
-    /// Sets up the current room's battle and auto-plays it to resolution (both sides), then resolves the
-    /// room through the real flow (ResolveRoomVictory) BEFORE OnExit — the game's order
+    /// Sets up the current room the way the game does (FEmberBattleState::OnEnter builds the battle scene,
+    /// the party entities included) and resolves it through the real flow with a FORCED victory, then exits.
+    /// The autopilot is the unit under test, not combat: forcing the result is what keeps the run
+    /// deterministic on the frozen fixture instead of depending on a battle outcome a balance change could
+    /// flip (critic F1). The resolution runs while the battle is still entered — the game's order
     /// (FEmberBattleState::Update ~:240) — so CaptureRunParty captures the real party and its skill slots.
-    FBattleResult PlayBattle() {
-        FBattleResult result;
-        auto& r = registry;
+    void ForceRoomVictory() {
         FEmberBattleState battle;
-        battle.OnEnter(r);
-        auto* combat = r.ctx().find<game::FCombatRuntime>();
-        CHECK(combat != nullptr);  // OnEnter fully set the battle up
-        combat->autoPlay = true;
-        game::ecs::TurnFlowSystem flow;
-        game::ecs::ActionResolverSystem actions;
-        game::ecs::CombatOutcomeSystem outcomes;
-        std::uint64_t steps = 0;
-        while (!r.ctx().get<game::FBattleOutcome>().resolved && steps++ < 6000) {
-            turns.update(r, .1f);
-            flow.update(r, .1f);
-            actions.update(r, .1f);
-            outcomes.update(r, .1f);
-        }
-        const auto& outcome = r.ctx().get<game::FBattleOutcome>();
-        result.resolved = outcome.resolved;
-        result.victory = outcome.victory;
-        result.rounds = static_cast<int>(r.ctx().get<game::FTurnRuntime>().controller.snapshot().roundNumber);
-        if (result.resolved) {
-            const auto resolved = game::ResolveRoomVictory(r, result.victory);
-            CHECK(resolved.has_value());
-            result.roomResolved = resolved.has_value();
-        }
-        battle.OnExit(r);
-        return result;
+        battle.OnEnter(registry);
+        const auto resolved = game::ResolveRoomVictory(registry, true);
+        CHECK(resolved.has_value());
+        battle.OnExit(registry);
     }
 };
 
@@ -725,9 +696,9 @@ enum class EDriveStop : std::uint8_t {
     FirstEquip,  // the run log has its first successful rune equip (the equip=auto drive)
 };
 
-/// Drives one seeded ship-content run with `policyText`: battle rooms auto-play (PlayBattle, which resolves
-/// the room through the real flow before OnExit), then the modal host consumes the autopilot's posted intent
-/// exactly like the game (ApplyRunIntent). `stop` picks the success condition.
+/// Drives one seeded fixture-content run with `policyText`: every battle room is set up and forced to victory
+/// (ForceRoomVictory), then the modal host consumes the autopilot's posted intent exactly like the game
+/// (ApplyRunIntent). `stop` picks the success condition.
 FAutopilotDrive DriveAutopilot(std::uint32_t seed, std::string_view label, std::string_view policyText,
                                EDriveStop stop) {
     FAutopilotDrive drive;
@@ -747,9 +718,7 @@ FAutopilotDrive DriveAutopilot(std::uint32_t seed, std::string_view label, std::
             break;
         }
         if (run.phase == game::EDungeonPhase::Battle) {
-            const FHeadlessRunHarness::FBattleResult battle = harness.PlayBattle();
-            CHECK(battle.resolved);
-            CHECK(battle.roomResolved);
+            harness.ForceRoomVictory();
             continue;
         }
         if (run.phase == game::EDungeonPhase::Camp) ++drive.campsVisited;
@@ -790,7 +759,9 @@ FAutopilotDrive DriveAutopilot(std::uint32_t seed, std::string_view label, std::
 }
 
 void AutopilotDrivesSeededRunIntoDungeonTwo() {
-    // Seed 469 is the WP-00c acceptance seed (GAME01P_AUTOPILOT + GAME01P_SEED=469 reaches dungeon 2).
+    // Seed 469 keeps the drive reproducible; on the frozen fixture the run shape is fixed and every victory is
+    // forced (critic F1), so the assertion never rides on shipped balance — the ship run stays with
+    // mfun-headless.ps1 / the exe acceptance proof.
     const FAutopilotDrive first =
         DriveAutopilot(469u, "seed-469-a", game::dev::kDefaultAutopilotPolicy, EDriveStop::DungeonTwo);
     CHECK(!first.stuck);
@@ -819,25 +790,21 @@ void AutopilotDrivesSeededRunIntoDungeonTwo() {
     CHECK(divergence == first.events.size());
 }
 
-/// WP-27 equip=auto: after every pick the autopilot fits the picked rune into the first legal socket, so a
-/// real party skill slot carries it (captured before OnExit) and the run log has its `loadout` line. The
-/// drive stops at that first fit; if seed 469 never fits a rune in dungeon 1 it stops at dungeon 2 instead.
+/// WP-27 equip=auto on the frozen fixture: every offered candidate is legal (the offer gate and the equip
+/// validator use the same base-skill tag rule) and dungeon 1's pity (threshold 2, three battle rooms) forces
+/// at least one offer, so the first fit is guaranteed — asserted unconditionally (critic F5). The autopilot
+/// fits the picked rune into the first legal socket, so a real party skill slot carries it (captured before
+/// OnExit) and the run log has its `loadout` line.
 void AutopilotEquipFitsPickedRune() {
     const std::string policyText = std::string(game::dev::kDefaultAutopilotPolicy) + ",equip=auto";
     const FAutopilotDrive drive = DriveAutopilot(469u, "seed-469-equip", policyText, EDriveStop::FirstEquip);
     CHECK(!drive.stuck);
-    if (drive.equipped) {
-        CHECK(drive.fittedRunes >= 1);
-        CHECK(drive.loadoutEquips >= 1);
-        CHECK(!drive.equipRune.empty());
-        // The log's equip line and the run party agree: the logged rune sits in a real skill slot.
-        CHECK(PartyHasRune(drive.party, drive.equipRune));
-    } else {
-        // Seed 469 offered no fittable rune before dungeon 2: say so loudly (the drive stayed clean).
-        CHECK(drive.reachedDungeonTwo || drive.finished);
-        std::cout << "[report] equip=auto: seed 469 fitted no rune in dungeon 1 (rewards "
-                  << drive.rewardsSeen << ", fitted " << drive.fittedRunes << ")\n";
-    }
+    CHECK(drive.equipped);  // the fixture composition fixes the offer and the fit
+    CHECK(drive.fittedRunes >= 1);
+    CHECK(drive.loadoutEquips >= 1);
+    CHECK(!drive.equipRune.empty());
+    // The log's equip line and the run party agree: the logged rune sits in a real skill slot.
+    CHECK(PartyHasRune(drive.party, drive.equipRune));
 }
 
 void AutopilotStopsAtRoomLimit() {
@@ -846,10 +813,8 @@ void AutopilotStopsAtRoomLimit() {
     FHeadlessRunHarness harness{469u, "room-limit"};
     FRunAutopilot pilot{*policy, 1};
 
-    // Room 1: auto-play the battle; PlayBattle resolves the room through the real flow before OnExit.
-    const FHeadlessRunHarness::FBattleResult battle = harness.PlayBattle();
-    CHECK(battle.resolved);
-    CHECK(battle.roomResolved);
+    // Room 1: set up the room and force the victory through the real resolution path.
+    harness.ForceRoomVictory();
     auto& run = harness.registry.ctx().get<game::FDungeonRun>();
     CHECK(run.phase == game::EDungeonPhase::Reward);
 
