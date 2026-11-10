@@ -46,3 +46,8 @@ Each line: source review · item · why it was deferred. A new WP picks items fr
 - The event popup can now hold rune cards plus the fork panel: check its height at 1280x800 in the playtest (no no-scroll test exists for it, unlike the reward modal).
 - The autopilot's `fork=variant` policy exists but no simulation config uses it yet; elite and event numbers are untuned.
 - Spec process: shipped-content tests that drive events through the legacy one-step `ChooseEventRest` break when option 0 of a new event is gated or opens an offer; a WP that ships events should grep for `ChooseEventRest`/`ChooseEventLoot` callers first.
+
+## From the design improve-loop (2026-11-11)
+- Headless baseline could not be taken: `SDL_VIDEODRIVER=dummy GAME01P_SAVE_DIR=out/sim/s1 GAME01P_SEED=1 GAME01P_AUTOPLAY=1 GAME01P_AUTOPILOT=default GAME01P_AUTOPILOT_MAX_ROOMS=6 out/build/windows-msvc-agent/Debug/game01P.exe` logged `[autopilot] title: start fresh run` and then nothing for 240 s (no run log folder was written, exit by timeout). Find out whether the battle is running in real time without logs or the frame loop is stalled, before any baseline or simulation is planned (`docs/design/proposals.md` P10 step 2 depends on it).
+- Implementation differs from 확정 rulings in five places (EXP distribution, hard-coded seal amounts, seal gates on every unlock, respec paid in materials, free heals alongside the paid heal) — listed in `docs/design/foundation.md` §2; each needs a ruling or a fix.
+- `expansion-plan.md` §5.1 cites "Hades doors show the reward" as a basis; it could not be verified from any source (`docs/digests/r3/verify/r3-verify.md`).
