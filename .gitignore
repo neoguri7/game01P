@@ -12,6 +12,8 @@ Testing/
 .ninja_log
 docs/*
 !docs/wp/
+!docs/design/
+!docs/playtest/
 .claude/settings.local.json
 
 
