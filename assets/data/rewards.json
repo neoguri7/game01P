@@ -10,5 +10,10 @@
     "duplicate_refund_materials": 1,
     "duplicate_policy": "refund"
   },
-  "boss_offer": "guaranteed"
+  "boss_offer": "guaranteed",
+  "rarity_tables": {
+    "normal": {"common": 60, "uncommon": 30, "rare": 10},
+    "boosted": {"common": 30, "uncommon": 50, "rare": 20},
+    "boss": {"common": 0, "uncommon": 60, "rare": 40}
+  }
 }

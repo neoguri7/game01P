@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <vector>
@@ -97,23 +98,66 @@ void DrawRuneOfferForecastLine(const RuneOfferForecast& forecast) {
     }
 }
 
+/// WP-40 §4.4: the card border and rarity line colours.
+constexpr ImU32 kCommonColour = IM_COL32(140, 128, 108, 255);
+constexpr ImU32 kUncommonColour = IM_COL32(80, 140, 255, 255);
+constexpr ImU32 kRareColour = IM_COL32(240, 206, 128, 255);
+
+struct FRarityLook {
+    ImU32 colour;
+    float thickness;
+    const char* label;
+};
+
+FRarityLook RarityLook(gameplay::ERuneRarity rarity) {
+    switch (rarity) {
+    case gameplay::ERuneRarity::Uncommon: return {kUncommonColour, 2.f, "Uncommon rune"};
+    case gameplay::ERuneRarity::Rare: return {kRareColour, 3.f, "Rare rune"};
+    case gameplay::ERuneRarity::Common: break;
+    }
+    return {kCommonColour, 1.f, "Common rune"};
+}
+
+gameplay::ERuneRarity RarityOfRune(const gameplay::FRuneContent* rune) {
+    return rune != nullptr ? rune->rarity : gameplay::ERuneRarity::Common;
+}
+
 /// One offer card: name, what it does, which party skills accept it, the duplicate refund, and its Pick
 /// button. Returns true when the pick resolved the offer.
 bool DrawRuneOfferCard(
     entt::registry& registry, const FRewards& rewards, const gameplay::FContentRegistry* content,
     std::size_t index, const std::string& runeId) {
     ImGui::PushID(static_cast<int>(index));
+    ImGui::BeginGroup();
     const auto* rune = content != nullptr ? content->runes.find(runeId) : nullptr;
-    ImGui::SeparatorText(rune != nullptr ? rune->displayName.c_str() : runeId.c_str());
+    const FRarityLook look = RarityLook(RarityOfRune(rune));
+    const ImVec4 lookColour = ImGui::ColorConvertU32ToFloat4(look.colour);
+    // WP-40: one title row (Pick, name, rarity) keeps three cards inside the 1280x800 reward modal.
+    const bool resolved = ui::Button("Pick", {84, 28}) && ResolveRuneOffer(registry, static_cast<int>(index));
+    ImGui::SameLine();
+    ImGui::TextColored(lookColour, "%s", rune != nullptr ? rune->displayName.c_str() : runeId.c_str());
+    ImGui::SameLine();
+    ImGui::TextColored(lookColour, "%s", look.label);
     if (rune != nullptr) ImGui::TextWrapped("%s", RuneEffectSummary(*rune, content).c_str());
-    const auto fitting = RuneFittingSkillNames(registry, runeId);
     // WP-27: TextWrapped, not TextDisabled — a long "Fits:" line must fold instead of being clipped.
-    ImGui::TextWrapped("Fits: %s", fitting.empty() ? "no current party skill" : Join(fitting).c_str());
+    // WP-40: the inline text is capped; the full before/after numbers are in the hover tooltip.
+    const auto previews = rune != nullptr ? RuneFitPreviews(registry, runeId) : std::vector<FRuneFitPreview>{};
+    if (previews.empty()) {
+        ImGui::TextWrapped("Fits: no current party skill");
+    } else {
+        std::vector<std::string> lines;
+        for (const auto& preview : previews) lines.push_back(RuneFitPreviewLine(preview, *rune, content));
+        ImGui::TextWrapped("Fits: %s", RuneFitInline(lines).c_str());
+        if (ImGui::IsItemHovered() && lines.size() > 3) {
+            ImGui::BeginTooltip();
+            for (const auto& line : lines) ImGui::TextUnformatted(line.c_str());
+            ImGui::EndTooltip();
+        }
+    }
     if (IsRuneOwned(registry, runeId) && rewards.tables.duplicatePolicy == kRewardDuplicatePolicyRefund) {
         ImGui::TextColored({.84f, .72f, .36f, 1}, "Already owned — +%d materials",
                            rewards.tables.duplicateRefundMaterials);
     }
-    const bool resolved = ui::Button("Pick", {180, 34}) && ResolveRuneOffer(registry, static_cast<int>(index));
     if (resolved) {
         // WP-27: remember the pick so the reward modal can fit it on the spot. Only the Reward phase may
         // record it — a camp-purchased offer must not leave a stale id for the next reward modal. WP-27h: a
@@ -125,11 +169,89 @@ bool DrawRuneOfferCard(
             ui.pickedRuneFit.clear();
         }
     }
+    ImGui::EndGroup();
+    // The rarity border: the group's rect moved 4 px outward (ImVec2 math operators are disabled).
+    const ImVec2 itemMin = ImGui::GetItemRectMin();
+    const ImVec2 itemMax = ImGui::GetItemRectMax();
+    ImGui::GetWindowDrawList()->AddRect(
+        ImVec2(itemMin.x - 4.f, itemMin.y - 4.f), ImVec2(itemMax.x + 4.f, itemMax.y + 4.f), look.colour, 4.f, 0,
+        look.thickness);
+    ImGui::Spacing();
     ImGui::PopID();
     return resolved;
 }
 
 } // namespace
+
+std::vector<std::size_t> RuneOfferDisplayOrder(
+    const std::vector<std::string>& candidates, const gameplay::FContentRegistry* content) {
+    std::vector<std::size_t> order(candidates.size());
+    for (std::size_t index = 0; index < order.size(); ++index) order[index] = index;
+    const auto rarityAt = [&](std::size_t index) {
+        return RarityOfRune(content != nullptr ? content->runes.find(candidates[index]) : nullptr);
+    };
+    std::stable_sort(order.begin(), order.end(),
+                     [&](std::size_t left, std::size_t right) { return rarityAt(left) < rarityAt(right); });
+    return order;
+}
+
+std::string RuneOfferOddsLine(const FRewards& rewards) {
+    if (rewards.offer.rarityTable.empty()) return {};
+    const FRarityWeights* table = FindRarityTable(rewards.tables, rewards.offer.rarityTable);
+    if (table == nullptr) return {};
+    const double sum = static_cast<double>(table->common + table->uncommon + table->rare);
+    if (sum <= 0.0) return {};
+    const auto percent = [sum](int weight) { return std::lround(100.0 * static_cast<double>(weight) / sum); };
+    return "Odds (" + table->name + "): Common " + std::to_string(percent(table->common)) + "% / Uncommon " +
+           std::to_string(percent(table->uncommon)) + "% / Rare " + std::to_string(percent(table->rare)) + "%";
+}
+
+std::string RuneFitInline(const std::vector<std::string>& lines, std::size_t maxShown) {
+    std::string inlineText;
+    for (std::size_t index = 0; index < lines.size() && index < maxShown; ++index) {
+        if (index > 0) inlineText += " | ";
+        inlineText += lines[index];
+    }
+    if (lines.size() > maxShown) inlineText += " | +" + std::to_string(lines.size() - maxShown) + " more (hover)";
+    return inlineText;
+}
+
+std::string RuneFitPreviewLine(
+    const FRuneFitPreview& preview, const gameplay::FRuneContent& rune, const gameplay::FContentRegistry* content) {
+    std::string line = preview.skillName + ": ";
+    if (preview.alreadyFitted) return line + "already fitted";
+    std::vector<std::string> parts;
+    const auto change = [&parts](const char* label, int before, int after) {
+        if (before != after) parts.push_back(std::string(label) + " " + std::to_string(before) + " -> " + std::to_string(after));
+    };
+    const FResolvedSkill& before = preview.before;
+    const FResolvedSkill& after = preview.after;
+    change("Power", before.power, after.power);
+    change("AP", before.apCost, after.apCost);
+    change("Range", before.range, after.range);
+    change("Area", before.areaRadius, after.areaRadius);
+    if (before.shape != after.shape) parts.push_back("Shape " + before.shape + " -> " + after.shape);
+    change("Life on hit", before.lifeOnHit, after.lifeOnHit);
+    for (const FResolvedStatus& status : after.statuses) {
+        const auto match = std::find_if(before.statuses.begin(), before.statuses.end(),
+                                        [&](const FResolvedStatus& other) { return other.statusId == status.statusId; });
+        const std::string name = StatusName(content, status.statusId);
+        if (match == before.statuses.end()) {
+            parts.push_back("+" + name);
+            continue;
+        }
+        if (match->durationDelta != status.durationDelta) {
+            parts.push_back(name + " duration " + Signed(status.durationDelta - match->durationDelta));
+        }
+        if (match->magnitudeDelta != status.magnitudeDelta) {
+            parts.push_back(name + " magnitude " + Signed(status.magnitudeDelta - match->magnitudeDelta));
+        }
+    }
+    if (!rune.hooks.empty()) parts.push_back("New effect");
+    line += parts.empty() ? std::string("no change") : Join(parts);
+    if (preview.socketsFull) line += " (sockets full)";
+    return line;
+}
 
 /// WP-27: the card's effect line — the same rune fields the resolver reads, in the order they are applied,
 /// plus one line per data-authored hook. The WP-03 preview needs a battle actor and the reward modal has
@@ -200,7 +322,9 @@ void DrawRuneOfferForecast(entt::registry& registry) {
 void DrawRuneOffers(entt::registry& registry, FRewards& rewards, const gameplay::FContentRegistry* content) {
     const std::vector<std::string> candidates = rewards.offer.candidates;
     ImGui::SeparatorText("CHOOSE A RUNE");
-    for (std::size_t index = 0; index < candidates.size(); ++index) {
+    if (const std::string odds = RuneOfferOddsLine(rewards); !odds.empty()) ImGui::TextDisabled("%s", odds.c_str());
+    // WP-40: cards are shown in ascending rarity (a rare is always last); each keeps its stored index.
+    for (const std::size_t index : RuneOfferDisplayOrder(candidates, content)) {
         if (DrawRuneOfferCard(registry, rewards, content, index, candidates[index])) return;
     }
     const std::string skipLabel = rewards.tables.skipRefundMaterials > 0

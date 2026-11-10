@@ -304,6 +304,8 @@ std::optional<std::string> PurchaseCampRuneOffer(entt::registry& registry) {
     }
     rewards.offer.active = true;
     rewards.offer.candidates = std::move(candidates);
+    const FRarityWeights* usedTable = FindRarityTable(rewards.tables, kRarityTableNormal);
+    rewards.offer.rarityTable = usedTable != nullptr ? usedTable->name : std::string{};
     progress.runeDrawsTotal += 1;
     progress.runeDrawsThisCamp = CampRuneDrawsThisCamp(progress, run.depth) + 1;
     progress.campDepth = static_cast<std::uint32_t>(run.depth);

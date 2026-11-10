@@ -34,6 +34,7 @@
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/combat/FBattleCommand.h"
 #include "gameplay/combat/FIntent.h"
+#include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonSave.h"
@@ -458,6 +459,50 @@ void OfferCampEventLogged() {
     CHECK(camps[0]["amount"] == upgradeCost);
     CHECK(camps[0]["member"] == 0);
     CHECK(camps[0]["depth"] == 1);
+}
+
+void OfferRecordCarriesRarities() {
+    FBoot boot(UniqueDir("run-log-rarities"));
+    auto& registry = boot.registry;
+    game::StartRun(registry, kSeed, true);
+    CHECK(!game::BuildDungeonBattlefield(registry).empty());
+    CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    auto& rewards = registry.ctx().get<game::FRewards>();
+    CHECK(rewards.offer.active);
+    CHECK(rewards.offer.candidates.size() >= 2u);
+
+    auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
+    const auto setRarity = [&](const std::string& id, game::gameplay::ERuneRarity rarity) {
+        for (auto& row : content.runes.rows) {
+            if (row.id == id) {
+                row.rarity = rarity;
+                row.rarityName = std::string(game::gameplay::RuneRarityName(rarity));
+            }
+        }
+    };
+    const std::vector<std::string> candidates = rewards.offer.candidates;
+    setRarity(candidates[0], game::gameplay::ERuneRarity::Rare);
+    setRarity(candidates[1], game::gameplay::ERuneRarity::Uncommon);
+    rewards.offer.rarityTable = "normal";
+    CHECK(game::ResolveRuneOffer(registry, 0));
+    CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward).has_value());
+    CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ChooseEventRest).has_value());
+
+    CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    CHECK(registry.ctx().get<game::FRewards>().offer.active);
+    CHECK(game::ResolveRuneOffer(registry, -1));
+
+    const auto offers = EventsOfType(boot.log(), "offer");
+    CHECK(offers.size() == 2u);
+    if (offers.size() == 2u) {
+        CHECK(offers[0]["table"] == "normal");
+        CHECK(offers[0]["picked_rarity"] == "rare");
+        CHECK(offers[0]["rarities"].is_array());
+        CHECK(offers[0]["rarities"].size() == candidates.size());
+        CHECK(offers[0]["rarities"][0] == "rare");
+        CHECK(offers[0]["rarities"][1] == "uncommon");
+        CHECK(offers[1]["picked_rarity"] == "");
+    }
 }
 
 void DecisionCountIncludesEvents() {
@@ -917,6 +962,7 @@ int main() {
         {"RoomEndCarriesStakes", RoomEndCarriesStakes},
         {"ReportSummarize", ReportSummarize},
         {"OfferCampEventLogged", OfferCampEventLogged},
+        {"OfferRecordCarriesRarities", OfferRecordCarriesRarities},
         {"RoundsCountedAcrossTurns", RoundsCountedAcrossTurns},
         {"HpLossIgnoresClamp", HpLossIgnoresClamp},
         {"SkillsCountedFromCommandResults", SkillsCountedFromCommandResults},

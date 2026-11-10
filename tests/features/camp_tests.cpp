@@ -730,6 +730,20 @@ void CampDrawCapPersists() {
     CHECK(game::ValidateCampRuneOfferPurchase(boot.registry).has_value());  // still capped at this camp
 }
 
+void CampOfferRecordsNormalTable() {
+    FBoot boot(UniquePath("camp-offer-table"));
+    StartFresh(boot);
+    auto& run = boot.run();
+    auto& rewards = boot.rewards();
+    rewards.tables.rarityTables = {{"normal", 60, 30, 10}, {"boosted", 30, 50, 20}, {"boss", 0, 60, 40}};
+    run.phase = game::EDungeonPhase::Camp;
+    run.materials = 100;
+    CHECK(!rewards.offer.active);
+    CHECK(!game::PurchaseCampRuneOffer(boot.registry).has_value());
+    CHECK(rewards.offer.active);
+    CHECK(rewards.offer.rarityTable == "normal");
+}
+
 void SinkPurchaseUsesOfferApi() {
     FBoot boot(UniquePath("camp-sink-api"));
     StartFresh(boot);
@@ -1113,6 +1127,7 @@ int main() {
         {"HoardRatioReported", HoardRatioReported},
         {"UnlimitedActionsByDefault", UnlimitedActionsByDefault},
         {"CostCurveAndSpecial", CostCurveAndSpecial},
+        {"CampOfferRecordsNormalTable", CampOfferRecordsNormalTable},
         {"PreviewUsesSequenceWhenPresent", PreviewUsesSequenceWhenPresent},
         {"CampDataValidationRejects", CampDataValidationRejects},
     });

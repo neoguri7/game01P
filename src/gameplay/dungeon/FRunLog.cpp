@@ -29,6 +29,7 @@
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/dungeon/FEncounterContent.h"
+#include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunLogSection.h"
 #include "gameplay/dungeon/FRunSequence.h"
@@ -407,13 +408,28 @@ void HandleRunEvent(entt::registry& registry, const FRunEvent& event) {
             const auto occurrences = std::ranges::count(run->runes, event.id);
             duplicate = event.amount > 0 || occurrences > 1;
         }
+        // WP-40: the offer is still open while this event is delivered (ResolveRuneOffer clears it afterwards).
+        const auto* rewards = registry.ctx().find<FRewards>();
+        const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
+        const auto rarityOf = [content](const std::string& id) -> std::string {
+            const auto* rune = content != nullptr ? content->runes.find(id) : nullptr;
+            return std::string(gameplay::RuneRarityName(rune != nullptr ? rune->rarity : gameplay::ERuneRarity::Common));
+        };
+        nlohmann::json rarities = nlohmann::json::array();
+        if (rewards != nullptr) {
+            for (const auto& candidate : rewards->offer.candidates) rarities.push_back(rarityOf(candidate));
+        }
+        const bool knownPick = !skipped && content != nullptr && content->runes.find(event.id) != nullptr;
         LogRunEvent(registry, nlohmann::json{{"t", "offer"},
                                              {"depth", event.depth},
                                              {"room", event.room},
                                              {"picked", event.id},
                                              {"skipped", skipped},
                                              {"duplicate", duplicate},
-                                             {"refund", event.amount}});
+                                             {"refund", event.amount},
+                                             {"table", rewards != nullptr ? rewards->offer.rarityTable : std::string{}},
+                                             {"rarities", std::move(rarities)},
+                                             {"picked_rarity", knownPick ? rarityOf(event.id) : std::string{}}});
         break;
     }
     case ERunEventKind::EventChosen:

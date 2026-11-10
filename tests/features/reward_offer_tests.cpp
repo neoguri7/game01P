@@ -39,6 +39,7 @@
 #include "gameplay/meta/FMetaProgress.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
+#include "presentation/FDungeonViews.h"
 #include "presentation/FModalViewRegistry.h"
 
 namespace {
@@ -827,6 +828,546 @@ void FixtureRewardsAreDeterministic() {
     CHECK(boot.rewards().pity == 0);
 }
 
+// --- WP-40: rune rarity --------------------------------------------------------------------------
+
+using game::gameplay::ERuneRarity;
+
+struct FTableSpec {
+    std::string name;
+    int common;
+    int uncommon;
+    int rare;
+};
+
+game::gameplay::FContentRegistry& ContentOf(FBoot& boot) {
+    return boot.registry.ctx().get<game::gameplay::FContentRegistry>();
+}
+
+void SetRarity(FBoot& boot, std::string_view runeId, ERuneRarity rarity) {
+    bool found = false;
+    for (auto& row : ContentOf(boot).runes.rows) {
+        if (row.id == runeId) {
+            row.rarity = rarity;
+            row.rarityName = std::string(game::gameplay::RuneRarityName(rarity));
+            found = true;
+        }
+    }
+    CHECK(found);
+}
+
+ERuneRarity RarityOf(FBoot& boot, std::string_view runeId) {
+    const auto* rune = ContentOf(boot).runes.find(std::string(runeId));
+    CHECK(rune != nullptr);
+    return rune != nullptr ? rune->rarity : ERuneRarity::Common;
+}
+
+void SetTables(FBoot& boot, const std::vector<FTableSpec>& specs) {
+    auto& tables = boot.rewards().tables.rarityTables;
+    tables.clear();
+    for (const auto& spec : specs) {
+        tables.push_back({spec.name, spec.common, spec.uncommon, spec.rare});
+    }
+}
+
+void SetShippedTables(FBoot& boot) {
+    SetTables(boot, {{"normal", 60, 30, 10}, {"boosted", 30, 50, 20}, {"boss", 0, 60, 40}});
+}
+
+/// Every rune of the content set to one rarity.
+void SetAllRarity(FBoot& boot, ERuneRarity rarity) {
+    for (auto& row : ContentOf(boot).runes.rows) {
+        row.rarity = rarity;
+        row.rarityName = std::string(game::gameplay::RuneRarityName(rarity));
+    }
+}
+
+void RarityTablesLoadAndValidate() {
+    FTempAssets assets("reward-tables");
+    assets.CopyGameplayData();
+    assets.Write("rewards.json", ReadJsonFile("assets/data/rewards.json"));
+    std::error_code error;
+    // The temp root's empty events.json would shadow the fixture's events: drop it so the fixture loads.
+    std::filesystem::remove(assets.root / "data" / "events.json", error);
+
+    const std::vector<std::string> roots{
+        assets.root.string(), std::string(kTestFixtureRoot), std::string(kShipAssetRoot)};
+    {
+        FBoot boot(UniquePath("reward-tables-boot"), roots);
+        CHECK(boot.rewards().tables.rarityTables.size() == 3u);
+        const auto expect = [&](std::string_view name, int c, int u, int r) {
+            const auto* found = game::FindRarityTable(boot.rewards().tables, name);
+            CHECK(found != nullptr);
+            if (found == nullptr) return;
+            CHECK(found->name == name);
+            CHECK(found->common == c && found->uncommon == u && found->rare == r);
+        };
+        expect("normal", 60, 30, 10);
+        expect("boosted", 30, 50, 20);
+        expect("boss", 0, 60, 40);
+    }
+
+    const auto base = ReadJsonFile("assets/data/rewards.json");
+    const auto edit = [&base](const auto& change) {
+        auto document = base;
+        change(document);
+        return document;
+    };
+    const std::vector<std::pair<const char*, json>> broken = {
+        {"array", edit([](json& d) { d["rarity_tables"] = json::array(); })},
+        {"table is a number", edit([](json& d) { d["rarity_tables"]["boss"] = 5; })},
+        {"negative weight", edit([](json& d) { d["rarity_tables"]["normal"]["rare"] = -1; })},
+        {"fractional weight", edit([](json& d) { d["rarity_tables"]["normal"]["rare"] = 1.5; })},
+        {"all zero", edit([](json& d) {
+             d["rarity_tables"]["boss"] = {{"common", 0}, {"uncommon", 0}, {"rare", 0}};
+         })},
+        {"normal missing", edit([](json& d) { d["rarity_tables"].erase("normal"); })},
+    };
+    for (const auto& [label, document] : broken) {
+        assets.Write("rewards.json", document);
+        const bool booted = BootsGameplay(roots);
+        if (booted) std::cout << "    accepted invalid rarity_tables: " << label << '\n';
+        CHECK(!booted);
+    }
+
+    auto without = base;
+    without.erase("rarity_tables");
+    assets.Write("rewards.json", without);
+    FBoot boot(UniquePath("reward-tables-off"), roots);
+    CHECK(boot.rewards().tables.rarityTables.empty());
+}
+
+void TierTableDrivesCardRarity() {
+    FBoot boot(UniquePath("reward-tier-drive"));
+    StartFresh(boot);
+    const auto legal = LegalRuneIds(boot);
+    const auto count = static_cast<std::size_t>(boot.rewards().tables.count);
+    CHECK(legal.size() >= 2 * count + 1);
+    SetAllRarity(boot, ERuneRarity::Common);
+    for (std::size_t index = 0; index < count + 1 && index < legal.size(); ++index) {
+        SetRarity(boot, legal[index], ERuneRarity::Rare);
+    }
+    SetTables(boot, {{"normal", 0, 0, 100}});
+    auto cards = game::PeekRuneCandidates(boot.registry);
+    CHECK(cards.size() == count);
+    for (const auto& id : cards) CHECK(RarityOf(boot, id) == ERuneRarity::Rare);
+
+    SetTables(boot, {{"normal", 100, 0, 0}});
+    cards = game::PeekRuneCandidates(boot.registry);
+    CHECK(cards.size() == count);
+    for (const auto& id : cards) CHECK(RarityOf(boot, id) != ERuneRarity::Rare);
+}
+
+void EmptyTierFallsDownThenUp() {
+    {  // (a) rare -> uncommon -> common
+        FBoot boot(UniquePath("reward-fall-a"));
+        StartFresh(boot);
+        const auto legal = LegalRuneIds(boot);
+        CHECK(legal.size() >= 6);
+        SetAllRarity(boot, ERuneRarity::Common);
+        SetRarity(boot, legal[0], ERuneRarity::Rare);
+        SetRarity(boot, legal[1], ERuneRarity::Uncommon);
+        SetTables(boot, {{"normal", 0, 0, 100}});
+        const auto cards = game::PeekRuneCandidates(boot.registry);
+        CHECK(cards.size() == 3u);
+        if (cards.size() == 3u) {
+            CHECK(cards[0] == legal[0]);
+            CHECK(cards[1] == legal[1]);
+            CHECK(RarityOf(boot, cards[2]) == ERuneRarity::Common);
+        }
+    }
+    {  // (b) common is empty: next is uncommon
+        FBoot boot(UniquePath("reward-fall-b"));
+        StartFresh(boot);
+        const auto legal = LegalRuneIds(boot);
+        CHECK(legal.size() >= 5);
+        SetAllRarity(boot, ERuneRarity::Uncommon);
+        SetRarity(boot, legal[0], ERuneRarity::Rare);
+        SetRarity(boot, legal[1], ERuneRarity::Rare);
+        SetTables(boot, {{"normal", 100, 0, 0}});
+        const auto cards = game::PeekRuneCandidates(boot.registry);
+        CHECK(cards.size() == 3u);
+        for (const auto& id : cards) CHECK(RarityOf(boot, id) == ERuneRarity::Uncommon);
+    }
+    {  // (c) uncommon is empty: down to common before up to rare
+        FBoot boot(UniquePath("reward-fall-c"));
+        StartFresh(boot);
+        const auto legal = LegalRuneIds(boot);
+        CHECK(legal.size() >= 6);
+        SetAllRarity(boot, ERuneRarity::Common);
+        SetRarity(boot, legal[0], ERuneRarity::Rare);
+        SetRarity(boot, legal[1], ERuneRarity::Rare);
+        SetRarity(boot, legal[2], ERuneRarity::Rare);
+        SetTables(boot, {{"normal", 0, 100, 0}});
+        const auto cards = game::PeekRuneCandidates(boot.registry);
+        CHECK(cards.size() == 3u);
+        for (const auto& id : cards) CHECK(RarityOf(boot, id) == ERuneRarity::Common);
+    }
+}
+
+std::vector<std::vector<std::string>> FiveDraws(const std::vector<FTableSpec>& tables) {
+    FBoot boot(UniquePath("reward-uniform"));
+    StartFresh(boot);
+    CHECK(LegalRuneIds(boot).size() >= 6);
+    SetAllRarity(boot, ERuneRarity::Common);
+    SetTables(boot, tables);
+    std::vector<std::vector<std::string>> draws;
+    for (int index = 0; index < 5; ++index) draws.push_back(game::RollRuneCandidates(boot.registry));
+    return draws;
+}
+
+void UniformRarityMatchesUntieredDraw() {
+    const auto off = FiveDraws({});
+    const auto shipped = FiveDraws({{"normal", 60, 30, 10}});
+    const auto rare = FiveDraws({{"normal", 0, 0, 100}});
+    CHECK(off.size() == 5u);
+    CHECK(off == shipped);
+    CHECK(off == rare);
+}
+
+void TieredOfferIsDeterministicAndUnique() {
+    const auto run = [] {
+        FBoot boot(UniquePath("reward-tier-det"));
+        StartFresh(boot);
+        const auto legal = LegalRuneIds(boot);
+        CHECK(legal.size() >= 6);
+        SetAllRarity(boot, ERuneRarity::Common);
+        for (std::size_t index = 0; index < legal.size(); ++index) {
+            SetRarity(boot, legal[index], static_cast<ERuneRarity>(index % 3));
+        }
+        SetShippedTables(boot);
+        std::vector<std::vector<std::string>> draws;
+        for (int index = 0; index < 5; ++index) {
+            auto cards = game::RollRuneCandidates(boot.registry);
+            for (std::size_t a = 0; a < cards.size(); ++a) {
+                CHECK(std::find(legal.begin(), legal.end(), cards[a]) != legal.end());
+                for (std::size_t b = a + 1; b < cards.size(); ++b) CHECK(cards[a] != cards[b]);
+            }
+            draws.push_back(std::move(cards));
+        }
+        return draws;
+    };
+    CHECK(run() == run());
+}
+
+void OfferRecordsItsRarityTable() {
+    {
+        FBoot boot(UniquePath("reward-table-normal"));
+        StartFresh(boot);
+        SetShippedTables(boot);
+        WinRoom(boot);
+        CHECK(boot.rewards().offer.active);
+        CHECK(boot.rewards().offer.rarityTable == "normal");
+    }
+    {
+        FBoot boot(UniquePath("reward-table-boss"));
+        StartFresh(boot);
+        SetShippedTables(boot);
+        game::RollRoomOffer(boot.registry, true);
+        CHECK(boot.rewards().offer.active);
+        CHECK(boot.rewards().offer.rarityTable == "boss");
+    }
+    {
+        FBoot boot(UniquePath("reward-table-extra"));
+        StartFresh(boot);
+        SetShippedTables(boot);
+        boot.rewards().tables.bossOffer = std::string(game::kRewardBossOfferExtra);
+        game::RollRoomOffer(boot.registry, true);
+        CHECK(boot.rewards().offer.rarityTable == "boss");
+        CHECK(game::ResolveRuneOffer(boot.registry, -1));
+        CHECK(boot.rewards().offer.active);
+        CHECK(boot.rewards().offer.rarityTable == "boss");
+    }
+    {
+        FBoot boot(UniquePath("reward-table-onlynormal"));
+        StartFresh(boot);
+        SetTables(boot, {{"normal", 60, 30, 10}});
+        game::RollRoomOffer(boot.registry, true);
+        CHECK(boot.rewards().offer.active);
+        CHECK(boot.rewards().offer.rarityTable == "normal");
+    }
+    {
+        FBoot boot(UniquePath("reward-table-off"));
+        StartFresh(boot);
+        CHECK(boot.rewards().tables.rarityTables.empty());
+        WinRoom(boot);
+        CHECK(boot.rewards().offer.active);
+        CHECK(boot.rewards().offer.rarityTable.empty());
+    }
+}
+
+void SaveRestoresRarityTable() {
+    FBoot boot(UniquePath("reward-save-table"));
+    StartFresh(boot);
+    SetShippedTables(boot);
+    WinRoom(boot);
+    const auto candidates = boot.rewards().offer.candidates;
+    const auto drawIndex = boot.rewards().nextDrawIndex;
+    const auto pity = boot.rewards().pity;
+    CHECK(boot.rewards().offer.rarityTable == "normal");
+    const auto original = ReadJsonFile(boot.runSave);
+
+    boot.registry.ctx().erase<game::FDungeonRun>();
+    CHECK(game::ContinueDungeonRun(boot.registry));
+    CHECK(boot.rewards().offer.active);
+    CHECK(boot.rewards().offer.rarityTable == "normal");
+    CHECK(boot.rewards().offer.candidates == candidates);
+
+    auto corrupt = original;
+    corrupt["run"]["ext"]["offers"]["offer"]["rarity_table"] = 7;
+    WriteJsonFile(boot.runSave, corrupt);
+    boot.registry.ctx().erase<game::FDungeonRun>();
+    CHECK(game::ContinueDungeonRun(boot.registry));
+    CHECK(!boot.rewards().offer.active);
+    CHECK(boot.rewards().nextDrawIndex == drawIndex);
+    CHECK(boot.rewards().pity == pity);
+
+    auto missing = original;
+    missing["run"]["ext"]["offers"]["offer"].erase("rarity_table");
+    WriteJsonFile(boot.runSave, missing);
+    boot.registry.ctx().erase<game::FDungeonRun>();
+    CHECK(game::ContinueDungeonRun(boot.registry));
+    CHECK(boot.rewards().offer.active);
+    CHECK(boot.rewards().offer.rarityTable.empty());
+}
+
+void DisplayOrderPutsRareLast() {
+    FBoot boot(UniquePath("reward-display-order"));
+    StartFresh(boot);
+    const auto legal = LegalRuneIds(boot);
+    CHECK(legal.size() >= 4);
+    SetAllRarity(boot, ERuneRarity::Common);
+    SetRarity(boot, legal[0], ERuneRarity::Rare);
+    SetRarity(boot, legal[2], ERuneRarity::Uncommon);
+    const std::vector<std::string> four{legal[0], legal[1], legal[2], legal[3]};
+    const auto order = game::RuneOfferDisplayOrder(four, &ContentOf(boot));
+    CHECK((order == std::vector<std::size_t>{1, 3, 2, 0}));
+    CHECK((game::RuneOfferDisplayOrder(four, nullptr) == std::vector<std::size_t>{0, 1, 2, 3}));
+
+    WinRoom(boot);
+    auto& offer = boot.rewards().offer;
+    CHECK(offer.active);
+    offer.candidates = {legal[0], legal[1], legal[2]};  // stored order: rare, common, uncommon
+    const auto log = RenderModalLogs(boot.registry, {std::string(game::kRunModalReward)});
+    CHECK(log.size() == 1u);
+    const auto start = log[0].find("CHOOSE A RUNE");
+    CHECK(start != std::string::npos);
+    const std::string text = start == std::string::npos ? std::string{} : log[0].substr(start);
+    const auto nameOf = [&](const std::string& id) { return ContentOf(boot).runes.find(id)->displayName; };
+    const auto rareAt = text.find(nameOf(legal[0]));
+    const auto commonAt = text.find(nameOf(legal[1]));
+    const auto uncommonAt = text.find(nameOf(legal[2]));
+    CHECK(rareAt != std::string::npos && commonAt != std::string::npos && uncommonAt != std::string::npos);
+    CHECK(rareAt > commonAt);
+    CHECK(rareAt > uncommonAt);
+    CHECK(commonAt < uncommonAt);
+}
+
+void CardShowsRarityAndOdds() {
+    FBoot boot(UniquePath("reward-card-rarity"));
+    StartFresh(boot);
+    const auto legal = LegalRuneIds(boot);
+    CHECK(legal.size() >= 3);
+    SetAllRarity(boot, ERuneRarity::Common);
+    SetRarity(boot, legal[1], ERuneRarity::Uncommon);
+    SetRarity(boot, legal[2], ERuneRarity::Rare);
+    SetShippedTables(boot);
+    WinRoom(boot);
+    CHECK(boot.rewards().offer.active);
+    boot.rewards().offer.candidates = {legal[0], legal[1], legal[2]};
+
+    auto log = RenderModalLogs(boot.registry, {std::string(game::kRunModalReward)});
+    CHECK(log.size() == 1u);
+    CHECK(log[0].find("Odds (normal): Common 60% / Uncommon 30% / Rare 10%") != std::string::npos);
+    CHECK(log[0].find("Common rune") != std::string::npos);
+    CHECK(log[0].find("Uncommon rune") != std::string::npos);
+    CHECK(log[0].find("Rare rune") != std::string::npos);
+
+    boot.rewards().tables.rarityTables.clear();
+    boot.rewards().offer.rarityTable.clear();
+    log = RenderModalLogs(boot.registry, {std::string(game::kRunModalReward)});
+    CHECK(log.size() == 1u);
+    CHECK(log[0].find("Odds (") == std::string::npos);
+    CHECK(log[0].find("Common rune") != std::string::npos);
+}
+
+/// Replaces the party with one member whose only skill is `skillId` fitted with `runeIds`.
+void SetOnlySkill(FBoot& boot, const std::string& skillId, std::vector<std::string> runeIds) {
+    auto& party = boot.run().party;
+    if (party.empty()) party.emplace_back();
+    for (auto& member : party) member.skills.clear();
+    party[0].skills.push_back({skillId, std::move(runeIds)});
+}
+
+std::vector<const game::gameplay::FRuneContent*> RunePtrs(FBoot& boot, const std::vector<std::string>& ids) {
+    std::vector<const game::gameplay::FRuneContent*> runes;
+    for (const auto& id : ids) {
+        const auto* rune = ContentOf(boot).runes.find(id);
+        CHECK(rune != nullptr);
+        runes.push_back(rune);
+    }
+    return runes;
+}
+
+void FitPreviewUsesFittedRunes() {
+    FBoot boot(UniquePath("reward-fit-preview"));
+    StartFresh(boot);
+    const std::string strike = "skill.strike";
+    const auto* skill = ContentOf(boot).skills.find(strike);
+    CHECK(skill != nullptr);
+    const std::string power = "rune.power";
+
+    const auto same = [](const game::FResolvedSkill& left, const game::FResolvedSkill& right) {
+        return left.power == right.power && left.apCost == right.apCost && left.range == right.range;
+    };
+    const auto previewOf = [&](const std::string& runeId) {
+        return game::RuneFitPreviews(boot.registry, runeId);
+    };
+
+    {  // (a) nothing fitted
+        SetOnlySkill(boot, strike, {});
+        const auto previews = previewOf(power);
+        CHECK(previews.size() == 1u);
+        if (!previews.empty()) {
+            CHECK(previews[0].skillId == strike);
+            CHECK(same(previews[0].before, game::ResolveSkill(*skill, {})));
+            CHECK(same(previews[0].after, game::ResolveSkill(*skill, RunePtrs(boot, {power}))));
+            CHECK(!previews[0].socketsFull && !previews[0].alreadyFitted);
+        }
+    }
+    {  // (b) one rune fitted: before/after include it
+        SetOnlySkill(boot, strike, {"rune.leech"});
+        const auto previews = previewOf(power);
+        CHECK(previews.size() == 1u);
+        if (!previews.empty()) {
+            CHECK((previews[0].before.runeIds == std::vector<std::string>{"rune.leech"}));
+            CHECK((previews[0].after.runeIds == std::vector<std::string>{"rune.leech", power}));
+        }
+    }
+    {  // (c) sockets full: the bare skill
+        SetOnlySkill(boot, strike, {"rune.leech", "rune.swift", "rune.range"});
+        const auto previews = previewOf(power);
+        CHECK(previews.size() == 1u);
+        if (!previews.empty()) {
+            CHECK(previews[0].socketsFull);
+            CHECK(previews[0].before.runeIds.empty());
+            CHECK((previews[0].after.runeIds == std::vector<std::string>{power}));
+        }
+    }
+    {  // (d) already fitted
+        SetOnlySkill(boot, strike, {power});
+        const auto previews = previewOf(power);
+        CHECK(previews.size() == 1u);
+        if (!previews.empty()) {
+            CHECK(previews[0].alreadyFitted);
+            CHECK(previews[0].before.power == previews[0].after.power);
+        }
+    }
+    {  // (e) a Projectile rune does not fit the Melee skill
+        SetOnlySkill(boot, strike, {});
+        CHECK(previewOf("rune.multishot").empty());
+    }
+    {  // (f) the fitted runes make the rune illegal: bare-skill fallback
+        for (auto& row : ContentOf(boot).runes.rows) {
+            if (row.id == power) row.excludesTags = {"Fire"};
+        }
+        SetOnlySkill(boot, strike, {"rune.fire"});
+        auto previews = previewOf(power);
+        CHECK(previews.size() == 1u);
+        if (!previews.empty()) {
+            CHECK(previews[0].before.runeIds.empty());
+            CHECK((previews[0].after.runeIds == std::vector<std::string>{power}));
+            CHECK(!previews[0].socketsFull);
+        }
+        SetOnlySkill(boot, strike, {"rune.fire", "rune.swift", "rune.range"});
+        previews = previewOf(power);
+        CHECK(previews.size() == 1u);
+        if (!previews.empty()) {
+            CHECK(previews[0].before.runeIds.empty());
+            CHECK((previews[0].after.runeIds == std::vector<std::string>{power}));
+            CHECK(previews[0].socketsFull);
+        }
+    }
+}
+
+void FitPreviewLineFormat() {
+    FBoot boot(UniquePath("reward-fit-line"));
+    const auto& content = ContentOf(boot);
+    const auto* power = content.runes.find("rune.power");
+    CHECK(power != nullptr);
+    const auto* burn = content.statuses.find("status.burn");
+    CHECK(burn != nullptr);
+    const std::string burnName = burn != nullptr && !burn->displayName.empty() ? burn->displayName : "status.burn";
+
+    const auto make = [] {
+        game::FRuneFitPreview preview;
+        preview.skillId = "skill.strike";
+        preview.skillName = "Strike";
+        preview.before.power = 4;
+        preview.after.power = 4;
+        preview.before.apCost = 2;
+        preview.after.apCost = 2;
+        return preview;
+    };
+    const auto line = [&](const game::FRuneFitPreview& preview, const game::gameplay::FRuneContent& rune) {
+        return game::RuneFitPreviewLine(preview, rune, &content);
+    };
+
+    auto changed = make();
+    changed.after.power = 6;
+    changed.after.apCost = 1;
+    CHECK(line(changed, *power) == "Strike: Power 4 -> 6, AP 2 -> 1");
+    CHECK(line(make(), *power) == "Strike: no change");
+
+    auto full = changed;
+    full.socketsFull = true;
+    CHECK(line(full, *power) == "Strike: Power 4 -> 6, AP 2 -> 1 (sockets full)");
+
+    auto fitted = make();
+    fitted.alreadyFitted = true;
+    CHECK(line(fitted, *power) == "Strike: already fitted");
+
+    auto added = make();
+    added.after.statuses.push_back({"status.burn", 0, 0});
+    CHECK(line(added, *power) == "Strike: +" + burnName);
+
+    auto both = make();
+    both.before.statuses.push_back({"status.burn", 0, 0});
+    both.after.statuses.push_back({"status.burn", 1, 2});
+    CHECK(line(both, *power) == "Strike: " + burnName + " duration +1, " + burnName + " magnitude +2");
+
+    auto shape = make();
+    shape.before.shape = "single";
+    shape.after.shape = "spread";
+    CHECK(line(shape, *power) == "Strike: Shape single -> spread");
+
+    auto hooked = *power;
+    hooked.hooks.emplace_back();
+    CHECK(line(make(), hooked) == "Strike: New effect");
+}
+
+void CardShowsFitPreview() {
+    FBoot boot(UniquePath("reward-card-fits"));
+    StartFresh(boot);
+    WinRoom(boot);
+    auto& offer = boot.rewards().offer;
+    CHECK(offer.active && !offer.candidates.empty());
+    const auto log = RenderModalLogs(boot.registry, {std::string(game::kRunModalReward)});
+    CHECK(log.size() == 1u);
+    CHECK(log[0].find("Fits:") != std::string::npos);
+    const auto& content = ContentOf(boot);
+    const auto* rune = content.runes.find(offer.candidates.front());
+    CHECK(rune != nullptr);
+    const auto previews = game::RuneFitPreviews(boot.registry, offer.candidates.front());
+    CHECK(!previews.empty());
+    std::vector<std::string> lines;
+    for (const auto& preview : previews) lines.push_back(game::RuneFitPreviewLine(preview, *rune, &content));
+    CHECK(log[0].find("Fits: " + game::RuneFitInline(lines)) != std::string::npos);
+
+    CHECK(game::RuneFitInline({}).empty());
+    CHECK(game::RuneFitInline({"A", "B"}) == "A | B");
+    CHECK(game::RuneFitInline({"A", "B", "C", "D", "E"}) == "A | B | C | +2 more (hover)");
+}
+
 } // namespace
 
 int main() {
@@ -881,5 +1422,17 @@ int main() {
         {"OfferForecastShown", OfferForecastShown},
         {"ForecastGuaranteesAfterPity", ForecastGuaranteesAfterPity},
         {"FixtureRewardsAreDeterministic", FixtureRewardsAreDeterministic},
+        {"RarityTablesLoadAndValidate", RarityTablesLoadAndValidate},
+        {"TierTableDrivesCardRarity", TierTableDrivesCardRarity},
+        {"EmptyTierFallsDownThenUp", EmptyTierFallsDownThenUp},
+        {"UniformRarityMatchesUntieredDraw", UniformRarityMatchesUntieredDraw},
+        {"TieredOfferIsDeterministicAndUnique", TieredOfferIsDeterministicAndUnique},
+        {"OfferRecordsItsRarityTable", OfferRecordsItsRarityTable},
+        {"SaveRestoresRarityTable", SaveRestoresRarityTable},
+        {"DisplayOrderPutsRareLast", DisplayOrderPutsRareLast},
+        {"CardShowsRarityAndOdds", CardShowsRarityAndOdds},
+        {"FitPreviewUsesFittedRunes", FitPreviewUsesFittedRunes},
+        {"FitPreviewLineFormat", FitPreviewLineFormat},
+        {"CardShowsFitPreview", CardShowsFitPreview},
     });
 }

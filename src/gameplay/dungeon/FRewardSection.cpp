@@ -25,7 +25,9 @@ nlohmann::json PackOffers(entt::registry& registry) {
         {"pity", rewards->pity},
         {"next_draw", rewards->nextDrawIndex},
         {"offer",
-         nlohmann::json{{"active", rewards->offer.active}, {"candidates", rewards->offer.candidates}}},
+         nlohmann::json{{"active", rewards->offer.active},
+                        {"candidates", rewards->offer.candidates},
+                        {"rarity_table", rewards->offer.rarityTable}}},
         {"boss_extra_pending", rewards->bossExtraPending},
     };
 }
@@ -81,6 +83,10 @@ void UnpackOffers(entt::registry& registry, const nlohmann::json& section) {
             } else {
                 if (const auto active = offer->find("active"); active != offer->end()) {
                     if (active->is_boolean()) fresh.offer.active = active->get<bool>();
+                    else corrupt = true;
+                }
+                if (const auto table = offer->find("rarity_table"); table != offer->end()) {
+                    if (table->is_string()) fresh.offer.rarityTable = table->get<std::string>();
                     else corrupt = true;
                 }
                 if (const auto candidates = offer->find("candidates"); candidates != offer->end()) {

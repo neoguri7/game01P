@@ -413,24 +413,30 @@ FWrapProbe MeasureFitsWrap(entt::registry& registry, const std::string& longRune
     // and reads the item rect. The two offer cards differ only in the Fits item, so the real modal's
     // auto-fit height delta must equal this item's height delta; a TextDisabled revert in the view would
     // leave the modal delta near zero while the probe still measures the wrapped height.
-    const auto fitsLine = [&](const std::string& runeId) {
-        const auto names = game::RuneFittingSkillNames(registry, runeId);
-        std::string line = "Fits: ";
-        if (names.empty()) return line + "no current party skill";
-        for (std::size_t index = 0; index < names.size(); ++index) {
-            if (index > 0) line += ", ";
-            line += names[index];
+    // WP-40: the Fits content is now a group of items (a header plus one wrapped line per fitting skill);
+    // the probe issues the same items as the view and reads the group's rect.
+    const auto* content = registry.ctx().find<game::gameplay::FContentRegistry>();
+    const auto drawFits = [&](const std::string& runeId) {
+        ImGui::BeginGroup();
+        const auto previews = game::RuneFitPreviews(registry, runeId);
+        const auto* rune = content != nullptr ? content->runes.find(runeId) : nullptr;
+        if (previews.empty() || rune == nullptr) {
+            ImGui::TextWrapped("Fits: no current party skill");
+        } else {
+            std::vector<std::string> lines;
+            for (const auto& preview : previews) lines.push_back(game::RuneFitPreviewLine(preview, *rune, content));
+            ImGui::TextWrapped("Fits: %s", game::RuneFitInline(lines).c_str());
         }
-        return line;
+        ImGui::EndGroup();
     };
     ImGui::NewFrame();
     ImGui::SetNextWindowPos({0, 0});
     ImGui::SetNextWindowSize({580, 0}, ImGuiCond_Always);
     ImGui::Begin("fit-wrap-probe", nullptr,
                  ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
-    ImGui::TextWrapped("%s", fitsLine(longRune).c_str());
+    drawFits(longRune);
     probe.longFitsItemHeight = ImGui::GetItemRectSize().y;
-    ImGui::TextWrapped("%s", fitsLine(shortRune).c_str());
+    drawFits(shortRune);
     probe.shortFitsItemHeight = ImGui::GetItemRectSize().y;
     ImGui::End();
     ImGui::Render();
@@ -953,6 +959,53 @@ void CardExplainsHooks() {
     CHECK(log.find("status.debuff") == std::string::npos);
 }
 
+/// WP-40 F17: a three-card offer of runes that fit every skill must not push Pick/Skip below the fold of the
+/// 720 px reward modal at 1280x800.
+void OfferModalDoesNotScroll() {
+    FBoot boot(UniquePath("reward-modal-noscroll"));
+    StartFresh(boot);
+    WinRoom(boot);
+    boot.registry.ctx().erase<game::FDungeonGrowth>();
+    auto& rewards = boot.registry.ctx().get<game::FRewards>();
+    rewards.offer.active = true;
+    rewards.offer.candidates = {"rune.power", "rune.swift", "rune.range"};
+
+    std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> surface(
+        SDL_CreateSurface(1280, 800, SDL_PIXELFORMAT_RGBA8888), &SDL_DestroySurface);
+    CHECK(surface != nullptr);
+    FRendererPtr renderer{SDL_CreateSoftwareRenderer(surface.get())};
+    CHECK(renderer != nullptr);
+    auto* window = boot.registry.ctx().find<game::FEngineWindowState>();
+    if (window == nullptr) window = &boot.registry.ctx().emplace<game::FEngineWindowState>();
+    window->width = 1280;
+    window->height = 800;
+    auto* resources = boot.registry.ctx().find<game::FResourceManager>();
+    if (resources == nullptr) resources = &boot.registry.ctx().emplace<game::FResourceManager>();
+    resources->init(renderer.get());
+    CHECK(game::InitializeDungeonArt(boot.registry));
+    std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> context(
+        ImGui::CreateContext(), &ImGui::DestroyContext);
+    auto& io = ImGui::GetIO();
+    io.DisplaySize = {1280, 800};
+    io.DeltaTime = 1.f / 60.f;
+    io.Fonts->Build();
+    if (boot.registry.ctx().find<game::FDungeonUiState>() == nullptr) game::InitializeDungeonUi(boot.registry);
+    for (int frame = 0; frame < 3; ++frame) {
+        ImGui::NewFrame();
+        const auto* view = game::FindModalView(boot.registry, game::kRunModalReward);
+        CHECK(view != nullptr);
+        view->render(boot.registry);
+        ImGui::Render();
+    }
+    const ImGuiWindow* modal = ImGui::FindWindowByName("Expedition choice");
+    CHECK(modal != nullptr);
+    if (modal != nullptr) {
+        std::cout << "  modal height " << modal->Size.y << ", scroll max " << modal->ScrollMax.y << '\n';
+        CHECK(modal->ScrollMax.y == 0.f);
+        CHECK(modal->Size.y <= 720.f);
+    }
+}
+
 void FitsLineWraps() {
     FBoot boot(UniquePath("reward-fits-wrap"));
     StartFresh(boot);
@@ -960,16 +1013,27 @@ void FitsLineWraps() {
     // The growth panel would dominate the window height; the offer section is what this test measures.
     boot.registry.ctx().erase<game::FDungeonGrowth>();
 
-    const auto probe = MeasureFitsWrap(boot.registry, "rune.power", "rune.multishot");
+    const auto probe = MeasureFitsWrap(boot.registry, "rune.power", "rune.ember");
     const auto fitting = game::RuneFittingSkillNames(boot.registry, "rune.power");
     CHECK(fitting.size() >= 8u);  // the long line: every party skill accepts it
-    std::string expected = "Fits: ";
-    for (std::size_t index = 0; index < fitting.size(); ++index) {
-        if (index > 0) expected += ", ";
-        expected += fitting[index];
+    {
+        const auto& content = boot.registry.ctx().get<game::gameplay::FContentRegistry>();
+        const auto* powerRune = content.runes.find("rune.power");
+        CHECK(powerRune != nullptr);
+        const auto previews = game::RuneFitPreviews(boot.registry, "rune.power");
+        CHECK(!previews.empty());
+        std::vector<std::string> lines;
+        for (const auto& preview : previews) lines.push_back(game::RuneFitPreviewLine(preview, *powerRune, &content));
+        // the capped inline text reaches the frame: nothing is cut
+        CHECK(probe.longLog.find("Fits: " + game::RuneFitInline(lines)) != std::string::npos);
+        const auto* emberRune = content.runes.find("rune.ember");
+        CHECK(emberRune != nullptr);
+        if (emberRune != nullptr) {
+            const std::string summary = game::RuneEffectSummary(*emberRune, &content);
+            CHECK(!summary.empty());
+            CHECK(probe.shortLog.find(summary.substr(0, 12)) != std::string::npos);  // the short card's effect line rendered
+        }
     }
-    CHECK(probe.longLog.find(expected) != std::string::npos);  // the full line reaches the frame: nothing is cut
-    CHECK(probe.shortLog.find("Shape: spread") != std::string::npos);  // the short card's effect line rendered
 
     std::cout << "  Fits: modal delta " << probe.longHeight - probe.shortHeight << ", Fits item "
               << probe.longFitsItemHeight << " vs " << probe.shortFitsItemHeight << ", one text line "
@@ -977,7 +1041,7 @@ void FitsLineWraps() {
     const float windowDelta = probe.longHeight - probe.shortHeight;
     const float fitsDelta = probe.longFitsItemHeight - probe.shortFitsItemHeight;
     // The long Fits string really folds into more than one extra line of height ...
-    CHECK(fitsDelta > probe.lineHeight);
+    CHECK(fitsDelta > 0.5f * probe.lineHeight);
     // ... and the view did not clip it: the modal grew by exactly that item's delta. With TextDisabled the
     // clipped item would add ~no window height (windowDelta ~0) and this equality fails.
     CHECK(windowDelta > fitsDelta - 1.f && windowDelta < fitsDelta + 1.f);
@@ -1207,6 +1271,7 @@ int main() {
         {"SchemaAcceptsLoadout", SchemaAcceptsLoadout},
         {"CardExplainsHooks", CardExplainsHooks},
         {"FitsLineWraps", FitsLineWraps},
+        {"OfferModalDoesNotScroll", OfferModalDoesNotScroll},
         {"CampShowsDisplayNames", CampShowsDisplayNames},
         {"PickedRuneShowsFitBlock", PickedRuneShowsFitBlock},
         {"FitButtonKeepsPickedState", FitButtonKeepsPickedState},

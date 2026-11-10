@@ -7,9 +7,19 @@
 
 #include <entt/entt.hpp>
 
+#include "gameplay/combat/FSkillResolver.h"
+
 namespace game {
 
 struct FAssetManager;
+
+/// WP-40: one named rarity odds table (relative integer weights, not percentages).
+struct FRarityWeights {
+    std::string name;
+    int common{0};
+    int uncommon{0};
+    int rare{0};
+};
 
 /// WP-17: the reward-offer knobs as authored in `assets/data/rewards.json`. Only the offer economy lives
 /// here — materials/EXP payouts stay in `data/dungeon.json balance` (one canonical source per number).
@@ -22,7 +32,12 @@ struct FRewardTables {
     int duplicateRefundMaterials{1};         // materials paid for an already-owned pick (refund policy)
     std::string duplicatePolicy{"refund"};   // "refund" | "allow"
     std::string bossOffer{"guaranteed"};     // "guaranteed" | "extra" | "none"
+    std::vector<FRarityWeights> rarityTables; // WP-40: empty = tiering off (every card draws from the whole pool)
 };
+
+inline constexpr std::string_view kRarityTableNormal = "normal";
+inline constexpr std::string_view kRarityTableBoosted = "boosted";
+inline constexpr std::string_view kRarityTableBoss = "boss";
 
 inline constexpr std::string_view kRewardDuplicatePolicyRefund = "refund";
 inline constexpr std::string_view kRewardDuplicatePolicyAllow = "allow";
@@ -34,6 +49,7 @@ inline constexpr std::string_view kRewardBossOfferNone = "none";
 struct FRuneOffer {
     bool active{false};
     std::vector<std::string> candidates;
+    std::string rarityTable;  // WP-40: the table name this offer was rolled with; empty when tiering is off
 };
 
 /// The reward module's state: the loaded tables plus the run-scoped dry streak, the deterministic draw
@@ -72,12 +88,18 @@ void RollRoomOffer(entt::registry& registry, bool bossRoom);
 /// open or the index is out of range (no state change).
 [[nodiscard]] bool ResolveRuneOffer(entt::registry& registry, int pickedIndex);
 
+/// WP-40: pure lookup, never logs: the named table, else the table named `normal`, else nullptr (tiering off).
+[[nodiscard]] const FRarityWeights* FindRarityTable(const FRewardTables& tables, std::string_view name);
+
 /// The public draw API (WP-10 camp purchases reuse it): weighted, legal-only candidates. Consumes one draw
-/// index, so a caller gets the next deterministic draw of this (run, depth, room).
-[[nodiscard]] std::vector<std::string> RollRuneCandidates(entt::registry& registry);
+/// index, so a caller gets the next deterministic draw of this (run, depth, room). Each card first rolls a
+/// rarity from `rarityTable` (WP-40), then draws a legal rune of that rarity.
+[[nodiscard]] std::vector<std::string> RollRuneCandidates(
+    entt::registry& registry, std::string_view rarityTable = kRarityTableNormal);
 
 /// The same draw without consuming an index (previews/tests).
-[[nodiscard]] std::vector<std::string> PeekRuneCandidates(entt::registry& registry);
+[[nodiscard]] std::vector<std::string> PeekRuneCandidates(
+    entt::registry& registry, std::string_view rarityTable = kRarityTableNormal);
 
 struct RuneOfferForecast {
     bool guaranteed{false};
@@ -92,6 +114,20 @@ struct RuneOfferForecast {
 /// The party skills this rune could be fitted to (base skill only: camp can swap runes, so already-fitted
 /// runes and free sockets are ignored). Empty = the rune is not a legal candidate for this party.
 [[nodiscard]] std::vector<std::string> RuneFittingSkillNames(entt::registry& registry, std::string_view runeId);
+
+/// WP-40: one fitting party skill with its numbers before and after the rune.
+struct FRuneFitPreview {
+    std::string skillId;
+    std::string skillName;      // display name, id when the name is empty
+    FResolvedSkill before;
+    FResolvedSkill after;
+    bool alreadyFitted{false};  // the slot already holds this rune: before and after are the same resolve
+    bool socketsFull{false};    // the slot's fitted runes fill every socket
+};
+
+/// One entry per party skill id the rune fits, in PartySkills order (ids are unique there; two skills that
+/// share a display name give two entries - intended).
+[[nodiscard]] std::vector<FRuneFitPreview> RuneFitPreviews(entt::registry& registry, std::string_view runeId);
 
 /// True when the rune is already owned: in the collected inventory or fitted to a party skill.
 [[nodiscard]] bool IsRuneOwned(const entt::registry& registry, std::string_view runeId);

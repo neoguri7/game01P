@@ -5,10 +5,19 @@
 #include "gameplay/data/FEffectContent.h"
 
 #include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace game::gameplay {
+
+/// WP-40: how rare a rune is. The tier decides which odds table slot can draw it, never what it does.
+enum class ERuneRarity : std::uint8_t { Common = 0, Uncommon = 1, Rare = 2 };
+
+[[nodiscard]] std::optional<ERuneRarity> ParseRuneRarity(std::string_view name); // "common"|"uncommon"|"rare"
+[[nodiscard]] std::string_view RuneRarityName(ERuneRarity rarity);              // "common"|"uncommon"|"rare"
 
 /// One rune as authored in `assets/data/runes.json`. Runes are the support-gem layer
 /// (docs/design/skill-rune-progression.md §3): they attach to a skill's rune sockets and modify it —
@@ -49,6 +58,11 @@ struct FRuneContent {
     // WP-17: relative chance weight when this rune enters a reward offer pool (optional field, default 1).
     // It only biases the draw; the offer size and legality gate stay on rewards.json.
     int dropWeight{1};
+
+    // WP-40: rarity tier (optional field, default common). It only picks the odds-table slot the rune is
+    // drawn from; drop_weight then biases the draw inside the tier.
+    std::string rarityName{"common"};        // as authored; validated at boot
+    ERuneRarity rarity{ERuneRarity::Common}; // parsed; an unknown name reads as Common until boot rejects it
 };
 
 /// Field order IS the projection order FContentLoader uses (R22).
@@ -72,7 +86,8 @@ inline constexpr FContentField kRuneFields[] = {
     {"status_magnitude_delta", EContentFieldType::Number, false}, // boundary: asset key
     {"life_on_hit", EContentFieldType::Number, false},            // boundary: asset key
     {"hooks", EContentFieldType::ObjectArray, false, &kHookSchema}, // boundary: asset key (WP-04)
-    {"drop_weight", EContentFieldType::Number, false},            // boundary: asset key (WP-17, last field)
+    {"drop_weight", EContentFieldType::Number, false},            // boundary: asset key (WP-17)
+    {"rarity", EContentFieldType::Text, false},                   // boundary: asset key (WP-40, last field)
 };
 
 inline constexpr std::size_t kRuneFieldId = 0;
@@ -93,8 +108,9 @@ inline constexpr std::size_t kRuneFieldStatusMagnitudeDelta = 14;
 inline constexpr std::size_t kRuneFieldLifeOnHit = 15;
 inline constexpr std::size_t kRuneFieldHooks = 16;
 inline constexpr std::size_t kRuneFieldDropWeight = 17;
+inline constexpr std::size_t kRuneFieldRarity = 18;
 
-static_assert(std::size(kRuneFields) == 18, "kRuneFields and the kRuneField* indices drifted apart");
+static_assert(std::size(kRuneFields) == 19, "kRuneFields and the kRuneField* indices drifted apart");
 
 /// Projects one validated row into a rune. Cannot fail (R22): wrong types were rejected at load.
 [[nodiscard]] FRuneContent decodeRune(const FContentRow& row);

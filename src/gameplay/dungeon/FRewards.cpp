@@ -1,6 +1,7 @@
 #include "gameplay/dungeon/FRewards.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -21,6 +22,7 @@
 namespace game {
 namespace {
 
+using gameplay::ERuneRarity;
 using gameplay::FContentRegistry;
 using gameplay::FRuneContent;
 using gameplay::FSkillContent;
@@ -29,6 +31,8 @@ using gameplay::FSkillContent;
 // grid: distinct salts keep a chance roll from aliasing a draw, and neither touches the combat RNG.
 constexpr std::uint32_t kChanceSalt = 0x51ed270bu;
 constexpr std::uint32_t kDrawSalt = 0x2545f491u;
+// WP-40: the per-card rarity roll has its own stream so the pick stream (kDrawSalt) is unchanged.
+constexpr std::uint32_t kTierSalt = 0x6b43a9b5u;
 
 constexpr int kMinOfferCount = 1;
 
@@ -150,7 +154,16 @@ struct FRewardRng {
     return false;
 }
 
-[[nodiscard]] std::vector<std::string> CandidatesFor(entt::registry& registry, std::uint32_t drawIndex) {
+/// WP-40 F5: when the rolled rarity has no unowned legal rune left, the card falls to the next rarity in this
+/// order (rare: down first; uncommon: down before up; common: up).
+constexpr std::array<std::array<ERuneRarity, 3>, 3> kRarityFallback{{
+    {ERuneRarity::Common, ERuneRarity::Uncommon, ERuneRarity::Rare},
+    {ERuneRarity::Uncommon, ERuneRarity::Common, ERuneRarity::Rare},
+    {ERuneRarity::Rare, ERuneRarity::Uncommon, ERuneRarity::Common},
+}};
+
+[[nodiscard]] std::vector<std::string> CandidatesFor(
+    entt::registry& registry, std::uint32_t drawIndex, std::string_view rarityTable) {
     std::vector<std::string> candidates;
     auto* rewards = registry.ctx().find<FRewards>();
     const auto* run = registry.ctx().find<FDungeonRun>();
@@ -174,6 +187,8 @@ struct FRewardRng {
 
     const auto requested = static_cast<std::size_t>(std::max(kMinOfferCount, rewards->tables.count));
     FRewardRng rng(StreamSeed(run->seed, run->depth, run->room, drawIndex, kDrawSalt));
+    FRewardRng tierRng(StreamSeed(run->seed, run->depth, run->room, drawIndex, kTierSalt));
+    const FRarityWeights* weights = FindRarityTable(rewards->tables, rarityTable);
 
     // Cards come from the unowned pool first (weighted, no repeats), so a duplicate never takes a slot while
     // enough unowned runes exist.
@@ -181,9 +196,25 @@ struct FRewardRng {
     const std::size_t fromUnowned = std::min(requested, pool.size());
     candidates.reserve(std::min(requested, pool.size() + (owned.empty() ? 0u : 1u)));
     for (std::size_t slot = 0; slot < fromUnowned; ++slot) {
-        const std::size_t picked = PickWeighted(rng, pool);
-        candidates.push_back(pool[picked]->id);
-        pool.erase(pool.begin() + static_cast<std::ptrdiff_t>(picked));
+        std::vector<const FRuneContent*> sub;
+        if (weights == nullptr) {
+            sub = pool;
+        } else {
+            // One tier roll per slot, always consumed; then walk the fallback order to a non-empty tier.
+            const auto total = static_cast<std::uint32_t>(weights->common + weights->uncommon + weights->rare);
+            const auto roll = static_cast<int>(tierRng.Next() % total);
+            const std::size_t rolled =
+                roll < weights->common ? 0u : (roll < weights->common + weights->uncommon ? 1u : 2u);
+            for (const ERuneRarity tier : kRarityFallback[rolled]) {
+                for (const auto* rune : pool) {
+                    if (rune->rarity == tier) sub.push_back(rune);
+                }
+                if (!sub.empty()) break;
+            }
+        }
+        const std::size_t picked = PickWeighted(rng, sub);
+        candidates.push_back(sub[picked]->id);
+        pool.erase(std::find(pool.begin(), pool.end(), sub[picked]));
     }
     // Only a short unowned pool earns the single owned duplicate card, always in the last slot.
     if (!owned.empty() && fromUnowned < requested) {
@@ -202,6 +233,15 @@ struct FRewardRng {
 }
 
 } // namespace
+
+const FRarityWeights* FindRarityTable(const FRewardTables& tables, std::string_view name) {
+    const FRarityWeights* normal = nullptr;
+    for (const auto& table : tables.rarityTables) {
+        if (table.name == name) return &table;
+        if (table.name == kRarityTableNormal) normal = &table;
+    }
+    return normal;
+}
 
 bool LoadRewards(entt::registry& registry, const FAssetManager& assets) {
     const auto path = assets.resolvePath("data/rewards");
@@ -262,12 +302,55 @@ bool LoadRewards(entt::registry& registry, const FAssetManager& assets) {
         return false;
     }
 
+    // WP-40: optional odds tables; absent = tiering off. Present = every table valid and "normal" among them.
+    if (document->contains("rarity_tables")) {
+        const auto& tablesJson = document->at("rarity_tables");
+        if (!tablesJson.is_object()) {
+            LOG_ERROR("rewards.json rarity_tables must be an object.");
+            return false;
+        }
+        for (const auto& [name, value] : tablesJson.items()) {
+            if (!value.is_object()) {
+                LOG_ERROR("rewards.json rarity_tables.{} must be an object.", name);
+                return false;
+            }
+            FRarityWeights weights;
+            weights.name = name;
+            int* slots[] = {&weights.common, &weights.uncommon, &weights.rare};
+            const char* keys[] = {"common", "uncommon", "rare"};
+            for (std::size_t slot = 0; slot < 3; ++slot) {
+                const auto found = value.find(keys[slot]);
+                if (found == value.end() || !found->is_number_integer()) {
+                    LOG_ERROR("rewards.json rarity_tables.{}.{} must be an integer weight.", name, keys[slot]);
+                    return false;
+                }
+                const auto weight = found->get<long long>();
+                if (weight < 0 || weight > 1000000) {
+                    LOG_ERROR("rewards.json rarity_tables.{}.{} must be between 0 and 1000000.", name, keys[slot]);
+                    return false;
+                }
+                *slots[slot] = static_cast<int>(weight);
+            }
+            if (weights.common + weights.uncommon + weights.rare <= 0) {
+                LOG_ERROR("rewards.json rarity_tables.{} weights sum to 0.", name);
+                return false;
+            }
+            rewards.tables.rarityTables.push_back(std::move(weights));
+        }
+        const bool hasNormal = std::any_of(rewards.tables.rarityTables.begin(), rewards.tables.rarityTables.end(),
+            [](const FRarityWeights& table) { return table.name == kRarityTableNormal; });
+        if (!hasNormal) {
+            LOG_ERROR("rewards.json rarity_tables must contain a 'normal' table.");
+            return false;
+        }
+    }
+
     // Re-initialization (tests, debug reloads) must replace the module state instead of keeping a stale one.
     registry.ctx().erase<FRewards>();
     auto& stored = registry.ctx().emplace<FRewards>(std::move(rewards));
-    LOG_INFO("rewards ready: count {} chance {:.2f} pity {} min legal {} boss '{}'.", stored.tables.count,
+    LOG_INFO("rewards ready: count {} chance {:.2f} pity {} min legal {} boss '{}' rarity tables {}.", stored.tables.count,
              stored.tables.chance, stored.tables.pityThreshold, stored.tables.minLegalCandidates,
-             stored.tables.bossOffer);
+             stored.tables.bossOffer, stored.tables.rarityTables.size());
     return true;
 }
 
@@ -313,7 +396,8 @@ void RollRoomOffer(entt::registry& registry, bool bossRoom) {
         }
     }
 
-    auto candidates = RollRuneCandidates(registry);  // consumes one draw index
+    const std::string_view table = bossRoom ? kRarityTableBoss : kRarityTableNormal;
+    auto candidates = RollRuneCandidates(registry, table);  // consumes one draw index
     // An empty offer is a dead modal: min_legal_candidates 0 still needs one card to be a choice.
     const auto minimum = static_cast<std::size_t>(std::max(1, tables.minLegalCandidates));
     if (candidates.size() < minimum) {
@@ -323,6 +407,8 @@ void RollRoomOffer(entt::registry& registry, bool bossRoom) {
     }
     rewards->offer.active = true;
     rewards->offer.candidates = std::move(candidates);
+    const FRarityWeights* used = FindRarityTable(tables, table);
+    rewards->offer.rarityTable = used != nullptr ? used->name : std::string{};
     rewards->pity = 0;  // any offer resets the dry streak, forced or not
     rewards->bossExtraPending = bossRoom && tables.bossOffer == kRewardBossOfferExtra;
     LOG_INFO("Rune offer opened: {} candidate(s){}.", rewards->offer.candidates.size(), bossRoom ? " (boss room)" : "");
@@ -356,15 +442,18 @@ bool ResolveRuneOffer(entt::registry& registry, int pickedIndex) {
 
     rewards->offer.active = false;
     rewards->offer.candidates.clear();
+    rewards->offer.rarityTable.clear();
     const bool extraOffer = rewards->bossExtraPending;
     rewards->bossExtraPending = false;
     if (extraOffer) {
         // boss_offer="extra": the boss room pays a second, still rejectable offer after the first decision.
-        auto candidates = RollRuneCandidates(registry);
+        auto candidates = RollRuneCandidates(registry, kRarityTableBoss);
         const auto minimum = static_cast<std::size_t>(std::max(1, tables.minLegalCandidates));
         if (candidates.size() >= minimum) {
             rewards->offer.active = true;
             rewards->offer.candidates = std::move(candidates);
+            const FRarityWeights* used = FindRarityTable(tables, kRarityTableBoss);
+            rewards->offer.rarityTable = used != nullptr ? used->name : std::string{};
         }
     }
     if (!SaveDungeonRun(registry)) {
@@ -373,20 +462,20 @@ bool ResolveRuneOffer(entt::registry& registry, int pickedIndex) {
     return true;
 }
 
-std::vector<std::string> RollRuneCandidates(entt::registry& registry) {
+std::vector<std::string> RollRuneCandidates(entt::registry& registry, std::string_view rarityTable) {
     EnsureRewardsForRun(registry);
     auto* rewards = registry.ctx().find<FRewards>();
     if (rewards == nullptr) return {};
-    auto candidates = CandidatesFor(registry, rewards->nextDrawIndex);
+    auto candidates = CandidatesFor(registry, rewards->nextDrawIndex, rarityTable);
     ++rewards->nextDrawIndex;  // every draw call advances the cursor, even when the pool came up short
     return candidates;
 }
 
-std::vector<std::string> PeekRuneCandidates(entt::registry& registry) {
+std::vector<std::string> PeekRuneCandidates(entt::registry& registry, std::string_view rarityTable) {
     EnsureRewardsForRun(registry);
     auto* rewards = registry.ctx().find<FRewards>();
     if (rewards == nullptr) return {};
-    return CandidatesFor(registry, rewards->nextDrawIndex);
+    return CandidatesFor(registry, rewards->nextDrawIndex, rarityTable);
 }
 
 RuneOfferForecast RuneOfferForecastOf(entt::registry& registry) {
@@ -415,6 +504,59 @@ std::vector<std::string> RuneFittingSkillNames(entt::registry& registry, std::st
         if (std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
     }
     return names;
+}
+
+std::vector<FRuneFitPreview> RuneFitPreviews(entt::registry& registry, std::string_view runeId) {
+    std::vector<FRuneFitPreview> previews;
+    const auto* run = registry.ctx().find<FDungeonRun>();
+    const auto* content = registry.ctx().find<FContentRegistry>();
+    if (run == nullptr || content == nullptr) return previews;
+    const auto* rune = content->runes.find(runeId);
+    if (rune == nullptr) return previews;
+    for (const auto* skill : PartySkills(registry, *content, *run)) {
+        if (skill->runeSockets <= 0) continue;
+        if (CheckRuneTagRequirements(*skill, {rune}).has_value()) continue;
+
+        // The first party slot (party order, then slot order) that holds this skill.
+        const std::vector<std::string>* slotRunes = nullptr;
+        for (const auto& member : run->party) {
+            for (const auto& slot : member.skills) {
+                if (slot.skillId == skill->id) {
+                    slotRunes = &slot.runeIds;
+                    break;
+                }
+            }
+            if (slotRunes != nullptr) break;
+        }
+        std::vector<const FRuneContent*> fitted;
+        bool alreadyFitted = false;
+        if (slotRunes != nullptr) {
+            for (const auto& id : *slotRunes) {
+                if (id == runeId) alreadyFitted = true;
+                if (const auto* fittedRune = content->runes.find(id)) fitted.push_back(fittedRune);
+            }
+        }
+
+        FRuneFitPreview preview;
+        preview.skillId = skill->id;
+        preview.skillName = skill->displayName.empty() ? skill->id : skill->displayName;
+        preview.alreadyFitted = alreadyFitted;
+        preview.socketsFull = static_cast<int>(fitted.size()) >= skill->runeSockets;
+        auto withRune = fitted;
+        withRune.push_back(rune);
+        if (alreadyFitted) {
+            preview.before = ResolveSkill(*skill, fitted);
+            preview.after = preview.before;
+        } else if (!preview.socketsFull && !CheckRuneTagRequirements(*skill, withRune).has_value()) {
+            preview.before = ResolveSkill(*skill, fitted);
+            preview.after = ResolveSkill(*skill, withRune);
+        } else {
+            preview.before = ResolveSkill(*skill, {});
+            preview.after = ResolveSkill(*skill, {rune});
+        }
+        previews.push_back(std::move(preview));
+    }
+    return previews;
 }
 
 bool IsRuneOwned(const entt::registry& registry, std::string_view runeId) {

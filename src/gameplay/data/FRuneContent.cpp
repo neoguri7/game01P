@@ -4,6 +4,22 @@
 
 namespace game::gameplay {
 
+std::optional<ERuneRarity> ParseRuneRarity(std::string_view name) {
+    if (name == "common") return ERuneRarity::Common;
+    if (name == "uncommon") return ERuneRarity::Uncommon;
+    if (name == "rare") return ERuneRarity::Rare;
+    return std::nullopt;
+}
+
+std::string_view RuneRarityName(ERuneRarity rarity) {
+    switch (rarity) {
+    case ERuneRarity::Common: return "common";
+    case ERuneRarity::Uncommon: return "uncommon";
+    case ERuneRarity::Rare: return "rare";
+    }
+    return "common";
+}
+
 FRuneContent decodeRune(const FContentRow& row) {
     FRuneContent rune;
     rune.id = row.text(kRuneFieldId);
@@ -28,6 +44,10 @@ FRuneContent decodeRune(const FContentRow& row) {
     rune.hooks = DecodeHooks(row.objectArray(kRuneFieldHooks), "rune:" + rune.id);
     // WP-17: a weight below 1 would make a rune undrawable; the floor keeps authored data honest.
     rune.dropWeight = std::max(1, row.integer(kRuneFieldDropWeight, 1));
+    // WP-40: an absent rarity is common; an unknown one is kept for the boot gate in FContentRegistry.
+    rune.rarityName = row.text(kRuneFieldRarity);
+    if (rune.rarityName.empty()) rune.rarityName = "common";
+    rune.rarity = ParseRuneRarity(rune.rarityName).value_or(ERuneRarity::Common);
     return rune;
 }
 

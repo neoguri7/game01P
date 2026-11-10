@@ -529,6 +529,66 @@ void UnknownRequireTagFailsBoot() {
     CHECK(game::gameplay::FContentRegistry::load(fixtureAssets).has_value());
 }
 
+/// ShippedRunesHaveRarityTable (WP-40 F1): every shipped rune carries the rarity of the plan table.
+void ShippedRunesHaveRarityTable() {
+    const nlohmann::json document = ReadJsonFile("assets/data/runes.json");
+    const std::map<std::string, std::string> expected{
+        {"rune.fire", "common"},       {"rune.cold", "common"},        {"rune.lightning", "common"},
+        {"rune.power", "common"},      {"rune.swift", "common"},       {"rune.leech", "common"},
+        {"rune.inferno", "common"},    {"rune.glacial", "common"},     {"rune.area", "uncommon"},
+        {"rune.concentrated", "uncommon"}, {"rune.range", "uncommon"}, {"rune.duration", "uncommon"},
+        {"rune.ember", "uncommon"},    {"rune.frostbite", "uncommon"}, {"rune.shock", "uncommon"},
+        {"rune.precision", "uncommon"}, {"rune.multishot", "rare"},    {"rune.pierce", "rare"},
+        {"rune.zone", "rare"},         {"rune.chain", "rare"},         {"rune.frostpath", "rare"},
+        {"rune.combust", "rare"},      {"rune.guard", "rare"},         {"rune.impact", "rare"}};
+    std::map<std::string, std::string> seen;
+    for (const nlohmann::json& rune : document["runes"]) {
+        seen[rune.value("id", std::string{})] = rune.value("rarity", std::string{"<absent>"});
+    }
+    CHECK(seen.size() == 24u);
+    for (const auto& [id, rarity] : expected) {
+        CHECK(seen.count(id) == 1);
+        CHECK(seen[id] == rarity);
+    }
+    int common = 0;
+    int uncommon = 0;
+    int rare = 0;
+    for (const auto& [id, rarity] : seen) {
+        common += rarity == "common" ? 1 : 0;
+        uncommon += rarity == "uncommon" ? 1 : 0;
+        rare += rarity == "rare" ? 1 : 0;
+    }
+    CHECK(common == 8);
+    CHECK(uncommon == 8);
+    CHECK(rare == 8);
+}
+
+/// UnknownRuneRarityFailsBoot (WP-40 F2): an unknown rarity fails the boot; absent reads as common.
+void UnknownRuneRarityFailsBoot() {
+    const nlohmann::json base = ReadJsonFile("assets/data/runes.json");
+    const auto boots = [&](const auto& edit) {
+        FTempRoot temp{"rune-rarity"};
+        nlohmann::json document = base;
+        edit(document);
+        WriteJsonFile(temp.root / "data" / "runes.json", document);
+        const std::vector<std::string> roots{temp.root.string(), kShipAssetRoot};
+        return game::gameplay::FContentRegistry::load(game::FAssetManager{roots}).has_value();
+    };
+    CHECK(boots([](nlohmann::json&) {}));
+    CHECK(!boots([](nlohmann::json& document) { document["runes"][0]["rarity"] = "epic"; }));
+    CHECK(boots([](nlohmann::json& document) { document["runes"][0].erase("rarity"); }));
+
+    const game::FAssetManager fixtureAssets{TestAssetRoots()};
+    const auto fixture = game::gameplay::FContentRegistry::load(fixtureAssets);
+    CHECK(fixture.has_value());
+    if (fixture.has_value()) {
+        CHECK(!fixture->runes.rows.empty());
+        for (const game::gameplay::FRuneContent& rune : fixture->runes.rows) {
+            CHECK(rune.rarity == game::gameplay::ERuneRarity::Common);
+        }
+    }
+}
+
 /// AlternativePathExists: engine.ember_kindled's alternative pair (rune.fire + rune.duration) is legal
 /// together in one slot of some skill with at least two sockets — R3 P20's "same trigger, second combo".
 void AlternativePathExists() {
@@ -1704,6 +1764,8 @@ int main() {
         {"AllRunesHaveLegalLoadout", AllRunesHaveLegalLoadout},
         {"RuneRequiresTagsAreKnown", RuneRequiresTagsAreKnown},
         {"UnknownRequireTagFailsBoot", UnknownRequireTagFailsBoot},
+        {"ShippedRunesHaveRarityTable", ShippedRunesHaveRarityTable},
+        {"UnknownRuneRarityFailsBoot", UnknownRuneRarityFailsBoot},
         {"AlternativePathExists", AlternativePathExists},
         {"ArchetypesUseExistingVocabulary", ArchetypesUseExistingVocabulary},
         {"NoStackTrigger", NoStackTrigger},

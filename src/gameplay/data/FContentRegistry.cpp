@@ -125,6 +125,10 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
             LOG_ERROR("content: rune '{}' has unknown shape_override '{}'.", rune.id, rune.shapeOverride);
             return std::nullopt;
         }
+        if (!ParseRuneRarity(rune.rarityName).has_value()) {
+            LOG_ERROR("content: rune '{}' has unknown rarity '{}'.", rune.id, rune.rarityName);
+            return std::nullopt;
+        }
     }
     for (const FStatusContent& status : registry.statuses.rows) {
         if (!isKnownStatusKind(status.kind)) {

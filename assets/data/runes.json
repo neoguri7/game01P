@@ -10,7 +10,8 @@
       "requires_any_tags": ["Attack", "Spell"],
       "excludes_tags": ["Heal", "Support"],
       "adds_tags": ["Fire"],
-      "drop_weight": 10
+      "drop_weight": 10,
+      "rarity": "common"
     },
     {
       "id": "rune.cold",
@@ -20,7 +21,8 @@
       "requires_any_tags": ["Attack", "Spell"],
       "excludes_tags": ["Heal", "Support"],
       "adds_tags": ["Cold"],
-      "drop_weight": 10
+      "drop_weight": 10,
+      "rarity": "common"
     },
     {
       "id": "rune.lightning",
@@ -30,21 +32,24 @@
       "requires_any_tags": ["Attack", "Spell"],
       "excludes_tags": ["Heal", "Support"],
       "adds_tags": ["Lightning"],
-      "drop_weight": 10
+      "drop_weight": 10,
+      "rarity": "common"
     },
     {
       "id": "rune.multishot",
       "display_name": "Lesser Multiple Projectiles",
       "shape_override": "spread",
       "requires_all_tags": ["Projectile"],
-      "drop_weight": 8
+      "drop_weight": 8,
+      "rarity": "rare"
     },
     {
       "id": "rune.pierce",
       "display_name": "Pierce",
       "shape_override": "pierce",
       "requires_all_tags": ["Projectile"],
-      "drop_weight": 8
+      "drop_weight": 8,
+      "rarity": "rare"
     },
     {
       "id": "rune.zone",
@@ -52,14 +57,16 @@
       "shape_override": "zone",
       "requires_all_tags": ["Spell"],
       "adds_tags": ["Zone"],
-      "drop_weight": 6
+      "drop_weight": 6,
+      "rarity": "rare"
     },
     {
       "id": "rune.area",
       "display_name": "Increased Area of Effect",
       "area_radius_delta": 1,
       "requires_all_tags": ["Zone"],
-      "drop_weight": 6
+      "drop_weight": 6,
+      "rarity": "uncommon"
     },
     {
       "id": "rune.concentrated",
@@ -67,32 +74,37 @@
       "area_radius_delta": -1,
       "power_delta": 3,
       "requires_all_tags": ["Zone"],
-      "drop_weight": 6
+      "drop_weight": 6,
+      "rarity": "uncommon"
     },
     {
       "id": "rune.power",
       "display_name": "Brutality",
       "power_delta": 2,
-      "drop_weight": 10
+      "drop_weight": 10,
+      "rarity": "common"
     },
     {
       "id": "rune.swift",
       "display_name": "Quicken",
       "ap_delta": -1,
-      "drop_weight": 10
+      "drop_weight": 10,
+      "rarity": "common"
     },
     {
       "id": "rune.range",
       "display_name": "Far Reach",
       "range_delta": 1,
-      "drop_weight": 10
+      "drop_weight": 10,
+      "rarity": "uncommon"
     },
     {
       "id": "rune.duration",
       "display_name": "Persistence",
       "status_duration_delta": 1,
       "requires_any_tags": ["Duration", "Fire", "Cold", "Lightning"],
-      "drop_weight": 6
+      "drop_weight": 6,
+      "rarity": "uncommon"
     },
     {
       "id": "rune.ember",
@@ -100,7 +112,8 @@
       "requires_all_tags": ["Fire"],
       "status_id": "status.burn",
       "status_magnitude_delta": 2,
-      "drop_weight": 10
+      "drop_weight": 10,
+      "rarity": "uncommon"
     },
     {
       "id": "rune.frostbite",
@@ -108,7 +121,8 @@
       "requires_all_tags": ["Cold"],
       "status_id": "status.freeze",
       "status_duration_delta": 1,
-      "drop_weight": 4
+      "drop_weight": 4,
+      "rarity": "uncommon"
     },
     {
       "id": "rune.shock",
@@ -116,28 +130,32 @@
       "requires_all_tags": ["Lightning"],
       "status_id": "status.paralyze",
       "status_magnitude_delta": 20,
-      "drop_weight": 4
+      "drop_weight": 4,
+      "rarity": "uncommon"
     },
     {
       "id": "rune.leech",
       "display_name": "Life Leech",
       "life_on_hit": 2,
       "requires_any_tags": ["Attack"],
-      "drop_weight": 10
+      "drop_weight": 10,
+      "rarity": "common"
     },
     {
       "id": "rune.inferno",
       "display_name": "Inferno",
       "power_delta": 2,
       "requires_all_tags": ["Fire"],
-      "drop_weight": 4
+      "drop_weight": 4,
+      "rarity": "common"
     },
     {
       "id": "rune.glacial",
       "display_name": "Glacial Hammer",
       "power_delta": 2,
       "requires_all_tags": ["Cold"],
-      "drop_weight": 4
+      "drop_weight": 4,
+      "rarity": "common"
     },
     {
       "id": "rune.precision",
@@ -145,7 +163,8 @@
       "power_delta": 1,
       "range_delta": 1,
       "requires_all_tags": ["Projectile"],
-      "drop_weight": 4
+      "drop_weight": 4,
+      "rarity": "uncommon"
     },
     {
       "id": "rune.chain",
@@ -161,7 +180,8 @@
           }
         }
       ],
-      "drop_weight": 6
+      "drop_weight": 6,
+      "rarity": "rare"
     },
     {
       "id": "rune.frostpath",
@@ -176,7 +196,8 @@
           }
         }
       ],
-      "drop_weight": 4
+      "drop_weight": 4,
+      "rarity": "rare"
     },
     {
       "id": "rune.combust",
@@ -192,7 +213,8 @@
           }
         }
       ],
-      "drop_weight": 4
+      "drop_weight": 4,
+      "rarity": "rare"
     },
     {
       "id": "rune.guard",
@@ -206,7 +228,8 @@
           }
         }
       ],
-      "drop_weight": 6
+      "drop_weight": 6,
+      "rarity": "rare"
     },
     {
       "id": "rune.impact",
@@ -222,7 +245,8 @@
           }
         }
       ],
-      "drop_weight": 6
+      "drop_weight": 6,
+      "rarity": "rare"
     }
   ]
 }

@@ -2,12 +2,15 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
 
 #include <entt/entt.hpp>
 
 #include "gameplay/dungeon/FDungeonRun.h"
 
 namespace game {
+
+struct FRuneFitPreview;
 
 /// The shared helpers and view entry points for the dungeon run modals. The four views are registered in
 /// FModalViewRegistry.cpp from InitializeDungeonUi; a later WP rewrites the bodies in place.
@@ -42,6 +45,22 @@ void DrawGrowthPanel(entt::registry& registry, const FDungeonGrowth& growth, FDu
 /// host owns its phase; the battle owns its flags). The confirm owns the "keep exploring" escape and clears
 /// the flag itself.
 void DrawAbandonConfirm(entt::registry& registry, bool allowLeave, bool viaIntent = false);
+
+/// WP-40: indices into `candidates`, stable-sorted ascending by rarity (unknown rune or null content = common).
+[[nodiscard]] std::vector<std::size_t> RuneOfferDisplayOrder(
+    const std::vector<std::string>& candidates, const gameplay::FContentRegistry* content);
+
+/// WP-40: "Odds (normal): Common 60% / Uncommon 30% / Rare 10%"; empty when the offer has no table or tiering
+/// is off.
+[[nodiscard]] std::string RuneOfferOddsLine(const FRewards& rewards);
+
+/// WP-40: "Strike: Power 4 -> 6, AP 2 -> 1 (sockets full)" - one fitting skill's before/after numbers.
+[[nodiscard]] std::string RuneFitPreviewLine(
+    const FRuneFitPreview& preview, const gameplay::FRuneContent& rune, const gameplay::FContentRegistry* content);
+
+/// WP-40: the card's capped Fits text: the first `maxShown` lines joined with " | ", then " | +N more (hover)".
+/// Empty input gives an empty string.
+[[nodiscard]] std::string RuneFitInline(const std::vector<std::string>& lines, std::size_t maxShown = 3);
 
 /// WP-17: the one-line offer forecast ("next battle room rune offer: guaranteed (pity) / chance 70%"). The
 /// definition lives in FDungeonRewardView.cpp so the reward and camp screens show the same sentence.
