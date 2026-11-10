@@ -149,6 +149,13 @@
     "materials_cap": 3,
     "rune_offers": 1
   },
+  "elite": {
+    "reward_materials": 2,
+    "affixes": [
+      {"id": "affix.hardened", "display_name": "Hardened", "text": "Enemy max HP +30%", "health_percent": 30, "attack_bonus": 0},
+      {"id": "affix.fierce", "display_name": "Fierce", "text": "Enemy attack +1", "health_percent": 0, "attack_bonus": 1}
+    ]
+  },
   "run": {
     "end_on_final_boss": false
   },

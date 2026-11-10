@@ -1740,6 +1740,79 @@ void CappedLoadoutReport() {
     }
 }
 
+// WP-41 F16: the shipped events.json holds the six events of the spec table, and a ship-root boot passes.
+void ShippedEventsMatchTheTable() {
+    struct FEffectRow {
+        const char* kind;
+        int amount;
+        int magnitude;
+        const char* pool;
+    };
+    struct FChoiceRow {
+        std::optional<std::pair<const char*, int>> check;
+        std::vector<FEffectRow> effects;
+    };
+    struct FEventRow {
+        const char* id;
+        const char* tag;
+        std::vector<FChoiceRow> choices;
+    };
+    const std::vector<FEventRow> table = {
+        {"event.ember_shrine", "common",
+         {{std::nullopt, {{"pay_materials", 3, 0, ""}, {"open_rune_offer", 3, 0, "boosted"}}}, {std::nullopt, {}}}},
+        {"event.sealed_chest", "common",
+         {{std::make_pair("attack", 10), {{"gain_materials_range", 3, 5, ""}}},
+          {std::nullopt, {{"damage_party_pct", 20, 0, ""}, {"gain_materials_range", 2, 4, ""}}},
+          {std::nullopt, {}}}},
+        {"event.ash_gambler", "common",
+         {{std::nullopt, {{"pay_materials", 2, 0, ""}, {"gain_materials_gamble", 7, 2, ""}}}, {std::nullopt, {}}}},
+        {"event.rune_cache", "mystery",
+         {{std::nullopt, {{"open_rune_offer", 4, 0, "boosted"}}},
+          {std::nullopt, {{"gain_materials_range", 4, 6, ""}}}}},
+        {"event.blood_altar", "mystery",
+         {{std::nullopt, {{"damage_party_pct", 30, 0, ""}, {"open_rune_offer", 4, 0, "boss"}}},
+          {std::nullopt, {{"gain_materials", 2, 0, ""}}}}},
+        {"event.forgotten_armory", "mystery",
+         {{std::make_pair("defense", 8), {{"open_rune_offer", 2, 0, "boosted"}, {"gain_materials", 2, 0, ""}}},
+          {std::nullopt, {{"gain_materials_range", 2, 3, ""}}}}},
+    };
+
+    const nlohmann::json document = ReadJsonFile("assets/data/events.json");
+    CHECK(document.at("schema_version") == 1);
+    const auto& events = document.at("events");
+    CHECK(events.size() == table.size());
+    for (std::size_t i = 0; i < table.size() && i < events.size(); ++i) {
+        const auto& row = table[i];
+        const auto& event = events[i];
+        CHECK(event.at("id") == row.id);
+        CHECK(event.at("tags") == nlohmann::json::array({row.tag}));
+        const auto& choices = event.at("choices");
+        CHECK(choices.size() == row.choices.size());
+        for (std::size_t j = 0; j < row.choices.size() && j < choices.size(); ++j) {
+            const auto& choice = choices[j];
+            const auto& expected = row.choices[j];
+            CHECK(choice.contains("check") == expected.check.has_value());
+            if (expected.check && choice.contains("check")) {
+                CHECK(choice.at("check").at("stat") == expected.check->first);
+                CHECK(choice.at("check").at("difficulty") == expected.check->second);
+            }
+            const auto effects = choice.value("effects", nlohmann::json::array());
+            CHECK(effects.size() == expected.effects.size());
+            for (std::size_t k = 0; k < expected.effects.size() && k < effects.size(); ++k) {
+                const auto& effect = effects[k];
+                CHECK(effect.at("kind") == expected.effects[k].kind);
+                CHECK(effect.value("amount", 0) == expected.effects[k].amount);
+                CHECK(effect.value("magnitude", 0) == expected.effects[k].magnitude);
+                CHECK(effect.value("pool", std::string{}) == expected.effects[k].pool);
+            }
+        }
+    }
+
+    entt::registry registry;
+    game::FAssetManager::Initialize(registry, ShipAssetRoots());
+    CHECK(game::gameplay::FGameplayServices::Initialize(registry));
+}
+
 } // namespace
 
 int main() {
@@ -1788,5 +1861,6 @@ int main() {
         {"EveryRuneIsOfferLegalForStartingParty", EveryRuneIsOfferLegalForStartingParty},
         {"NewLoadoutsNeedNoAiWork", NewLoadoutsNeedNoAiWork},
         {"CappedLoadoutReport", CappedLoadoutReport},
+        {"ShippedEventsMatchTheTable", ShippedEventsMatchTheTable},
     });
 }

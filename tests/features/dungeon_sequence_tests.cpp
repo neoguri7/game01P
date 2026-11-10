@@ -50,6 +50,9 @@
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FDungeonSave.h"
+#include "gameplay/dungeon/FEventContent.h"
+#include "gameplay/dungeon/FEventEffects.h"
+#include "gameplay/dungeon/FEventSection.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRoomGenerator.h"
 #include "gameplay/dungeon/FRunFlow.h"
@@ -1354,8 +1357,22 @@ void AutoCompleteSeesFirstBossAtDungeonThree() {
                 break;
             }
             case game::EDungeonPhase::Event: {
-                // Rest: the autoplay needs to survive three dungeons, and the choice is a scenario input.
-                CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ChooseEventRest).has_value());
+                // The first open choice: the autoplay needs to survive three dungeons, and the choice is a
+                // scenario input (shipped events gate some options on materials or stats).
+                const auto instance = game::CurrentEventInstance(registry);
+                CHECK(instance.has_value());
+                const auto def = instance ? game::FindEventDef(registry, instance->eventId) : std::nullopt;
+                CHECK(def.has_value());
+                int open = -1;
+                if (def) {
+                    for (std::size_t i = 0; i < def->choices.size() && open < 0; ++i) {
+                        if (game::EvaluateEventGate(registry, def->choices[i]).open) open = static_cast<int>(i);
+                    }
+                }
+                CHECK(open >= 0);
+                CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ChooseEventOption, open).has_value());
+                if (registry.ctx().get<game::FRewards>().offer.active) CHECK(game::ResolveRuneOffer(registry, -1));
+                CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueEvent).has_value());
                 CHECK(run.phase == game::EDungeonPhase::Battle);
                 harness.nextRoom();
                 break;

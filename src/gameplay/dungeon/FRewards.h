@@ -81,7 +81,14 @@ void EnsureRewardsForRun(entt::registry& registry);
 
 /// Room clear: decides (and opens) the offer only. It never pays materials or EXP and never changes the
 /// phase. `bossRoom` uses `boss_offer`; a monster room uses chance/pity.
-void RollRoomOffer(entt::registry& registry, bool bossRoom);
+/// An elite monster room skips the chance roll and opens a "boosted" offer (WP-41).
+void RollRoomOffer(entt::registry& registry, bool bossRoom, bool elite = false);
+
+/// Rolls candidates from `rarityTable` (RollRuneCandidates) and opens the offer: active, candidates,
+/// rarityTable = FindRarityTable name or empty, pity = 0, bossExtraPending = false. False when an offer is
+/// already open (nothing consumed) or fewer than max(1, min_legal_candidates) candidates came up (the draw
+/// index is consumed, nothing else changes).
+bool OpenRuneOffer(entt::registry& registry, std::string_view rarityTable);
 
 /// Resolves the open offer: `pickedIndex < 0` skips (materials refund), otherwise the candidate is granted
 /// (or refunded when already owned and the policy says so). It never changes the phase. False = nothing was

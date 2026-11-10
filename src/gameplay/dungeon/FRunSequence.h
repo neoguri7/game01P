@@ -72,6 +72,23 @@ struct FDungeonBootProbe {
     int iterations{0};
 };
 
+/// One elite affix (dungeon.json `elite.affixes[]`, WP-41): enemy max HP +healthPercent%, attack and magic
+/// attack +attackBonus. Applied in the combat sheet after the cycle scale.
+struct FEliteAffix {
+    std::string id;
+    std::string displayName;
+    std::string text;
+    int healthPercent{0};
+    int attackBonus{0};
+};
+
+/// The elite-battle rules (dungeon.json `elite`): extra materials on a win and the affix list. Empty
+/// affixes = the block is absent and no dungeon has an elite fork.
+struct FEliteRules {
+    int rewardMaterials{0};
+    std::vector<FEliteAffix> affixes;
+};
+
 /// The dungeon sequence: themes -> dungeons -> room slots (dungeon.json v2). Boot content: installed in the
 /// registry context by InitializeDungeon. The run stores no position field: the live position is
 /// `PositionOf(depth - 1)`, which equals `PositionOf(cleared)` outside camp (Camp: cleared == depth, but the
@@ -80,6 +97,7 @@ struct FRunSequence {
     std::vector<FRunThemeDef> themes;
     std::vector<FRunCycleStep> cycles;
     FRunStartSupport startSupport;
+    FEliteRules elite;
     /// `family_rules.boss_rooms_allow_heavy` (ship false until WP-14 decides the boss-room question, D-23
     /// §2): when true, a heavy family is legal on a boss slot. Never a silent coercion — the loader refuses
     /// the illegal combinations either way.

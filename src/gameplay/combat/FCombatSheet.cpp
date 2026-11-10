@@ -16,6 +16,7 @@
 #include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FRunPath.h"
 #include "gameplay/dungeon/FRunSequence.h"
 #include "gameplay/factory/FEntityDefinitions.h"
 #include "gameplay/grid/FGridQuery.h"
@@ -81,6 +82,12 @@ void RefreshCombatSheet(
         if (cycle.attackPct != 0) {
             stats->attack += stats->attack * cycle.attackPct / 100;
             stats->magicAttack += stats->magicAttack * cycle.attackPct / 100;
+        }
+        // WP-41: the elite affix of this room, after the cycle scale (combat-math.md: enemy sheet).
+        if (const FEliteAffix* affix = EliteAffixFor(registry, run->room)) {
+            health->max += health->max * affix->healthPercent / 100;
+            stats->attack += affix->attackBonus;
+            stats->magicAttack += affix->attackBonus;
         }
     }
 

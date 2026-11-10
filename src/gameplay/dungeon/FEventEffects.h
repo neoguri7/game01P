@@ -24,6 +24,14 @@ inline constexpr std::string_view kEventEffectDamagePartyPct = "damage_party_pct
 inline constexpr std::string_view kEventEffectGainMaterials = "gain_materials";      // amount
 inline constexpr std::string_view kEventEffectGainRuneRandom = "gain_rune_random";   // pool (must be empty in W9)
 inline constexpr std::string_view kEventEffectGainNodePoints = "gain_node_points";   // member?, amount (0 = 1)
+// WP-41: four more Run-scope kinds.
+inline constexpr std::string_view kEventEffectGainMaterialsRange = "gain_materials_range";    // amount..magnitude
+inline constexpr std::string_view kEventEffectGainMaterialsGamble = "gain_materials_gamble";  // {0,0,magnitude,amount}
+inline constexpr std::string_view kEventEffectPayMaterials = "pay_materials";                 // amount
+inline constexpr std::string_view kEventEffectOpenRuneOffer = "open_rune_offer";              // pool, amount = refund
+
+/// WP-41: the salt base of the seeded event rolls: EventPickHash(seed, depth, base + room * 16 + rollIndex).
+inline constexpr int kEventRollSaltBase = 2000;
 
 /// The authored `amount` ceiling of the flat effects (WP-09h #9): an in-code sanity bound, not balance —
 /// it stops an authored slip (`2147483647`) from overflowing the run counters into negative materials.
@@ -40,6 +48,7 @@ struct FEventOutcome {
     int hpLost{0};
     int materials{0};
     int nodePoints{0};
+    bool offerOpened{false};  // an open_rune_offer effect opened an offer
     std::vector<std::string> runes;  // rune ids granted (a duplicate refund adds materials instead)
 };
 

@@ -373,12 +373,38 @@ void EnsureRewardsForRun(entt::registry& registry) {
     ResetRewardsForRun(registry);
 }
 
-void RollRoomOffer(entt::registry& registry, bool bossRoom) {
+bool OpenRuneOffer(entt::registry& registry, std::string_view rarityTable) {
+    EnsureRewardsForRun(registry);
+    auto* rewards = registry.ctx().find<FRewards>();
+    if (rewards == nullptr || registry.ctx().find<FDungeonRun>() == nullptr) return false;
+    if (rewards->offer.active) return false;
+    const FRewardTables& tables = rewards->tables;
+    auto candidates = RollRuneCandidates(registry, rarityTable);  // consumes one draw index
+    const auto minimum = static_cast<std::size_t>(std::max(1, tables.minLegalCandidates));
+    if (candidates.size() < minimum) return false;
+    rewards->offer.active = true;
+    rewards->offer.candidates = std::move(candidates);
+    const FRarityWeights* used = FindRarityTable(tables, rarityTable);
+    rewards->offer.rarityTable = used != nullptr ? used->name : std::string{};
+    rewards->pity = 0;
+    rewards->bossExtraPending = false;
+    LOG_INFO("Rune offer opened: {} candidate(s) ({}).", rewards->offer.candidates.size(), rarityTable);
+    return true;
+}
+
+void RollRoomOffer(entt::registry& registry, bool bossRoom, bool elite) {
     EnsureRewardsForRun(registry);
     auto* rewards = registry.ctx().find<FRewards>();
     const auto* run = registry.ctx().find<FDungeonRun>();
     if (rewards == nullptr || run == nullptr) return;
     if (rewards->offer.active) return;  // one offer per room: a repeated call never re-rolls or re-pities
+    if (elite && !bossRoom) {
+        // WP-41: an elite win always offers a rune from the boosted table; no chance roll, pity reset.
+        if (!OpenRuneOffer(registry, kRarityTableBoosted)) {
+            LOG_INFO("Elite rune offer withheld: too few legal candidates.");
+        }
+        return;
+    }
 
     const FRewardTables& tables = rewards->tables;
     if (bossRoom) {

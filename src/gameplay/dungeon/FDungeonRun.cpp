@@ -27,6 +27,7 @@
 #include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunFlow.h"
 #include "gameplay/dungeon/FRunLog.h"
+#include "gameplay/dungeon/FRunPath.h"
 #include "gameplay/dungeon/FRunSequence.h"
 #include "gameplay/dungeon/FRunStart.h"
 #include "gameplay/dungeon/FSaveSections.h"
@@ -877,7 +878,12 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
     }
     // WP-14a: the composition plan of this battle (a pure read; boss slots carry no encounter). ApplyEncounter
     // writes roleSlots/fill/enemyCount into THIS build's config copy — the shared parsed config stays as is.
-    const FRoomPlan plan = FrameRoomPlan(registry, run.room);
+    FRoomPlan plan = FrameRoomPlan(registry, run.room);
+    // WP-41: the elite stamp comes from the saved path state only (this also runs on Reward/Event/Camp continues).
+    if (const FEliteAffix* affix = EliteAffixFor(registry, run.room)) {
+        plan.elite = true;
+        plan.affixId = affix->id;
+    }
     const auto* encounters = FindEncounterContent(registry);
     const FEncounterDef* encounter =
         (encounters != nullptr && !plan.encounterId.empty()) ? encounters->Find(plan.encounterId) : nullptr;

@@ -1802,6 +1802,199 @@ void EventInstanceClearedOnNewRun() {
     CHECK(!game::CurrentEventInstance(boot.registry).has_value());  // a fresh run is in the battle phase
 }
 
+// --- WP-41: range / gamble / pay / offer effects ------------------------------------------------
+
+/// An events.json document of the given events (schema 1).
+json EventsDoc(const std::vector<json>& events) {
+    return {{"schema_version", 1}, {"events", events}};
+}
+
+json EffectJson(const char* kind, int amount, int magnitude = 0, const char* pool = "") {
+    json effect = {{"kind", kind}, {"amount", amount}};
+    if (magnitude != 0) effect["magnitude"] = magnitude;
+    if (*pool != '\0') effect["pool"] = pool;
+    return effect;
+}
+
+json ChoiceJson(const char* text, std::vector<json> effects) {
+    return {{"text", text}, {"effects", effects}, {"result_text", "Done."}};
+}
+
+json EventJson(const char* id, std::vector<json> choices) {
+    return {{"id", id}, {"title", "Title"}, {"body", "Body"}, {"tags", json::array({"test"})},
+            {"choices", choices}};
+}
+
+/// A temp root with `events` and the fixture dungeon whose walked event slots draw from the "test" pool.
+struct FEffectRoot {
+    FTempAssets assets;
+    explicit FEffectRoot(const char* stem, const std::vector<json>& events) : assets(stem) {
+        assets.Write("dungeon.json", TestPoolDungeon());
+        assets.Write("events.json", EventsDoc(events));
+    }
+};
+
+void MaterialsRangeIsSeededAndBounded() {
+    FEffectRoot root("events-range",
+                     {EventJson("event.t_range",
+                                {ChoiceJson("Twice", {EffectJson("gain_materials_range", 3, 5),
+                                                      EffectJson("gain_materials_range", 3, 5)}),
+                                 ChoiceJson("Once", {EffectJson("gain_materials_range", 3, 5)})})});
+    FBoot boot(UniquePath("events-range"), root.assets.Roots());
+    std::set<int> first;
+    for (std::uint32_t seed = 1; seed <= 60; ++seed) {
+        game::StartRun(boot.registry, seed, true);
+        const auto def = game::FindEventDef(boot.registry, "event.t_range");
+        CHECK(def.has_value());
+        const auto roll = [&](int index) {
+            return static_cast<int>(game::EventPickHash(seed, 1, game::kEventRollSaltBase + index) % 3);
+        };
+        boot.run().materials = 0;
+        const auto once = game::ApplyEventChoice(boot.registry, def->choices[1]);
+        CHECK(once.has_value());
+        CHECK(once->materials == 3 + roll(0));
+        boot.run().materials = 0;
+        const auto twice = game::ApplyEventChoice(boot.registry, def->choices[0]);
+        CHECK(twice.has_value());
+        CHECK(twice->materials == (3 + roll(0)) + (3 + roll(1)));
+        CHECK(boot.run().materials == twice->materials);
+        first.insert(once->materials);
+    }
+    CHECK(first == (std::set<int>{3, 4, 5}));
+
+    FEffectRoot bad("events-range-bad",
+                    {EventJson("event.t_bad", {ChoiceJson("Backwards", {EffectJson("gain_materials_range", 5, 3)}),
+                                               ChoiceJson("Leave", {})})});
+    CHECK(!ContentBoots(bad.assets.Roots()));
+    FEffectRoot big("events-range-big",
+                    {EventJson("event.t_big", {ChoiceJson("Huge", {EffectJson("gain_materials_range", 1, 1000)}),
+                                               ChoiceJson("Leave", {})})});
+    CHECK(!ContentBoots(big.assets.Roots()));
+}
+
+void MaterialsGambleUsesFourOutcomes() {
+    FEffectRoot root("events-gamble",
+                     {EventJson("event.t_gamble", {ChoiceJson("Stake", {EffectJson("gain_materials_gamble", 7, 2)}),
+                                                   ChoiceJson("Leave", {})})});
+    FBoot boot(UniquePath("events-gamble"), root.assets.Roots());
+    std::set<int> seen;
+    for (std::uint32_t seed = 1; seed <= 80; ++seed) {
+        game::StartRun(boot.registry, seed, true);
+        const auto def = game::FindEventDef(boot.registry, "event.t_gamble");
+        CHECK(def.has_value());
+        boot.run().materials = 0;
+        const auto outcome = game::ApplyEventChoice(boot.registry, def->choices[0]);
+        CHECK(outcome.has_value());
+        const auto roll = game::EventPickHash(seed, 1, game::kEventRollSaltBase);
+        const std::array<int, 4> table{0, 0, 2, 7};
+        CHECK(outcome->materials == table[roll % 4]);
+        seen.insert(outcome->materials);
+    }
+    CHECK(seen == (std::set<int>{0, 2, 7}));
+}
+
+/// Reaches the event room of the "test" pool and returns its choice list.
+game::FEventDef EnterTestEvent(FBoot& boot, std::string_view id) {
+    StartFresh(boot);
+    const auto instance = EnterEvent(boot);
+    CHECK(instance.has_value());
+    CHECK(instance->eventId == id);
+    const auto def = game::FindEventDef(boot.registry, id);
+    CHECK(def.has_value());
+    return *def;
+}
+
+void PayMaterialsGatesAndCharges() {
+    FEffectRoot root("events-pay",
+                     {EventJson("event.t_pay", {ChoiceJson("Pay", {EffectJson("pay_materials", 3),
+                                                                   EffectJson("gain_materials", 1)}),
+                                                ChoiceJson("Leave", {})})});
+    {
+        FBoot boot(UniquePath("events-pay-a"), root.assets.Roots());
+        const auto def = EnterTestEvent(boot, "event.t_pay");
+        boot.run().materials = 2;
+        const auto gate = game::EvaluateEventGate(boot.registry, def.choices[0]);
+        CHECK(!gate.open);
+        CHECK(gate.reason == "Need 3 materials (have 2)");
+        CHECK(!game::ApplyRunIntent(boot.registry, game::ERunIntent::ChooseEventOption, 0).has_value());
+        CHECK(boot.run().materials == 2);
+    }
+    {
+        FBoot boot(UniquePath("events-pay-b"), root.assets.Roots());
+        const auto def = EnterTestEvent(boot, "event.t_pay");
+        boot.run().materials = 3;
+        const auto gate = game::EvaluateEventGate(boot.registry, def.choices[0]);
+        CHECK(gate.open);
+        CHECK(gate.reason == "Costs 3 materials");
+        CHECK(game::ApplyRunIntent(boot.registry, game::ERunIntent::ChooseEventOption, 0).has_value());
+        CHECK(boot.run().materials == 1);
+        CHECK(boot.run().message.find("-2 materials") != std::string::npos);
+    }
+    FEffectRoot dominated("events-pay-dominated",
+                          {EventJson("event.t_pay2", {ChoiceJson("A", {EffectJson("pay_materials", 1)}),
+                                                      ChoiceJson("B", {EffectJson("pay_materials", 2)})})});
+    CHECK(!ContentBoots(dominated.assets.Roots()));
+}
+
+void OpenRuneOfferOpensOrRefunds() {
+    FEffectRoot root("events-offer",
+                     {EventJson("event.t_offer", {ChoiceJson("Take", {EffectJson("open_rune_offer", 4, 0, "boosted")}),
+                                                  ChoiceJson("Leave", {})})});
+    {
+        FBoot boot(UniquePath("events-offer-a"), root.assets.Roots());
+        EnterTestEvent(boot, "event.t_offer");
+        CHECK(game::ApplyRunIntent(boot.registry, game::ERunIntent::ChooseEventOption, 0).has_value());
+        const auto& rewards = boot.registry.ctx().get<game::FRewards>();
+        CHECK(rewards.offer.active);
+        CHECK(rewards.pity == 0);
+        CHECK(boot.run().message.find("rune offer") != std::string::npos);
+        CHECK(!game::ApplyRunIntent(boot.registry, game::ERunIntent::ContinueEvent).has_value());
+        CHECK(game::ResolveRuneOffer(boot.registry, -1));
+        CHECK(game::ApplyRunIntent(boot.registry, game::ERunIntent::ContinueEvent).has_value());
+    }
+    {
+        FBoot boot(UniquePath("events-offer-b"), root.assets.Roots());
+        EnterTestEvent(boot, "event.t_offer");
+        auto& rewards = boot.registry.ctx().get<game::FRewards>();
+        rewards.tables.minLegalCandidates = 99;
+        rewards.tables.count = 99;
+        const int before = boot.run().materials;
+        CHECK(game::ApplyRunIntent(boot.registry, game::ERunIntent::ChooseEventOption, 0).has_value());
+        CHECK(!boot.registry.ctx().get<game::FRewards>().offer.active);
+        CHECK(boot.run().materials == before + 4);
+    }
+    {
+        FBoot boot(UniquePath("events-offer-c"), root.assets.Roots());
+        EnterTestEvent(boot, "event.t_offer");
+        const auto legacy = game::ApplyRunIntent(boot.registry, game::ERunIntent::ChooseEventRest);
+        CHECK(legacy.has_value());
+        CHECK(boot.run().phase == game::EDungeonPhase::Event);
+        CHECK(boot.registry.ctx().get<game::FRewards>().offer.active);
+    }
+    {
+        FEffectRoot epic("events-offer-epic",
+                         {EventJson("event.t_epic", {ChoiceJson("Take", {EffectJson("open_rune_offer", 4, 0, "epic")}),
+                                                     ChoiceJson("Leave", {})})});
+        CHECK(!ContentBoots(epic.assets.Roots()));
+    }
+    {
+        FBoot boot(UniquePath("events-offer-d"), root.assets.Roots());
+        EnterTestEvent(boot, "event.t_offer");
+        CHECK(game::ApplyRunIntent(boot.registry, game::ERunIntent::ChooseEventOption, 0).has_value());
+        CHECK(boot.registry.ctx().get<game::FRewards>().offer.active);
+        FEffectRoot other("events-offer-other",
+                          {EventJson("event.t_other", {ChoiceJson("A", {EffectJson("gain_materials", 1)}),
+                                                       ChoiceJson("Leave", {})})});
+        entt::registry second;
+        game::FAssetManager::Initialize(second, other.assets.Roots());
+        CHECK(game::gameplay::FGameplayServices::Initialize(second));
+        CHECK(game::InitializeDungeon(second, boot.checkpoint));
+        CHECK(game::ContinueDungeonRun(second));
+        CHECK(second.ctx().get<game::FDungeonRun>().phase != game::EDungeonPhase::Event);
+        CHECK(!second.ctx().get<game::FRewards>().offer.active);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1871,5 +2064,9 @@ int main() {
         {"EventChosenLoggedOnce", EventChosenLoggedOnce},
         {"EventInstanceClearedOnNewRun", EventInstanceClearedOnNewRun},
         {"ResolvedEventMissingFromCatalogContinues", ResolvedEventMissingFromCatalogContinues},
+        {"MaterialsRangeIsSeededAndBounded", MaterialsRangeIsSeededAndBounded},
+        {"MaterialsGambleUsesFourOutcomes", MaterialsGambleUsesFourOutcomes},
+        {"PayMaterialsGatesAndCharges", PayMaterialsGatesAndCharges},
+        {"OpenRuneOfferOpensOrRefunds", OpenRuneOfferOpensOrRefunds},
     });
 }

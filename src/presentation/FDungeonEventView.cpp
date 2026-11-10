@@ -13,7 +13,11 @@
 #include "gameplay/dungeon/FEventContent.h"
 #include "gameplay/dungeon/FEventEffects.h"
 #include "gameplay/dungeon/FEventSection.h"
+#include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FRunPath.h"
+#include "gameplay/data/FContentRegistry.h"
+#include "presentation/FPathStripView.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FUiTheme.h"
 
@@ -87,13 +91,35 @@ void RenderDungeonEventView(entt::registry& registry) {
                     result = def->choices[static_cast<std::size_t>(instance->choice)].resultText;
                 }
                 ImGui::TextWrapped("%s", result.c_str());
-                bool confirmed = false;
-                if (const auto* input = registry.ctx().find<FInputState>()) {
-                    confirmed = input->isActionPressed(EInputAction::Confirm);
+                // WP-41: an offer the event opened is resolved on this result screen.
+                auto* rewards = registry.ctx().find<FRewards>();
+                const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
+                const bool offerOpen = rewards != nullptr && rewards->offer.active;
+                if (offerOpen) {
+                    DrawRuneOffers(registry, *rewards, content);
+                    ImGui::TextDisabled("Pick a rune or skip the offer to continue.");
                 }
-                if (ui::Button("Continue", {-1, 42}) || confirmed) {
-                    PostRunIntent(registry, ERunIntent::ContinueEvent);
-                    ImGui::CloseCurrentPopup();
+                if (IsForkPending(registry)) {
+                    // The Confirm key stays inert: every fork record is a deliberate click.
+                    const int pick = DrawForkPanel(registry, offerOpen);
+                    if (pick >= 0) {
+                        PostRunIntent(registry, pick == 1 ? ERunIntent::TakeFork : ERunIntent::ContinueEvent);
+                        ImGui::CloseCurrentPopup();
+                    }
+                } else {
+                    bool confirmed = false;
+                    if (!offerOpen) {
+                        if (const auto* input = registry.ctx().find<FInputState>()) {
+                            confirmed = input->isActionPressed(EInputAction::Confirm);
+                        }
+                    }
+                    ImGui::BeginDisabled(offerOpen);
+                    const bool clicked = ui::Button("Continue", {-1, 42});
+                    ImGui::EndDisabled();
+                    if (clicked || confirmed) {
+                        PostRunIntent(registry, ERunIntent::ContinueEvent);
+                        ImGui::CloseCurrentPopup();
+                    }
                 }
             }
         } else {

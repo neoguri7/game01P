@@ -31,6 +31,7 @@
 #include "gameplay/grid/FGridTerrain.h"
 #include "presentation/FBattleAnim.h"
 #include "presentation/FDungeonArt.h"
+#include "presentation/FPathStripView.h"
 #include "presentation/FSettings.h"
 #include "presentation/FUiFrame.h"
 #include "presentation/FUiTheme.h"
@@ -397,7 +398,7 @@ void TopBar(entt::registry& registry, const FUiLayout& layout, const FDungeonRun
 
     ui::DrawRecess(draw, Min(zones.status), Max(zones.status));
     char depth[96];
-    std::snprintf(depth, sizeof depth, "DEPTH %02d  |  ROOM %d / 3", run.depth, run.room + 1);
+    std::snprintf(depth, sizeof depth, "DEPTH %02d", run.depth);
     char stats[96];
     std::snprintf(stats, sizeof stats, "MATERIALS %d  |  CHECKPOINT %d  |  NODES %d", run.materials, run.cleared,
                   UnspentNodePoints(run));
@@ -416,6 +417,7 @@ void TopBar(entt::registry& registry, const FUiLayout& layout, const FDungeonRun
         ImGui::TextDisabled("%s", stats);
     }
     ui::EndZone();
+    DrawPathStrip(registry, zones.status.right(), zones.status.bottom() + 8.f * u, u);
 }
 
 // Floating card over the playfield: the selected skill and the legal targets, as clickable names.

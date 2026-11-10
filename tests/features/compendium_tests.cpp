@@ -478,7 +478,7 @@ void TextScaleKeepsZones() {
 
         // Width: the fixed strings the HUD draws inside a zone (incl. the skeleton's own turn-order assert).
         expectWidth(layout.zones.title, "EMBER DUNGEON", 15.f, 8.f, "title heading");
-        expectWidth(layout.zones.status, "DEPTH 01  |  ROOM 1 / 3", 13.f, 8.f, "status depth");
+        expectWidth(layout.zones.status, "DEPTH 01", 13.f, 8.f, "status depth");
         expectWidth(layout.zones.status, "MATERIALS 0  |  CHECKPOINT 0  |  NODES 0", 12.f, 8.f, "status resources");
         expectWidth(layout.zones.turnOrder, game::ecs::kNextRoundMarker, 15.f, 24.f, "turn marker");
         expectWidth(layout.zones.skills, "ROOM RESOLVED", 20.f, 0.f, "skills banner");

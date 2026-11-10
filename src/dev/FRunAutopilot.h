@@ -35,6 +35,7 @@ inline constexpr std::string_view kDefaultAutopilotPolicy = "reward=card0,event=
 ///                                  score, lowest index on ties; all zeros -> card 0. Applies to the room reward
 ///                                  AND the camp rune offer (both resolve through the same reward rule)
 ///   event=first | event=second     the event policy index (first = choice 0, second = choice 1); when that
+///   fork=standard | fork=variant   the fork branch (WP-41; standard by default, variant = elite / "?")
 ///                                  choice's gate is shut the first open choice is taken instead; two-stage
 ///                                  (choose the option, then continue the result screen)
 ///   chest=open | chest=never       open: in EVEN dungeons (run depth % 2 == 0) every event's policy index
@@ -64,6 +65,7 @@ struct FAutopilotPolicy {
     bool rewardSkip{false};
     bool rewardEngine{false};       // reward=engine (rewardCard stays 0, rewardSkip false)
     int eventOption{0};             // the policy event choice index (0 = first, 1 = second)
+    bool forkVariant{false};        // fork=variant takes the elite / "?" branch (WP-41); default standard
     bool chestOnEvenDungeons{true};
     bool campBuyOffer{true};
     int campUpgrades{1};

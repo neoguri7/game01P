@@ -1403,6 +1403,33 @@ void ResetPartyStatBonuses(game::FDungeonRun& run) {
 /// resolve keeps (depth, room, phase) constant, so only the widened key (event stage) makes the second tick
 /// post ContinueEvent instead of timing out to Stuck. With the gate open (a ctx FRunMember attack bonus) the
 /// policy index 0 itself is chosen; an instance whose id has no def is an immediate Stuck.
+// WP-41 F18: the autopilot resolves an offer the event opened before it continues; fork= parses.
+void AutopilotResolvesEventOffer() {
+    const auto variant = game::dev::ParseAutopilotPolicy("fork=variant");
+    CHECK(variant.has_value() && variant->forkVariant);
+    const auto standard = game::dev::ParseAutopilotPolicy("fork=standard");
+    CHECK(standard.has_value() && !standard->forkVariant);
+    CHECK(!game::dev::ParseAutopilotPolicy("fork=x").has_value());
+
+    FHeadlessRunHarness harness{7, "event-offer"};
+    auto& registry = harness.registry;
+    CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    if (registry.ctx().get<game::FRewards>().offer.active) CHECK(game::ResolveRuneOffer(registry, -1));
+    CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward).has_value());
+    CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ChooseEventOption, 0).has_value());
+    CHECK(game::OpenRuneOffer(registry, "normal"));
+    FRunAutopilot pilot{*game::dev::ParseAutopilotPolicy(game::dev::kDefaultAutopilotPolicy)};
+    for (int tick = 0; tick < 10; ++tick) {
+        if (registry.ctx().get<game::FDungeonRun>().phase != game::EDungeonPhase::Event) break;
+        const EAutopilotStatus status = pilot.tick(registry, game::kRunModalEvent);
+        CHECK(status != EAutopilotStatus::Stuck);
+        FEmberModalHostState host(std::string(game::kRunModalEvent), EHostMode::RunPhase);
+        host.Update(registry, 1.f / 60.f);
+    }
+    CHECK(!registry.ctx().get<game::FRewards>().offer.active);
+    CHECK(registry.ctx().get<game::FDungeonRun>().phase != game::EDungeonPhase::Event);
+}
+
 void AutopilotPicksOpenOptionPastGate() {
     const auto policy = game::dev::ParseAutopilotPolicy("event=first");
     CHECK(policy.has_value());
@@ -1521,6 +1548,7 @@ int main() {
     }
     return game_test::RunTests("headless tools", {
         {"ParsesEveryCommand", ParsesEveryCommand},
+        {"AutopilotResolvesEventOffer", AutopilotResolvesEventOffer},
         {"RejectsEachErrorKind", RejectsEachErrorKind},
         {"InjectsClickIntoImGuiUnderDummyDriver", InjectsClickIntoImGuiUnderDummyDriver},
         {"ParsesAutopilotPolicy", ParsesAutopilotPolicy},

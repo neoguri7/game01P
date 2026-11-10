@@ -15,6 +15,7 @@
 #include "core/Logger.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FEventContent.h"
+#include "gameplay/dungeon/FRunPath.h"
 #include "gameplay/dungeon/FRunSequence.h"
 
 namespace game {
@@ -189,9 +190,22 @@ std::optional<FEventInstance> CurrentEventInstance(entt::registry& registry) {
     const auto position = sequence->PositionOf(run->depth - 1);
     const auto* slot = sequence->GapEvent(position, run->room);
     if (slot == nullptr) return std::nullopt;  // this battle has no gap event
+    const std::vector<std::string> pools = GapEventPools(registry, run->room);
+    if (pools.empty()) return std::nullopt;
     const std::vector<FEventDef> catalog = EventCatalog(registry);
-    const std::optional<std::string> id =
-        PickEventId(catalog, slot->eventPool, EventSeen(registry), run->seed, run->depth, run->room);
+    std::optional<std::string> id;
+    if (pools.size() == 1) {
+        id = PickEventId(catalog, pools[0], EventSeen(registry), run->seed, run->depth, run->room);
+    } else {
+        // WP-41: a chosen "?" fork draws from the slot pool and the mystery pool together.
+        std::vector<FEventDef> mixed;
+        for (const auto& event : catalog) {
+            if (std::ranges::any_of(pools, [&](const std::string& pool) { return EventInPool(event, pool); })) {
+                mixed.push_back(event);
+            }
+        }
+        id = PickEventId(mixed, "", EventSeen(registry), run->seed, run->depth, run->room);
+    }
     if (!id) return std::nullopt;  // the slot's pool is empty
     return FEventInstance{*id, -1, false};
 }

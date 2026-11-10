@@ -14,10 +14,13 @@ namespace {
 /// The intent a run phase's view is allowed to post. A mismatch is a wiring bug, not a player action:
 /// log it and drop it so the host stays in its own phase.
 bool AcceptsIntent(std::string_view id, game::ERunIntent intent) {
-    if (id == game::kRunModalReward) return intent == game::ERunIntent::ContinueReward;
+    if (id == game::kRunModalReward) {
+        return intent == game::ERunIntent::ContinueReward || intent == game::ERunIntent::TakeFork;
+    }
     if (id == game::kRunModalEvent) {
         return intent == game::ERunIntent::ChooseEventRest || intent == game::ERunIntent::ChooseEventLoot ||
-               intent == game::ERunIntent::ChooseEventOption || intent == game::ERunIntent::ContinueEvent;
+               intent == game::ERunIntent::ChooseEventOption || intent == game::ERunIntent::ContinueEvent ||
+               intent == game::ERunIntent::TakeFork;
     }
     if (id == game::kRunModalCamp) {
         return intent == game::ERunIntent::LeaveCamp || intent == game::ERunIntent::AbandonRun;

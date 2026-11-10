@@ -439,6 +439,24 @@ void HandleRunEvent(entt::registry& registry, const FRunEvent& event) {
                                              {"event", event.id},
                                              {"choice", event.amount}});
         break;
+    case ERunEventKind::ForkChosen: {
+        int hp = 0;
+        int hpMax = 0;
+        if (const auto* run = registry.ctx().find<FDungeonRun>()) {
+            for (const auto& member : run->party) {
+                hp += DungeonEffectiveHealth(registry, member);
+                hpMax += DungeonMemberMaxHealth(registry, member);
+            }
+        }
+        LogRunEvent(registry, nlohmann::json{{"t", "fork"},
+                                             {"depth", event.depth},
+                                             {"room", event.room},
+                                             {"kind", event.id},
+                                             {"choice", event.amount},
+                                             {"party_hp", hp},
+                                             {"party_hp_max", hpMax}});
+        break;
+    }
     case ERunEventKind::CampSpent:
         LogRunEvent(registry, nlohmann::json{{"t", "camp"},
                                              {"depth", event.depth},
@@ -753,6 +771,7 @@ bool FRunEventSchemaValid(const nlohmann::json& event) {
         {"room_end", {"t", "depth", "room", "result", "rounds", "hp_loss", "skills_used", "intents"}},
         {"offer", {"t", "depth", "room", "picked", "skipped", "duplicate", "refund"}},
         {"event", {"t", "depth", "room", "event", "choice"}},
+        {"fork", {"t", "depth", "room", "kind", "choice", "party_hp", "party_hp_max"}},
         // `member` is optional (WP-10 forward compatibility): the required camp keys stay as authored.
         {"camp", {"t", "depth", "id", "amount"}},
         {"run_end", {"t", "result", "depth", "dungeons_cleared", "reason", "frames_to_first_battle",

@@ -19,6 +19,7 @@
 #include "gameplay/dungeon/FEventSection.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRoomTypeRegistry.h"
+#include "gameplay/dungeon/FRunPath.h"
 #include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunLog.h"
 #include "gameplay/dungeon/FRunSequence.h"
@@ -96,6 +97,8 @@ std::expected<FRunResult, std::string> ContinueReward(entt::registry& registry) 
         LOG_ERROR("The dungeon sequence is missing; the reward step cannot advance (see InitializeDungeon).");
         return std::unexpected(std::string("The dungeon sequence is missing."));
     }
+    // WP-41: leaving the slot before an undecided fork takes the standard branch.
+    if (IsForkPending(registry)) DecideFork(registry, 0);
     const auto position = sequence->PositionOf(run->depth - 1);
     if (const auto* slot = sequence->GapEvent(position, run->room)) {
         // WP-09: the gap slot's type dispatches through the ctx room-type table; `event` is the only
@@ -215,6 +218,12 @@ std::expected<FRunResult, std::string> ContinueEvent(entt::registry& registry) {
     if (instance == nullptr || !instance->resolved) {
         return std::unexpected(std::string("Choose an option first."));
     }
+    // WP-41: an offer the event opened is a decision too; the flow waits for it.
+    EnsureRewardsForRun(registry);
+    if (const auto* rewards = registry.ctx().find<FRewards>(); rewards != nullptr && rewards->offer.active) {
+        return std::unexpected(std::string("Resolve the rune offer before continuing."));
+    }
+    if (IsForkPending(registry)) DecideFork(registry, 0);
     ++run->room;
     Advance(registry);
     registry.ctx().erase<FEventInstance>();  // seen survives (FEventRunState is kept apart by design)
@@ -226,7 +235,30 @@ std::expected<FRunResult, std::string> ContinueEvent(entt::registry& registry) {
 std::expected<FRunResult, std::string> ChooseEventLegacy(entt::registry& registry, int choice) {
     const auto resolved = ChooseEventOption(registry, choice);
     if (!resolved) return resolved;
+    // WP-41: an event that opened a rune offer keeps the result screen up until the offer is resolved.
+    if (const auto* rewards = registry.ctx().find<FRewards>(); rewards != nullptr && rewards->offer.active) {
+        return resolved;
+    }
     return ContinueEvent(registry);
+}
+
+/// WP-41: the variant branch of the pending fork — decided in the modal before the fork slot, then the same
+/// advance the matching continue performs.
+std::expected<FRunResult, std::string> TakeFork(entt::registry& registry) {
+    auto* run = registry.ctx().find<FDungeonRun>();
+    if (run == nullptr) return NoRun();
+    if (FindRunSequence(registry) == nullptr) return std::unexpected(std::string("The dungeon sequence is missing."));
+    if (!IsForkPending(registry)) return std::unexpected(std::string("There is no path to choose."));
+    EnsureRewardsForRun(registry);
+    if (const auto* rewards = registry.ctx().find<FRewards>(); rewards != nullptr && rewards->offer.active) {
+        return std::unexpected(std::string("Resolve the rune offer before continuing."));
+    }
+    if (run->phase == EDungeonPhase::Event) {
+        const auto* instance = registry.ctx().find<FEventInstance>();
+        if (instance == nullptr || !instance->resolved) return std::unexpected(std::string("Choose an option first."));
+    }
+    DecideFork(registry, 1);
+    return run->phase == EDungeonPhase::Reward ? ContinueReward(registry) : ContinueEvent(registry);
 }
 
 std::expected<FRunResult, std::string> LeaveCamp(entt::registry& registry) {
@@ -368,6 +400,7 @@ void StartRunAt(entt::registry& registry, std::uint32_t seed, int clearedIndex) 
     // A new expedition always starts with a clean offer slate — even when it reuses the previous seed, which
     // is why the reset is unconditional here and not left to the seed-mismatch check.
     ResetRewardsForRun(registry);
+    ResetRunPath(registry);
     // WP-09: same for the run-scope event memory — a new run has no seen ids and no half-resolved event.
     ResetEventsForRun(registry);
     // WP-08/D-7: the start-support rune offer is forced by seeding the pity streak right after the reset;
@@ -409,6 +442,10 @@ void NormalizeResumedRunPhase(entt::registry& registry) {
             // past the room exactly as the player's Continue would.
             LOG_WARN("Saved event '{}' (depth {}, room {}) is no longer in the catalog; continuing past it.",
                      restored->eventId, run->depth, run->room);
+            // WP-41: an offer the vanished event opened is skipped first (its source is gone).
+            if (const auto* rewards = registry.ctx().find<FRewards>(); rewards != nullptr && rewards->offer.active) {
+                (void)ResolveRuneOffer(registry, -1);
+            }
             if (const auto result = ApplyRunIntent(registry, ERunIntent::ContinueEvent); !result) {
                 LOG_WARN("The saved event room could not be continued past: {}", result.error());
                 return;
@@ -460,6 +497,7 @@ std::expected<FRunResult, std::string> ResolveRoomVictory(entt::registry& regist
         return FRunResult{ERunExit::ShowModal, RunModalIdForPhase(EDungeonPhase::Defeat)};
     }
     RestoreParty(registry, DungeonBalance(registry, "room_heal"));
+    const bool elite = IsEliteBattle(registry, run->room);  // no ctx insert: run stays valid
     run->materials += DungeonBalance(registry, "room_materials");
     // 정본 §6: 런 EXP는 캐릭터별로 쌓이고 레벨업마다 노드 포인트 1을 준다(런마다 0부터).
     const int experienceReward = DungeonBalance(registry, "room_experience");
@@ -478,6 +516,12 @@ std::expected<FRunResult, std::string> ResolveRoomVictory(entt::registry& regist
     run->phase = EDungeonPhase::Reward;
     run->message = "Room secured. Each member gains " + std::to_string(experienceReward) + " EXP.";
     if (levelsGained > 0) run->message += " Level up: allocate a passive node.";
+    if (elite) {
+        const auto* eliteSequence = FindRunSequence(registry);
+        const int bonus = eliteSequence != nullptr ? eliteSequence->elite.rewardMaterials : 0;
+        run->materials += bonus;
+        run->message += " Elite defeated: +" + std::to_string(bonus) + " materials.";
+    }
     // WP-39: the battle objective, judged on the room stats the battle accumulated. Latched on the objective
     // (for the HUD) and on the stats (for the room_end line the RoomCleared event writes below).
     auto* objective = registry.ctx().find<FBattleObjective>();
@@ -505,7 +549,7 @@ std::expected<FRunResult, std::string> ResolveRoomVictory(entt::registry& regist
     } else {
         LOG_ERROR("The dungeon sequence is missing; the room cannot tell whether it is a boss room.");
     }
-    RollRoomOffer(registry, bossRoom);
+    RollRoomOffer(registry, bossRoom, elite);
     LOG_INFO("Dungeon {} room {} cleared. {} EXP per member.", run->depth, run->room + 1, experienceReward);
     AppendRunEvent(registry, ERunEventKind::RoomCleared);  // before the save: a listener's change is saved too
     return SaveAfterTransition(registry, FRunResult{ERunExit::ShowModal, RunModalIdForPhase(EDungeonPhase::Reward)});
@@ -518,6 +562,7 @@ std::expected<FRunResult, std::string> ApplyRunIntent(entt::registry& registry, 
     case ERunIntent::ChooseEventLoot: return ChooseEventLegacy(registry, 1);
     case ERunIntent::ChooseEventOption: return ChooseEventOption(registry, choice);
     case ERunIntent::ContinueEvent: return ContinueEvent(registry);
+    case ERunIntent::TakeFork: return TakeFork(registry);
     case ERunIntent::LeaveCamp: return LeaveCamp(registry);
     case ERunIntent::AbandonRun: return AbandonRun(registry);
     case ERunIntent::RetryAfterDefeat: return RetryAfterDefeat(registry);

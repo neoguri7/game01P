@@ -1,4 +1,142 @@
 {
   "schema_version": 1,
-  "events": []
+  "events": [
+    {
+      "id": "event.ember_shrine",
+      "title": "Ember Shrine",
+      "body": "A shrine of banked embers asks for fuel.",
+      "tags": ["common"],
+      "choices": [
+        {
+          "text": "Offer 3 materials: rune offer (boosted)",
+          "effects": [
+            {"kind": "pay_materials", "amount": 3},
+            {"kind": "open_rune_offer", "pool": "boosted", "amount": 3}
+          ],
+          "result_text": "The embers answer."
+        },
+        {
+          "text": "Leave",
+          "result_text": "You leave the shrine cold."
+        }
+      ]
+    },
+    {
+      "id": "event.sealed_chest",
+      "title": "Sealed Chest",
+      "body": "An iron chest, its lock fused by heat.",
+      "tags": ["common"],
+      "choices": [
+        {
+          "text": "Force the lid: 3-5 materials",
+          "check": {"stat": "attack", "difficulty": 10},
+          "effects": [
+            {"kind": "gain_materials_range", "amount": 3, "magnitude": 5}
+          ],
+          "result_text": "The lid gives way."
+        },
+        {
+          "text": "Pry it open: each ally loses 20% max HP, 2-4 materials",
+          "effects": [
+            {"kind": "damage_party_pct", "amount": 20},
+            {"kind": "gain_materials_range", "amount": 2, "magnitude": 4}
+          ],
+          "result_text": "The trap bites, the chest opens."
+        },
+        {
+          "text": "Leave",
+          "result_text": "The chest stays sealed."
+        }
+      ]
+    },
+    {
+      "id": "event.ash_gambler",
+      "title": "Ash Gambler",
+      "body": "A figure of ash rattles a cup of cinders.",
+      "tags": ["common"],
+      "choices": [
+        {
+          "text": "Stake 2 materials: win 0, 0, 2 or 7",
+          "effects": [
+            {"kind": "pay_materials", "amount": 2},
+            {"kind": "gain_materials_gamble", "amount": 7, "magnitude": 2}
+          ],
+          "result_text": "The ash settles."
+        },
+        {
+          "text": "Leave",
+          "result_text": "You keep your materials."
+        }
+      ]
+    },
+    {
+      "id": "event.rune_cache",
+      "title": "Rune Cache",
+      "body": "A cracked wall hides a cache.",
+      "tags": ["mystery"],
+      "choices": [
+        {
+          "text": "Take a rune: rune offer (boosted)",
+          "effects": [
+            {"kind": "open_rune_offer", "pool": "boosted", "amount": 4}
+          ],
+          "result_text": "Runes glow in the dust."
+        },
+        {
+          "text": "Take the materials: 4-6 materials",
+          "effects": [
+            {"kind": "gain_materials_range", "amount": 4, "magnitude": 6}
+          ],
+          "result_text": "You fill your pack."
+        }
+      ]
+    },
+    {
+      "id": "event.blood_altar",
+      "title": "Blood Altar",
+      "body": "A black altar, still warm.",
+      "tags": ["mystery"],
+      "choices": [
+        {
+          "text": "Bleed: each ally loses 30% max HP, rune offer (boss)",
+          "effects": [
+            {"kind": "damage_party_pct", "amount": 30},
+            {"kind": "open_rune_offer", "pool": "boss", "amount": 4}
+          ],
+          "result_text": "The altar drinks."
+        },
+        {
+          "text": "Take the offerings: 2 materials",
+          "effects": [
+            {"kind": "gain_materials", "amount": 2}
+          ],
+          "result_text": "You take what was left."
+        }
+      ]
+    },
+    {
+      "id": "event.forgotten_armory",
+      "title": "Forgotten Armory",
+      "body": "A barred door; racks glint behind it.",
+      "tags": ["mystery"],
+      "choices": [
+        {
+          "text": "Break in: rune offer (boosted) and 2 materials",
+          "check": {"stat": "defense", "difficulty": 8},
+          "effects": [
+            {"kind": "open_rune_offer", "pool": "boosted", "amount": 2},
+            {"kind": "gain_materials", "amount": 2}
+          ],
+          "result_text": "The racks are yours."
+        },
+        {
+          "text": "Scavenge: 2-3 materials",
+          "effects": [
+            {"kind": "gain_materials_range", "amount": 2, "magnitude": 3}
+          ],
+          "result_text": "You find scraps."
+        }
+      ]
+    }
+  ]
 }

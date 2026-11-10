@@ -20,6 +20,8 @@
 
 Owner per stage: 1–4 TBD (filled by WPs that add modifiers); 5 = ActionResolverSystem (roll), PreviewSkill (numbers).
 
+Enemy sheet (separate from the skill pipeline): base → depth and room scale → cycle scale → elite affix (WP-41). Owner: RefreshCombatSheet block ③.
+
 ## 2. 피해 공식 (§5, 잠정)
 
 - `피해 = max(1, offense + power − defense)` (잠정) — 원문 §5, "전투에 영향을 주는 요소" 첫 항목 "캐릭터 스탯" 안.

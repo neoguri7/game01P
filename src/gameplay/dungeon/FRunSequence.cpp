@@ -215,6 +215,56 @@ std::optional<FRunSequence> FRunSequence::Load(const nlohmann::json& document, s
         }
     }
 
+    if (const auto elite = document.find("elite"); elite != document.end()) {
+        if (!elite->is_object()) return Fail(error, "`elite` must be an object");
+        if (const auto reward = elite->find("reward_materials"); reward != elite->end()) {
+            if (!reward->is_number_integer()) {
+                return Fail(error, "elite.reward_materials: must be an integer");
+            }
+            const auto value = reward->get<std::int64_t>();
+            if (value < 0 || value > kMaxStartSupportValue) {
+                return Fail(error, "elite.reward_materials: must be 0.." + std::to_string(kMaxStartSupportValue));
+            }
+            sequence.elite.rewardMaterials = static_cast<int>(value);
+        }
+        if (const auto affixes = elite->find("affixes"); affixes != elite->end()) {
+            if (!affixes->is_array()) return Fail(error, "elite.affixes: must be an array");
+            int index = 0;
+            for (const auto& row : *affixes) {
+                const std::string where = "elite.affixes[" + std::to_string(index++) + "]: ";
+                if (!row.is_object()) return Fail(error, where + "must be an object");
+                FEliteAffix affix;
+                for (const auto& [key, target] :
+                     {std::pair<const char*, std::string*>{"id", &affix.id},
+                      std::pair<const char*, std::string*>{"display_name", &affix.displayName},
+                      std::pair<const char*, std::string*>{"text", &affix.text}}) {
+                    const auto found = row.find(key);
+                    if (found == row.end() || !found->is_string() || found->get<std::string>().empty()) {
+                        return Fail(error, where + "`" + key + "` must be a non-empty string");
+                    }
+                    *target = found->get<std::string>();
+                }
+                for (const auto& [key, target] :
+                     {std::pair<const char*, int*>{"health_percent", &affix.healthPercent},
+                      std::pair<const char*, int*>{"attack_bonus", &affix.attackBonus}}) {
+                    const auto found = row.find(key);
+                    if (found == row.end()) continue;
+                    if (!found->is_number_integer()) return Fail(error, where + "`" + key + "` must be an integer");
+                    const auto value = found->get<std::int64_t>();
+                    if (value < 0 || value > 1000) return Fail(error, where + "`" + key + "` must be 0..1000");
+                    *target = static_cast<int>(value);
+                }
+                if (affix.healthPercent == 0 && affix.attackBonus == 0) {
+                    return Fail(error, where + "needs health_percent or attack_bonus above 0");
+                }
+                for (const auto& existing : sequence.elite.affixes) {
+                    if (existing.id == affix.id) return Fail(error, where + "duplicate id `" + affix.id + "`");
+                }
+                sequence.elite.affixes.push_back(std::move(affix));
+            }
+        }
+    }
+
     // D-19: the run-end switch exists as data, but its consumer (the run-victory end screen) is WP-19b —
     // until it lands, `true` is a loud boot refusal instead of a silently ignored flag.
     if (const auto run = document.find("run"); run != document.end()) {

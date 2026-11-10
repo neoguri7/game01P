@@ -42,6 +42,7 @@
 #include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunFlow.h"
 #include "gameplay/dungeon/FRunLog.h"
+#include "gameplay/dungeon/FRunPath.h"
 #include "gameplay/factory/FEntityDefinitions.h"
 #include "states/FEmberRunEndState.h"
 
@@ -79,10 +80,10 @@ struct FBoot {
     entt::registry registry;
     std::string runSave;
 
-    explicit FBoot(std::string dir) : directory(std::move(dir)) {
+    explicit FBoot(std::string dir, std::vector<std::string> roots = TestAssetRoots()) : directory(std::move(dir)) {
         std::filesystem::create_directories(directory);
         checkpoint = directory + "/checkpoint.json";
-        game::FAssetManager::Initialize(registry, TestAssetRoots());
+        game::FAssetManager::Initialize(registry, std::move(roots));
         CHECK(game::gameplay::FGameplayServices::Initialize(registry));
         CHECK(game::InitializeDungeon(registry, checkpoint));
         runSave = registry.ctx().get<game::FDungeonSave>().path;
@@ -317,6 +318,57 @@ void RoomEndCarriesStakes() {
     }
     CHECK(ends.front()["crits"] == 2);
     CHECK(ends.front()["first_damage_round"] == 3);
+}
+
+/// WP-41 F17: a temp root whose first dungeon is three battles plus the elite block.
+void ForkRecordCarriesChoiceAndHp() {
+    const std::string rootDir = UniqueDir("fork-root");
+    std::filesystem::create_directories(std::filesystem::path(rootDir) / "data");
+    {
+        std::ifstream in(FixtureDataPath("dungeon.json"));
+        CHECK(in.good());
+        json document;
+        in >> document;
+        document["themes"][0]["dungeons"][0]["rooms"] = json::array(
+            {{{"type", "battle"}, {"family", "open"}},
+             {{"type", "battle"}, {"family", "open"}},
+             {{"type", "battle"}, {"family", "open"}}});
+        document["elite"] = {{"reward_materials", 2},
+                             {"affixes", json::array({{{"id", "affix.hardened"},
+                                                       {"display_name", "Hardened"},
+                                                       {"text", "Enemy max HP +30%"},
+                                                       {"health_percent", 30},
+                                                       {"attack_bonus", 0}}})}};
+        std::ofstream out(std::filesystem::path(rootDir) / "data" / "dungeon.json", std::ios::trunc);
+        out << document.dump(2);
+    }
+    const std::vector<std::string> roots = {rootDir, kTestFixtureRoot, kShipAssetRoot};
+    for (const int intent : {1, 0}) {
+        FBoot boot(UniqueDir("fork-boot"), roots);
+        bool found = false;
+        for (std::uint32_t seed = 1; seed < 200 && !found; ++seed) {
+            game::StartRun(boot.registry, seed, true);
+            found = game::EnsureRunPath(boot.registry).hasFork && game::EnsureRunPath(boot.registry).slot == 1;
+        }
+        CHECK(found);
+        CHECK(game::ResolveRoomVictory(boot.registry, true).has_value());
+        if (boot.registry.ctx().get<game::FRewards>().offer.active) CHECK(game::ResolveRuneOffer(boot.registry, -1));
+        CHECK(game::ApplyRunIntent(boot.registry, intent == 1 ? game::ERunIntent::TakeFork
+                                                              : game::ERunIntent::ContinueReward)
+                  .has_value());
+        const auto forks = EventsOfType(boot.log(), "fork");
+        CHECK(forks.size() == 1u);
+        if (forks.size() != 1u) return;
+        CHECK(forks[0]["choice"] == intent);
+        if (intent == 1) {
+            CHECK(forks[0]["kind"].get<std::string>().starts_with("elite:"));
+        } else {
+            CHECK(forks[0]["kind"] == "battle");
+        }
+        const int hp = forks[0]["party_hp"].get<int>();
+        const int hpMax = forks[0]["party_hp_max"].get<int>();
+        CHECK(hp > 0 && hp <= hpMax);
+    }
 }
 
 void SchemaKeysPerType() {
@@ -953,6 +1005,7 @@ int main() {
 #endif
     }
     return game_test::RunTests("run log", {
+        {"ForkRecordCarriesChoiceAndHp", ForkRecordCarriesChoiceAndHp},
         {"RunStartLogged", RunStartLogged},
         {"LogPerRunFile", LogPerRunFile},
         {"LogRetentionPrunesOldFiles", LogRetentionPrunesOldFiles},

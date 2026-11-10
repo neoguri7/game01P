@@ -22,6 +22,7 @@
 #include "gameplay/dungeon/FEventSection.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FRunPath.h"
 
 namespace game::dev {
 namespace {
@@ -224,6 +225,7 @@ std::expected<FAutopilotPolicy, std::string> ParseAutopilotPolicy(std::string_vi
     policy.campContinue = false;
     bool sawReward = false;
     bool sawEvent = false;
+    bool sawFork = false;
     bool sawChest = false;
     bool sawCamp = false;
     bool sawContinue = false;
@@ -267,6 +269,12 @@ std::expected<FAutopilotPolicy, std::string> ParseAutopilotPolicy(std::string_vi
             if (value == "first") policy.eventOption = 0;
             else if (value == "second") policy.eventOption = 1;
             else return std::unexpected(BadValue("bad event value", value));
+        } else if (key == "fork") {
+            if (sawFork) return std::unexpected(std::string("duplicate token 'fork'"));
+            sawFork = true;
+            if (value == "standard") policy.forkVariant = false;
+            else if (value == "variant") policy.forkVariant = true;
+            else return std::unexpected(BadValue("bad fork value", value));
         } else if (key == "chest") {
             if (sawChest) return std::unexpected(std::string("duplicate token 'chest'"));
             sawChest = true;
@@ -358,7 +366,8 @@ EAutopilotStatus FRunAutopilot::tick(entt::registry& registry, std::string_view 
                 LOG_INFO("[autopilot] reward depth={} room={} pick=none", run->depth, run->room);
             }
             TrackArmedEngines(registry, run->depth);
-            PostRunIntent(registry, ERunIntent::ContinueReward);
+            PostRunIntent(registry, policy_.forkVariant && IsForkPending(registry) ? ERunIntent::TakeFork
+                                                                                   : ERunIntent::ContinueReward);
             ++roomsCompleted_;
             act();
         }
@@ -383,7 +392,10 @@ EAutopilotStatus FRunAutopilot::tick(entt::registry& registry, std::string_view 
             return EAutopilotStatus::Stuck;
         }
         if (instance->resolved) {
-            PostRunIntent(registry, ERunIntent::ContinueEvent);
+            // WP-41: an offer the event opened is resolved first (the reward rule), then the fork or continue.
+            (void)ResolveOpenOffers(registry, policy_, *run, EOfferContext::Reward);
+            PostRunIntent(registry, policy_.forkVariant && IsForkPending(registry) ? ERunIntent::TakeFork
+                                                                                   : ERunIntent::ContinueEvent);
             LOG_INFO("[autopilot] event continue depth={} room={}", depth, room);
             act();
             return EAutopilotStatus::Running;

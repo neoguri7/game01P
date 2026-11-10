@@ -384,7 +384,11 @@ bool ValidateEventContent(entt::registry& registry, const FAssetManager& assets)
         // ② Gate dominance guard: at least one choice must stay open even for a fully qualified party.
         std::size_t gated = 0;
         for (const FEventChoice& choice : event.choices) {
-            if (choice.check.has_value()) ++gated;
+            // WP-41: a pay_materials effect gates the choice too (the party may be unable to pay).
+            const bool pays = std::ranges::any_of(choice.effects, [](const gameplay::FEffectSpec& effect) {
+                return effect.kind == kEventEffectPayMaterials;
+            });
+            if (choice.check.has_value() || pays) ++gated;
         }
         if (gated + 1 > event.choices.size()) {
             LOG_ERROR("event content: event '{}' gates {} of {} choices; at least one choice must stay "

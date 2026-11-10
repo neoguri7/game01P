@@ -14,9 +14,11 @@
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FRunPath.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FPassiveTreePanel.h"
+#include "presentation/FPathStripView.h"
 #include "presentation/FUiTheme.h"
 
 namespace game {
@@ -505,14 +507,23 @@ void RenderDungeonRewardView(entt::registry& registry) {
         // directly under the offer section (WP-27 §4) so the primary action needs no scrolling.
         const bool offerOpen = rewards != nullptr && rewards->offer.active;
         if (offerOpen) ImGui::TextDisabled("Pick a rune or skip the offer to continue.");
-        ImGui::BeginDisabled(offerOpen);
-        if (ui::Button("Continue", {-1, 42})) {
+        int forkPick = -1;
+        bool continueClicked = false;
+        if (IsForkPending(registry)) {
+            // WP-41: the fork panel replaces Continue; 0 = standard branch, 1 = variant.
+            forkPick = DrawForkPanel(registry, offerOpen);
+            continueClicked = forkPick >= 0;
+        } else {
+            ImGui::BeginDisabled(offerOpen);
+            continueClicked = ui::Button("Continue", {-1, 42});
+            ImGui::EndDisabled();
+        }
+        if (continueClicked) {
             ui.pickedRuneId.clear();   // WP-27: the fit offer dies with the reward step
             ui.pickedRuneFit.clear();  // WP-27h: ... and so does its fitted state
-            PostRunIntent(registry, ERunIntent::ContinueReward);
+            PostRunIntent(registry, forkPick == 1 ? ERunIntent::TakeFork : ERunIntent::ContinueReward);
             ImGui::CloseCurrentPopup();
         }
-        ImGui::EndDisabled();
         ImGui::Separator();
         const auto* growth = registry.ctx().find<FDungeonGrowth>();
         if (growth == nullptr) {

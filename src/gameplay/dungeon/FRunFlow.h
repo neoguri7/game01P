@@ -51,7 +51,8 @@ enum class ERunIntent {
     LeaveCamp,
     AbandonRun,
     RetryAfterDefeat,
-    LeaveRun
+    LeaveRun,
+    TakeFork
 };
 
 /// The one-frame request in the context. Only one may be pending; the newest post wins.

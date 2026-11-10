@@ -12,6 +12,7 @@
 #include "gameplay/dungeon/FEventContent.h"
 #include "gameplay/dungeon/FEventEffects.h"
 #include "gameplay/dungeon/FEventSection.h"
+#include "gameplay/dungeon/FRunPath.h"
 #include "gameplay/dungeon/FRewardSection.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRoomTypeRegistry.h"
@@ -68,6 +69,7 @@ bool FGameplayServices::Initialize(entt::registry& registry) {
     }
     RegisterEventEffects(registry);
     RegisterSaveSection(registry, EventSaveSection());
+    RegisterRunPathSection(registry);
     if (!ValidateEventContent(registry, *assets)) {
         LOG_ERROR("event content validation failed; boot stopped (see the errors above).");
         return false;
