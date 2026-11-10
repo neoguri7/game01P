@@ -19,13 +19,13 @@ Spend tokens where they buy quality. Opus designs and reviews; Sonnet 5.5 implem
 
 ## Work package (WP) lifecycle
 1. **Design** (Opus, main session): `/wp-spec <WP-id> <goal>` → `docs/wp/<id>/spec.md` + `features.json`, gated by `spec-critic` plus EGM goldfish reviewers sized to the WP; the spec is committed to main before implementation.
-2. **Implement** (Sonnet 5.5): the `implementer` agent, launched in the background, in its own worktree. WPs with disjoint file maps may run in parallel. `BLOCKED:` questions come back to the design session.
+2. **Implement** (Sonnet 5.5): the `implementer` agent, launched in the background, working in the main checkout on branch `wp/<id>` with the one existing build directory. WPs run one at a time; while an implementer runs, the design session reads only (no branch switches, no edits to tracked files). `BLOCKED:` questions come back to the design session.
 3. **Gate + review**: `.claude/scripts/wp-gate.mjs` checks scope, test integrity and evidence deterministically; then the `diff-reviewer` agent (Opus) reviews the diff against the spec. Must-fix items go back to the same implementer (SendMessage).
-4. **Merge**: `node .claude/scripts/wp-merge.mjs <id> --reviewed <sha>` — squash-merges `wp/<id>` into main with the spec H1 as the commit message (e.g. `WP-35: Agent build tooling …`), re-runs build + ctest on main, removes the worktree. Push only when the user asks.
-Delegated work runs as local background agents launched from the main session (git worktrees on this machine). No Claude cloud sessions and no remote agent isolation unless the user asks; GitHub Actions is used only for long simulations.
+4. **Merge**: `node .claude/scripts/wp-merge.mjs <id> --reviewed <sha>` — squash-merges `wp/<id>` into main with the spec H1 as the commit message (e.g. `WP-35: Agent build tooling …`), re-runs build + ctest on main, deletes the branch. Push only when the user asks. (Until WP-38 lands, `wp-merge.mjs` still expects a separate worktree; merge single-checkout WPs by hand with the same steps.)
+Delegated work runs as local background agents launched from the main session. One checkout, one build directory: isolation comes from git branches (mistakes are reverted with git), never from extra worktrees, clones or fresh build folders. A new executable target is added to CMake only when a WP truly needs one. No Claude cloud sessions and no remote agent isolation unless the user asks; GitHub Actions is used only for long simulations.
 
 ## Build and test (Windows, PowerShell 7)
-`node .claude/scripts/build.mjs [--preset windows-msvc-agent]` — configure if needed, build, ctest; one at a time per worktree; writes `out/evidence.json`. Raw commands for reference: `cmake --preset <p>` · `cmake --build --preset <p> --parallel` · `ctest --preset <p> --output-on-failure`. Long commands need an explicit timeout (≥600000 ms).
+`node .claude/scripts/build.mjs [--preset windows-msvc-agent]` — configure if needed, build, ctest; one at a time; writes `out/evidence.json`. Raw commands for reference: `cmake --preset <p>` · `cmake --build --preset <p> --parallel` · `ctest --preset <p> --output-on-failure`. Long commands need an explicit timeout (≥600000 ms).
 Gotchas the config won't tell you:
 - One build/ctest at a time per worktree (shared PDBs and asset staging collide). An MSB3073/MSB3075 DLL-copy failure is a transient lock: rerun once.
 - Deleting a `tests/features/*_tests.cpp` file needs a reconfigure, or the build fails with C1083.

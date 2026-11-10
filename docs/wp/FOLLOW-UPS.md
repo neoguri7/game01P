@@ -15,6 +15,12 @@ Each line: source review · item · why it was deferred. A new WP picks items fr
   - takeover leaving a fresh lock record alone
   - an untracked `tests/features/*.cpp` judged unproven by the gate
 
+## Single checkout (user, 2026-11-10) → WP-38
+- `wp-merge.mjs` refuses (F11) when no separate worktree holds `wp/<id>`. Make it work in one checkout:
+  - Accept being on `wp/<id>` with a clean tree, and switch to `main` before squashing.
+  - Drop the worktree requirement and the `worktree remove`; keep `git branch -D` after the merge is verified.
+- `wp-gate.mjs`: let `--worktree` default to the repo root.
+
 ## Workflow (design session)
 - Spec cost: rewriting the WP-36 spec, with exact replacement text for 21 comment lines, cost about 210k Opus tokens. Proposal: for deletion and cleanup WPs, let comments follow a rule ("delete sentences that name a deleted symbol") and require exact text only for code and tests.
 - Review sizing: an L tooling or deletion WP ran 6 Opus gate reviews in round 1. Proposal: size the gate by risk as well as by file count.
