@@ -1,0 +1,15 @@
+{
+  "wp": "WP-37",
+  "files": [
+    ".claude/scripts/lib/runner.mjs",
+    ".claude/scripts/lib/cli.mjs",
+    ".claude/scripts/build.mjs",
+    ".claude/scripts/test/build.test.mjs"
+  ],
+  "features": [
+    {"id": "F1", "behavior": "runBuild lowers its own priority to below-normal (opt-out 'normal'; errors ignored)", "test": "node:.claude/scripts/test/build.test.mjs::LowPriorityAndCappedParallelism", "passes": false},
+    {"id": "F2", "behavior": "build --parallel is cpuCount-2 (min 1), including the retry", "test": "node:.claude/scripts/test/build.test.mjs::LowPriorityAndCappedParallelism", "passes": false},
+    {"id": "F3", "behavior": "cmake/ctest get MSBUILDDISABLENODEREUSE=1 and VCPKG_MAX_CONCURRENCY=cpuCount/4", "test": "node:.claude/scripts/test/build.test.mjs::LowPriorityAndCappedParallelism", "passes": false},
+    {"id": "F4", "behavior": "parseArgs --normal-priority and makeRun env merge", "test": "node:.claude/scripts/test/build.test.mjs::CliPriorityFlagAndEnv", "passes": false}
+  ]
+}
