@@ -1,0 +1,166 @@
+{
+  "wp": "WP-41",
+  "files": [
+    "src/gameplay/dungeon/FRunPath.h",
+    "src/gameplay/dungeon/FRunPath.cpp",
+    "src/gameplay/dungeon/FRunSequence.h",
+    "src/gameplay/dungeon/FRunSequence.cpp",
+    "src/gameplay/dungeon/FDungeonRun.cpp",
+    "src/gameplay/combat/FCombatSheet.cpp",
+    "src/gameplay/dungeon/FRewards.h",
+    "src/gameplay/dungeon/FRewards.cpp",
+    "src/gameplay/dungeon/FRunFlow.h",
+    "src/gameplay/dungeon/FRunFlow.cpp",
+    "src/states/FEmberModalHostState.cpp",
+    "src/gameplay/dungeon/FEventSection.cpp",
+    "src/gameplay/dungeon/FEventEffects.h",
+    "src/gameplay/dungeon/FEventEffects.cpp",
+    "src/gameplay/dungeon/FEventContent.cpp",
+    "src/gameplay/dungeon/FRunEventLog.h",
+    "src/gameplay/dungeon/FRunLog.cpp",
+    "src/gameplay/meta/FMetaProgress.cpp",
+    "src/gameplay/GameplayServices.cpp",
+    "src/presentation/FPathStripView.h",
+    "src/presentation/FPathStripView.cpp",
+    "src/ecs/systems/EmberCombatHudView.cpp",
+    "src/presentation/FDungeonRewardView.cpp",
+    "src/presentation/FDungeonEventView.cpp",
+    "src/dev/FRunAutopilot.h",
+    "src/dev/FRunAutopilot.cpp",
+    "assets/data/dungeon.json",
+    "assets/data/events.json",
+    "docs/design/combat-math.md",
+    "tests/features/run_path_tests.cpp",
+    "tests/features/event_framework_tests.cpp",
+    "tests/features/content_a_tests.cpp",
+    "tests/features/run_log_tests.cpp",
+    "tests/features/headless_tools_tests.cpp",
+    "tests/features/compendium_tests.cpp",
+    "docs/wp/WP-41/progress.md",
+    "docs/wp/WP-41/features.json"
+  ],
+  "allowTimeoutChange": false,
+  "allowCheckDrop": [],
+  "features": [
+    {
+      "id": "F1",
+      "behavior": "WHEN dungeon.json has an elite block THEN FRunSequence::Load SHALL store rewardMaterials and the affixes; IF an affix lacks id/display_name/text, has health_percent < 0, attack_bonus < 0, both zero, or a duplicate id, or reward_materials < 0 THEN load SHALL fail. WHEN the block is absent THEN the affix list SHALL be empty.",
+      "test": "run_path_tests::EliteBlockLoadsAndValidates",
+      "passes": false
+    },
+    {
+      "id": "F2",
+      "behavior": "WHEN the path state is first asked for in a dungeon THEN the fork slot SHALL be eligible[EventPickHash(seed, depth, 1001) % eligible.size()], where a slot index ≥ 1 is eligible IF it is a non-boss battle and at least one affix exists, or an event and the catalog has at least one mystery event; with no eligible slot there SHALL be no fork.",
+      "test": "run_path_tests::ForkSlotIsSeededAndEligible",
+      "passes": false
+    },
+    {
+      "id": "F3",
+      "behavior": "WHEN the fork slot is a battle THEN its affix SHALL be affixes[EventPickHash(seed, depth, 1002) % affixes.size()].",
+      "test": "run_path_tests::AffixIsSeeded",
+      "passes": false
+    },
+    {
+      "id": "F4",
+      "behavior": "WHEN ContinueReward or ContinueEvent leaves the slot before an undecided fork THEN the choice SHALL become 0; WHEN TakeFork is applied there THEN the choice SHALL become 1 and the flow SHALL advance exactly as the matching continue does; IF no fork is pending, an offer is open, or the event is unresolved THEN TakeFork SHALL fail without changing state.",
+      "test": "run_path_tests::ContinueTakesStandardTakeForkTakesVariant",
+      "passes": false
+    },
+    {
+      "id": "F5",
+      "behavior": "WHEN the chosen variant is an elite battle THEN the room plan SHALL carry elite = true and the affix id, and each enemy's sheet SHALL get max HP += max HP * health_percent / 100 and attack/magicAttack += attack_bonus after the cycle scale; party units and non-elite rooms SHALL be unchanged.",
+      "test": "run_path_tests::EliteAffixScalesEnemies",
+      "passes": false
+    },
+    {
+      "id": "F6",
+      "behavior": "WHEN an elite battle is won THEN materials SHALL rise by room_materials + elite.reward_materials, a rune offer SHALL open without a chance roll from the boosted table (when at least the minimum legal candidates exist), and pity SHALL be 0.",
+      "test": "run_path_tests::EliteVictoryPaysOfferAndMaterials",
+      "passes": false
+    },
+    {
+      "id": "F7",
+      "behavior": "WHEN the chosen variant is ? THEN the event SHALL be picked, with the existing unseen-first rule, from the catalog events that are in the slot's own pool or in mystery; with choice 0 it SHALL be picked from the slot's own pool alone.",
+      "test": "run_path_tests::MysteryForkPicksMysteryPool",
+      "passes": false
+    },
+    {
+      "id": "F8",
+      "behavior": "WHEN a run is saved and loaded THEN fork slot, kind, affix and choice SHALL be the saved ones (not re-derived), and the room plan, elite payout and picked event SHALL follow them; IF the saved fork no longer matches the content (slot out of range, slot type differs, boss slot, unknown affix) THEN the dungeon SHALL have no fork; a malformed path section SHALL load as the default state; a new run (same seed too) SHALL start undecided.",
+      "test": "run_path_tests::ForkSurvivesSaveAndContentChange",
+      "passes": false
+    },
+    {
+      "id": "F9",
+      "behavior": "WHEN the path strip is built THEN it SHALL hold one node per room slot plus Camp, with kinds, labels, done, current and the fork alternative as §5 defines for each phase.",
+      "test": "run_path_tests::StripMirrorsSlotsAndPhase",
+      "passes": false
+    },
+    {
+      "id": "F10",
+      "behavior": "WHEN the strip is drawn THEN it SHALL print every node label as ImGui text, the current node as [label], and the undecided fork as standard / variant.",
+      "test": "run_path_tests::StripDrawsLabels",
+      "passes": false
+    },
+    {
+      "id": "F11",
+      "behavior": "WHEN a fork is pending THEN the reward modal and the event result screen SHALL show CHOOSE A PATH, the party line, and both option titles and details instead of the single Continue.",
+      "test": "run_path_tests::ForkPanelShowsBothOptions",
+      "passes": false
+    },
+    {
+      "id": "F12",
+      "behavior": "WHEN gain_materials_range applies THEN materials SHALL rise by amount + roll % (magnitude - amount + 1) with roll = EventPickHash(seed, depth, 2000 + room*16 + min(rollIndex, 15)); IF amount < 0, magnitude < amount or magnitude > 999 THEN boot SHALL fail.",
+      "test": "event_framework_tests::MaterialsRangeIsSeededAndBounded",
+      "passes": false
+    },
+    {
+      "id": "F13",
+      "behavior": "WHEN gain_materials_gamble applies THEN the gain SHALL be {0, 0, magnitude, amount}[roll % 4] with the same roll.",
+      "test": "event_framework_tests::MaterialsGambleUsesFourOutcomes",
+      "passes": false
+    },
+    {
+      "id": "F14",
+      "behavior": "WHEN a choice has pay_materials effects THEN its gate SHALL be closed with Need N materials (have M) while materials < N (N = their sum), and open with Costs N materials otherwise; applying SHALL subtract N; such a choice counts as gated in the \"one choice stays ungated\" boot rule.",
+      "test": "event_framework_tests::PayMaterialsGatesAndCharges",
+      "passes": false
+    },
+    {
+      "id": "F15",
+      "behavior": "WHEN open_rune_offer applies THEN an offer SHALL open from the table named by pool and pity SHALL be 0; IF no offer can open THEN materials SHALL rise by amount; IF pool is not normal/boosted/boss THEN boot SHALL fail. WHILE that offer is open ContinueEvent SHALL fail, the legacy one-step choice SHALL stop on the result screen, and a resume past a vanished event SHALL skip the offer first.",
+      "test": "event_framework_tests::OpenRuneOfferOpensOrRefunds",
+      "passes": false
+    },
+    {
+      "id": "F16",
+      "behavior": "WHEN the shipped events.json loads THEN it SHALL hold the six events of §4.3 with their pools, choices, gates and effect parameters, and a ship-root boot SHALL pass.",
+      "test": "content_a_tests::ShippedEventsMatchTheTable",
+      "passes": false
+    },
+    {
+      "id": "F17",
+      "behavior": "WHEN a fork is decided THEN the run log SHALL get a fork record with depth, room, kind, choice, party_hp, party_hp_max.",
+      "test": "run_log_tests::ForkRecordCarriesChoiceAndHp",
+      "passes": false
+    },
+    {
+      "id": "F18",
+      "behavior": "WHEN the autopilot reaches a resolved event with an open rune offer THEN it SHALL resolve the offer before continuing; ParseAutopilotPolicy SHALL accept fork=standard / fork=variant and reject other values.",
+      "test": "headless_tools_tests::AutopilotResolvesEventOffer",
+      "passes": false
+    },
+    {
+      "id": "F19",
+      "behavior": "WHEN the reward modal or the event modal posts TakeFork through the modal host THEN the host SHALL apply it (the run advances on the variant branch).",
+      "test": "run_path_tests::HostAcceptsTakeFork",
+      "passes": false
+    },
+    {
+      "id": "F20",
+      "behavior": "WHEN the autopilot's policy says fork=variant and a fork is pending THEN it SHALL post TakeFork; with the default policy it SHALL post the plain continue (standard branch).",
+      "test": "run_path_tests::AutopilotForkPolicy",
+      "passes": false
+    }
+  ]
+}

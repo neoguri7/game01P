@@ -28,3 +28,11 @@ Each line: source review · item · why it was deferred. A new WP picks items fr
 - `ApplyBattleStakes` lives in `FBattleObjective.cpp`; `gameplay/battle/FBattleSetup` would be a cleaner home (optional).
 - Boss rooms pick from the same two objectives; `Swift` (win by round 5) may be unreachable there. Decide after the playtest log shows the boss-room met rate.
 - Spec process: `features.json` `allowCheckDrop` must be a list (`[]`), not `false`; `wp-gate.mjs` crashes on a boolean. The template line in `.claude/skills/wp-spec/template.md` shows the key without its type.
+
+## From the WP-40 diff review (2026-11-11)
+- `reward_equip_tests::OfferModalDoesNotScroll` erases the growth panel before measuring; assert instead that Skip and Continue end inside the visible modal with the growth panel kept in.
+- `FDungeonRewardView.cpp` `DrawRuneOfferCard`: Pick is drawn before the duplicate-refund line, so "Already owned" can flash for one frame after a pick. Read `IsRuneOwned` before drawing Pick.
+- No test clicks a card shown in sorted order and checks the stored index that resolves (correct by inspection).
+- `LoadRewards` rejects rarity weights above 1,000,000 (an overflow guard the spec did not ask for).
+- Simulation baselines from before WP-40 are not comparable (offers are tiered now).
+- Spec process: a fix that adds a feature must be added to `features.json` on main by the design session; an implementer edit trips the gate rule `spec-edit`.
