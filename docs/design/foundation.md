@@ -1,6 +1,6 @@
 # 설계 뼈대와 근거 (improve-loop 기록)
 
-상태: 4라운드 반영(2026-11-11). 이 문서는 Ember Dungeon의 뼈대를 **근본적인 층부터** 적고, 층마다 "명작이 실제로 한 것 → 지금 우리 게임(확정 결정 포함) → 판정 → 다음에 확인할 것"을 근거와 함께 남긴다. 순서는 **뼈대 → 체계적 확장 → 밸런스(맨 마지막)**. 수치는 다루지 않는다. 구현 설계는 각 WP 스펙이 맡는다. 확정 결정(`decisions.md`)을 바꾸는 것은 §3 "사용자 판단"에만 올린다.
+상태: 5라운드 반영(2026-11-11). 미결의 구체 선택지는 `proposals.md`에 있다. 이 문서는 Ember Dungeon의 뼈대를 **근본적인 층부터** 적고, 층마다 "명작이 실제로 한 것 → 지금 우리 게임(확정 결정 포함) → 판정 → 다음에 확인할 것"을 근거와 함께 남긴다. 순서는 **뼈대 → 체계적 확장 → 밸런스(맨 마지막)**. 수치는 다루지 않는다. 구현 설계는 각 WP 스펙이 맡는다. 확정 결정(`decisions.md`)을 바꾸는 것은 §3 "사용자 판단"에만 올린다.
 
 근거 등급: **[원문]** 저장한 원문과 대조됨 · **[보관본]** 웹 보관본 원문과 대조됨 · **[요약]** 요약 도구를 거침(결정의 근거로 쓰기 전 대조 필요) · **[2차]** 위키·기사·리뷰 · **[미확인]** 1차 자료 없음. 조사 원본: `docs/digests/r1/`~`r4/`(로컬, 추적 안 함).
 
@@ -21,7 +21,8 @@
 - **지금**: 확정 — 던전은 계속 이어지고 런은 전멸로만 끝난다(23, 156). "런 성공"은 정의가 없다(F8). **미결** — 승리 지점(테마 최종 보스 격파 = 승리, 이후 계속 여부 선택; 권고: 채택)(238).
 - **판정**: **뼈대의 가장 근본적인 미결.** 승리가 없으면 "첫 클리어 뒤"가 없고, 난이도 사다리·이야기의 매듭·런 길이 선택이 모두 설 자리가 없다. 조사한 명작과 가장 크게 다른 지점이다. → §3 Q0.
 - **R4**: 승리 없는 런이 주 모드인 선례로 가장 가까운 것은 Vampire Survivors("the goal is to survive as long as possible")인데, 그 게임도 기본 세션에 "a soft time limit of 15, 20, or 30 minutes"를 두고 무한 모드는 해금이다 [2차 Wikipedia]. **"이기고, 원하면 계속"은 출시된 형태다** — Balatro: "The player wins a run by completing ante 8." "However, the player can still continue playing in endless mode even after beating ante 8."; 무한 모드에서 져도 "the player still won" [2차 Wikipedia]. Risk of Rain 2도 승리와 무한 반복을 함께 둔다 [2차]. 고정된 끝이 주는 것 — Davis: FTL에서 "asking the player to commit to the two or three hours to finish it wasn't great"; 그래서 "selecting if you wanted to do the final mission immediately, or play the game more"; 끝은 "a nice culmination, an epic conclusion" [원문, gamedeveloper.com]. 반대쪽 위험: 끝을 두면 그 끝이 평가받는다 — Hades II "Some critics felt the game's true ending was underwhelming." [2차]. 데이터에는 이미 `run.end_on_final_boss = false` 스위치가 있다.
-- **남은 것**: Balatro·Risk of Rain 2 개발자의 설계 이유, 무한 모드의 피로·수치 폭주에 대한 개발자 발언은 [미확인].
+- **마지막 전투(R5 정독)**: FTL의 최종 보스에 대해 개발자 본인 — "It took an already hard game and put a ridiculously difficult cap on top of it."; "it was inherently unfair". Into the Breach는 보스를 두지 않았고("a 15-health enemy that you have to kill. It doesn't work"), 마지막 임무가 밋밋하다는 반응을 인정했다("we seem to have disappointed at least some people") [모두 원문]. 뚜껑처럼 얹은 최종전은 불공정으로, 정점이 없는 최종전은 밋밋함으로 읽힌다.
+- **남은 것**: Balatro·Risk of Rain 2 개발자의 설계 이유, 무한 모드의 피로·수치 폭주에 대한 개발자 발언은 [미확인]. 런·세션 길이의 목표를 말한 개발자 자료는 Davis의 "두세 시간은 좋지 않았다"뿐이다.
 
 ### L1 턴의 행동 경제와 위치
 - **명작(사례)**: Into the Breach는 8x8 격자에 메크 3기이고 작게 만든 이유를 말한다 — Davis: "since they're only 8x8 tiles in size, it would be much cheaper to hand-design 100 maps" [원문]. 난이도를 수로 올리면 "needlessly complex and hard to parse" (Ma) [원문]. XCOM: Chimera Squad는 턴을 섞었다 — Nauta: "The biggest change in combat is the introduction of interleaved turns." [원문].
@@ -32,14 +33,14 @@
 - **확장 후보(확정 안)**: 꺼 둔 방 종류(통로·엄폐·분할)를 일반 방에 켜기 · 전사 외 클래스에 위치를 바꾸는 스킬 하나씩 · 적 AI 유형 추가(지금은 하나).
 
 ### L2 파티와 스킬의 정체성
-- **명작**: 스킬은 매 턴 기본 행동과 경쟁해서 이겨야 한다 — Chimera Squad, Nauta: 요원마다 "something they could do each and every turn besides taking a standard shot action", 그것은 "had to be awesome because it is always competing against just shooting the enemy!"; "no agents share skills with each other" [원문]. 목록을 늘리지 말고 스킬마다 다른 값을 — Banner Saga: 능력의 "ninety percent of which become useless"를 피했다 [원문]. 스킬의 일은 한눈에 — Into the Breach, Ma: "we would sacrifice cool ideas for the sake of clarity every time" [원문]. 지배 전술은 깎는다 — Larian: "Every fight needed to have multiple solutions"; "a dominant tactic. So we had to nerf it a lot" [원문]; Darkest Dungeon 2 패치 노트는 한 스킬을 "a round 1 delete key"라며 고쳤다 [원문]. 조합은 관찰로 가르친다 — Larian: "the AI started teaching players new mechanics" [원문].
-- **지금**: 4인, 캐릭터당 스킬 4개(풀 8개에서 런 전에 선택), 클래스 사이에 일부 스킬 공유(mage·healer의 heal·bolt·buff).
-- **성장의 분배(R4-5)**: 처치에 개별 경험치를 주면 "킬 먹이기"가 생긴다 — Fire Emblem: 같은 적을 레벨 2 유닛이 처치하면 30, 레벨 20 유닛이면 3 [보관본 위키]; 시리즈는 뒤에 "Bonus Experience after a battle that can be freely distributed"를 넣었다 [보관본 위키]. Divinity: Original Sin 2는 전원에게 같은 양을 준다 — "it doesn't matter that the last hit is always dealt by the same hero" [2차 공략]. Into the Breach는 조종사가 아닌 처치의 경험치를 "split among all the Pilots in the squad" [보관본 위키]. **우리 구현은 방 클리어 시 전원 동일 경험치다**(`ResolveRoomVictory`) — 확정 83·88("주 소스는 몬스터 처치이며 캐릭터별로 따로 쌓인다")과 다르고, 조사 결과와는 맞는다 → §3 Q3.
-- **스킬 풀(R4-0)**: 전사 8, 궁수 8, 마법사 9, 힐러 5(그중 heal·buff·bolt는 마법사와 공유). 노드 트리는 캐릭터 공용 22노드, 전부 수치.
-- **판정**: 구조는 일치(런 전 선택 = Monster Train 클랜 선택과 같은 자리). **확인할 것 둘**: (1) 스킬 4개가 서로를 지배하지 않는가 — 런 로그 `room_end.skills_used`로 잰다. (2) 클래스 사이 스킬 공유는 Chimera Squad의 "공유 없음"과 반대다(한 게임의 사례). 힐러의 빈 턴 문제는 자료가 없다 [미확인].
+- **명작(사례들 — 게임마다 하나씩이며 규칙이 아니다)**: 스킬은 매 턴 기본 행동과 경쟁한다 — Chimera Squad, Nauta: 요원마다 "something they could do each and every turn besides taking a standard shot action", 그것은 "had to be awesome because it is always competing against just shooting the enemy!"; "no agents share skills with each other" [원문]. 목록을 늘리지 말고 스킬마다 다른 값을 — Banner Saga: 능력의 "ninety percent of which become useless"를 피했다 [원문]. 스킬의 일은 한눈에 — Into the Breach, Ma: "we would sacrifice cool ideas for the sake of clarity every time" [원문]. 지배 전술은 깎는다 — Larian: "Every fight needed to have multiple solutions"; "a dominant tactic. So we had to nerf it a lot" [원문]; Darkest Dungeon 2 패치 노트는 한 스킬을 "a round 1 delete key"라며 고쳤다 [원문]. 조합은 관찰로 가르친다 — Larian: "the AI started teaching players new mechanics" [원문].
+- **지금**: 4인(전사, 궁수, 법사 둘 — 치유 담당 캐릭터의 클래스는 법사다. 확정 73: 클래스 = 전사·궁수·법사), 캐릭터당 스킬 4개(풀에서 런 전에 선택). 법사 둘은 같은 클래스라 heal·bolt·buff를 함께 쓴다.
+- **성장의 분배(R4-5)**: 처치에 개별 경험치를 주면 "킬 먹이기"가 생긴다 — Fire Emblem: 같은 적을 레벨 2 유닛이 처치하면 30, 레벨 20 유닛이면 3 [보관본 위키]; 시리즈는 뒤에 "Bonus Experience after a battle that can be freely distributed"를 넣었다 [보관본 위키]. Divinity: Original Sin 2는 전원에게 같은 양을 준다 — "it doesn't matter that the last hit is always dealt by the same hero" [2차 공략]. Into the Breach는 처치한 조종사가 받는다("as they make kills they'll earn XP" [원문]) — 나누는 것은 조종사가 아닌 처치뿐이다 [보관본 위키]. **우리 구현은 방 클리어 시 전원 동일 경험치다**(`ResolveRoomVictory`) — 확정 83·88("주 소스는 몬스터 처치이며 캐릭터별로 따로 쌓인다")과 다르다. 근거는 양쪽으로 얇다 → `proposals.md` "한 줄 판단".
+- **스킬 풀(R4-0)**: 전사 8, 궁수 8, 법사(Mira) 9, 법사(Lumen, 치유 담당) 5. 노드 트리는 캐릭터 공용 22노드, 전부 수치.
+- **판정**: 구조는 일치(런 전 선택 = Monster Train 클랜 선택과 같은 자리). **확인할 것 둘**: (1) 스킬 4개가 서로를 지배하지 않는가 — 런 로그 `room_end.skills_used`로 잰다. (2) 같은 클래스 캐릭터 둘이 스킬을 나눠 쓰는 것은 Chimera Squad의 "공유 없음"(한 게임의 사례)과 다르다. 치유 담당의 빈 턴 문제는 자료가 없다 [미확인].
 
 ### L3 전투의 정보와 주사위
-- **명작(규칙)**: 적의 다음 행동을 미리 보여준다 — Into the Breach [원문]; Slay the Spire는 처음엔 없었다 — Yano: "Enemies were very random and we had no idea what they were going to do" [원문, Rock Paper Shotgun 2018-02-19]. 숫자를 드러내고 결과는 한 박자로 — Darkest Dungeon [원문, `dd-despair/affl.txt:238, :242`].
+- **명작**: 적의 다음 행동을 미리 보여준다(규칙) — Into the Breach [원문]; Slay the Spire는 처음엔 없었다 — Yano: "Enemies were very random and we had no idea what they were going to do" [원문, Rock Paper Shotgun 2018-02-19]. 숫자를 드러내고 결과는 한 박자로(사례) — Darkest Dungeon [원문, `dd-despair/affl.txt:238, :242`]. 드러낸 것이 생각할 여지를 넓힌다 — Slay the Spire: "By exposing the actual attack values, all Megacrit had done was to unburden the players of having to remember them."; "Revealing everything turned out to give everyone greater room to move, think and play." [원문, Rock Paper Shotgun].
 - **지금**: 적 의도 표시, 피해 미리보기, 빗나감 없음, 아군 치명타 15%(미리보기에 치명타 피해·확률).
 - **판정**: 일치. "의도 공개 + 유리한 쪽만의 굴림" 조합은 조사한 게임에 없다(근거 없음이지 반증이 아니다) → WP-39 가설로 판정.
 
@@ -59,7 +60,7 @@
 - **명작**: 원문으로 확인된 것은 둘이다. Into the Breach는 유닛 회복을 **공짜**로 뒀다 — 수리비는 "reduced players' inclinations to put them in harm's way… so we felt it was more important to… fully heal them after every battle" [원문]. Darkest Dungeon은 스트레스 회복을 슬롯이 한정된 마을에 묶었다 — "limited slots in town for each activity… a bit of a board game" [원문]. Slay the Spire의 휴식처는 "Rest: Heal for 30% of your max HP" 또는 Smith 택일이다 [보관본 위키] — 설계 이유는 [미확인]. FTL·Hades·Monster Train·Dead Cells의 회복 규칙은 [2차]다.
 - **공용 자원(게이지)의 사례**: 받아들여진 것은 손실이 "그 턴에 보이고 막을 수 있는" 형태다 — Into the Breach: "players always know where the enemy are attacking next so each turn they have a chance to disrupt them" [원문]. 시간으로 닳는 것은 불만을 샀다(위 L4의 Invisible, Inc., XCOM 2).
 - **지금**: 확정 — 캠프의 긴장은 "강화 물질을 스탯 강화 / 치료 / 초기화권 중 어디에 쓸지"(110, 113); 부상·스트레스 누적 폐기(106); 공용 실패 게이지(등불) 폐기 — "벌점이 중복되고, 실패 이유가 '게이지가 닳아서'로 희석된다"(105, 112, 172). **구현**: 캠프 자동 회복(공짜) + 유료 치료가 함께 있다.
-- **판정**: (1) **공짜 자동 회복은 확정 113에서 벗어나 있다** — 확정대로면 치료는 물질의 용도다. 다만 Into the Breach의 사례는 "유닛 회복을 싸게"를 지지한다. 둘이 엇갈리므로 사용자 판단(§3 Q1). (2) 공용 게이지 폐기는 조사와 같은 방향이다 — 다시 올릴 근거는 없다. (3) "긴장을 싣는 자원이 없다"는 2라운드의 판정은 **가설**로 낮춘다: 이번 플레이테스트의 갈림길 선택(WP-41 폐기 조건)이 판정한다.
+- **판정**: (1) 확정 113은 치료를 물질의 용도 중 하나로 적었을 뿐 공짜 회복을 금지하지 않는다. 구현에는 방마다 소량 회복, 쓰러짐 25% 복귀, 캠프 자동 회복, 유료 25% 치료가 함께 있다 — 공짜 회복이 넉넉하면 113이 말한 "치료에 쓸지"의 갈래가 비게 된다. Into the Breach의 공짜 회복 사례에는 조종사 사망이라는 영구 손실이 따로 있다는 점을 함께 읽는다. 선택지 셋은 `proposals.md` P2. (2) 공용 게이지 폐기는 조사와 같은 방향이다 — 다시 올릴 근거는 없다. (3) "긴장을 싣는 자원이 없다"는 2라운드의 판정은 **가설**로 낮춘다: 이번 플레이테스트의 갈림길 선택(WP-41 폐기 조건)이 판정한다.
 - **R4-3 회복이 싼 분대 게임**: "한 번 지면 런이 끝나고 전투 사이에 이월되는 손실이 없는" 구조는 출시된 형태다 — Slice & Dice: "If you lose a single fight you have to start over" [원문, 상점 설명]; Fights in Tight Spaces [2차]. 긴장은 전투 자체의 치명성과 로스터·덱의 질에 실린다. 반대 방향 — Battle Brothers 개발 블로그: HP가 "very quickly healed by passing time"이라 지속 부상과 예비 로스터를 넣었다 [원문, Dev Blog #79](우리 확정이 기각한 방향). 선택적 위험의 값은 HP가 아니라 장기 손실로 매긴다(Battle Brothers 부상, Banner Saga 이탈, Wildermyth 침공 [2차]) — **우리 게임에서 엘리트의 값이 무엇인지는 여전히 열려 있다.**
 - **관리 부담(R4-5)**: 근거가 얇다. Slay the Spire 모닥불은 행동 하나 [보관본 위키], Monster Train은 노드당 경로 선택 하나 [2차]. Davis: 전투 밖 전략 층에 "There was a problem with the strategy layer outside of the combat… we found that process to be quite frustrating because we wanted it to be fun immediately" [원문]. 우리 캠프는 유닛 4 × 스킬 4 × 소켓 최대 3의 룬 장착 + 캐릭터별 노드 + 스탯 강화 + 유료 제안을 한 화면에서 한다 — 부담인지는 플레이테스트에서 "캠프에 머문 시간"으로 본다.
 
@@ -96,37 +97,46 @@
 가장 잘 기록된 수정들의 공통점: 대가를 행동 전에 보이게 했다 · 무작위 잡음은 조정하지 않고 없앴다 · 잠긴 내용을 앞당겼다.
 공짜에 가까운 회복, 던전당 갈림길 하나에 대한 **실패 기록은 찾지 못했다**(증거 없음이지 안전하다는 증거가 아니다).
 
-## 2. 뼈대의 미결과 확장 후보 (근본적인 순)
+## 2. 뼈대의 미결과 확장 후보 (진행 순)
+2차 비평을 반영한 순서다. 측정이 먼저다 — 위치·목표·회복의 판정이 모두 측정에 기대고, 방 종류나 AI를 바꾸면 그 전의 기준선이 무효가 된다.
 | 순 | 항목 | 층 | 성격 | 먼저 필요한 것 |
 |---|---|---|---|---|
-| 1 | 런의 끝(승리 지점) | L0 | 확정을 바꾸는 미결 | 사용자 판단 Q0 (+R4-1) |
-| 2 | 위치의 깊이: 꺼 둔 방 종류 켜기, 밀기의 폭, 적 AI 유형 | L1 | 확장(확정 안) | 전투당 라운드 수 측정 + 플레이테스트 |
-| 3 | 캠프 회복(공짜 대 물질) | L6 | 구현이 확정에서 벗어남 | 플레이테스트 + Q1 (+R4-3) |
-| 4 | 스킬 지배·전투 라운드 수·선택률 측정 | L2·L4·L7 | 측정(플레이어에게 안 보임) | 런 로그 집계 도구 |
-| 5 | 대가가 붙은 규칙 변경 조각 | L7 | 확장 | 파티 유물 미결 판단(Q2) |
+| 1 | 런 로그 집계 도구(전투당 라운드 수, 스킬 사용, 제안·갈림길·이벤트 선택률, 캠프 지출) | L2·L4·L6·L7 | 측정(플레이어에게 안 보임) | 없음 — 3개 제한에 걸리지 않는다 |
+| 2 | 런의 끝 묶음(승리 지점, 시작 지점, 인장, 런 길이) | L0 | 확정을 바꾸는 미결 | 사용자 판단(`proposals.md` P1) |
+| 3 | 물질 경제: 회복과 엘리트의 값 | L6 | 구현·확정 정리 | 1번의 수치 + 플레이테스트(P2) |
+| 4 | 위치의 깊이: 꺼 둔 방 종류, 밀기의 폭, 적 AI 유형 | L1 | 확장(확정 안) | 1번의 기준선 |
+| 5 | 보스의 역할과 파티 유물 | L7 | 확장(확정 90 변경) | 사용자 판단(P3) |
 | 6 | 부딪히는 보너스 목표 | L4 | 확장(확정 안) | WP-39 플레이테스트 결과 |
-| 7 | 선택제 난이도 사다리 | L8 | 확장 | 1번 |
+| 7 | 선택제 난이도 사다리 | L8 | 확장 | 2번, 그리고 사다리 단계가 뺄 선택지(5번) |
 | 8 | 엘리트 전용 조우, 콘텐츠 양 | L5 | 콘텐츠 | 뼈대 뒤 |
 | 9 | 밸런스 | 전부 | 수치 | 맨 마지막(시뮬레이션·옵티마이저) |
 
-지금은 WP-39~41이 병합되어 다음 플레이테스트까지 플레이어에게 보이는 출시를 멈춘다. 4번(집계 도구)은 플레이어 표시가 없어 제한에 걸리지 않는다.
+**뼈대에 아직 층이 없는 것**(2차 비평): 물질 경제 전체(수입 5곳·지출 4곳 — 표는 `proposals.md` P2) · 런·세션 길이 목표 · 보스의 역할(P3) · 명단·거점(확정 100~102, 미결 241) · 온보딩 · 쓰러짐 규칙(F7).
+
+**구현이 확정과 다른 곳**(확인된 것):
+| 항목 | 확정 | 구현 | 다룰 곳 |
+|---|---|---|---|
+| 경험치 | 처치 기반, 캐릭터별(83, 88) | 방 클리어 시 전원 동일 | `proposals.md` 한 줄 판단 |
+| 인장 지급량 | 수치 하드코딩 금지(148) | 던전 클리어 1, 보스 2가 코드에 있다; "런 성공"이 코드에서 던전 클리어로 정해져 있다(F8) | P1 |
+| 해금 문턱 | — | 모든 해금에 인장 문턱(`seal_gate`) — §1.5 "해금을 실력 문턱 뒤에 두지 않는다"와 견줘 볼 것 | P1 |
+| 런 중 노드 재분배 | 초기화권을 소비(110, 125) | 물질 5를 직접 쓴다 | P2 |
+| 회복 | 치료는 물질의 용도(113) | 공짜 회복 여럿 + 유료 치료 | P2 |
+확인하지 못한 것: 스킬·룬 무료 교체의 구현 범위, 재시작 2분.
 
 ## 3. 사용자 판단이 필요한 것
-| # | 질문 | 선택지 | 권고와 근거 |
+선택지·근거·권고의 약점은 `proposals.md`에 있다. 요약:
+| # | 질문 | 권고 | 바뀌는 확정 |
 |---|---|---|---|
-| Q0 | 런에 승리 지점을 둘 것인가 (미결 238) | 둔다(테마 최종 보스 격파 = 승리, 이후 계속 여부 선택) / 지금대로(전멸까지) | **둔다.** 조사한 명작은 모두 끝이 있는 런이고, 사다리·매듭·런 길이 선택이 그 위에 선다(L0). "계속 여부 선택"은 Into the Breach의 런 길이 선택과 같은 자리다. 확정 "종료는 전멸뿐"을 바꾼다 |
-| Q1 | 캠프 회복 | 확정대로(자동 회복 없음, 치료는 물질) / 지금대로(공짜 자동 회복 + 유료 추가 치료) | **플레이테스트 뒤 판단.** 확정 113과 Into the Breach의 사례가 엇갈린다. 판정 신호: 갈림길에서 엘리트를 이유 없이 매번 고르는가(위험이 싸다 → 확정대로), 몸을 사리는가(→ 지금대로) |
-| Q2 | 파티 유물(미결 237): 보스 보상으로 런의 성격을 바꾸는 조각 3택 1 | 채택 / 보류 | **채택하되 Q0 뒤에.** 규칙을 바꾸는 조각의 자리로 확정 91과 맞고(L7), 근거는 Slay the Spire 유물·Hades 망치. GGG의 설계 규칙(주고 빼앗는다, 한눈에 이해)을 따른다. 확정 "드롭 대상: 룬, 강화 물질"을 바꾼다 |
+| P1 | 런의 끝: A(테마 최종 보스 = 승리, 이후 계속 선택) / B(시작 때 길이 선택) / C(지금대로) | A — 승리는 테마 첫 던전에서 시작한 런에만 기록, 던전 클리어 인장은 유지 | 156, 그리고 23·157·F8에 닿는다 |
+| P2 | 회복: H1(지금대로) / H2(공짜만) / H3(물질로만) | 플레이테스트로 판정 — 지표를 미리 정함 | H2·H3은 113·140에 닿는다 |
+| P3 | 파티 유물: R1(채택) / R2(보스 전용 대가 룬) / R3(보류) | R1 | 90 |
+| X | 경험치: X1(확정대로 고친다) / X2(확정 문구를 구현에 맞춘다) / X3(파티 레벨로 명시) | X2 — 판단이지 증거가 아니다 | 83, 88 |
 
-| Q3 | 경험치 분배: 확정 문구("주 소스는 몬스터 처치이며 캐릭터별로 따로 쌓인다")와 구현(방 클리어 시 전원 동일)이 다르다 | 확정을 구현에 맞춘다 / 구현을 확정에 맞춘다 | **확정을 구현에 맞춘다.** 처치 개별 경험치는 Fire Emblem의 "킬 먹이기"를 만들고, Divinity: Original Sin 2·Into the Breach는 나눠 준다(L2). 4인 파티에서 힐러가 뒤처지지 않는다 |
-
-앞 라운드의 질문(소모 압박 A/B/C, 사다리 형태, 사다리 보상)은 이 표로 대체한다: 공용 자원(B)은 확정으로 기각된 방향이고, 사다리는 Q0 뒤의 일이다.
-
-## 4. 다음 라운드 (R5)
-웹 검색 한도(세션당 약 200회)가 소진되어 R4는 검색 4~9회 뒤 직접 접근(Wikipedia, 저장해 둔 원문, 보관본)만으로 진행됐다. 새 조사의 수확이 줄고 있으므로 R5는 **조사보다 설계**다.
-- **R5-설계**: 뼈대의 미결·확장 후보에 대한 구체 설계안을 근거와 함께 쓴다(스펙이 아니라 선택지와 권고). 대상: (1) 승리 지점과 "이긴 뒤 계속"의 형태, (2) 대가가 붙은 규칙 변경 조각(룬·파티 유물) 후보 목록 — GGG 규칙과 대가 분류에 맞춰, (3) 부딪히는 보너스 목표, (4) 위치의 깊이(방 종류, 클래스별 위치 스킬), (5) 런 로그 집계 도구의 지표 정의.
-- **R5-비평**: 이 개정본과 설계안에 대한 두 번째 비평.
-- **R5-정독**: 이미 저장한 1차 원문(Into the Breach 기사 3편, Sigman·Bourassa 2편, Chimera Squad Q&A, GGG 키스톤 글, Cooke 인터뷰, Lantz 경보 글)을 처음부터 끝까지 읽어, 요약에서 빠진 설계 규칙을 더 뽑는다.
+## 4. 다음 라운드 (R6)
+웹 검색 한도가 소진된 상태다. R6는 설계와 측정이다.
+- **R6-도구**: 런 로그 집계 도구의 지표 정의와 스펙(플레이어에게 보이지 않는 WP) — `proposals.md` P2의 판정 지표, 스킬 사용 분포, 전투당 라운드 수, 제안·갈림길·이벤트 선택률.
+- **R6-설계**: 위치의 깊이(꺼 둔 방 종류를 켰을 때의 조우 표, 클래스별 위치 스킬 후보), 부딪히는 보너스 목표 후보, 명단·거점 층, 온보딩 층.
+- **R6-비평**: `proposals.md`에 대한 비평(선택지가 공정한가, 근거 등급이 권고를 받치는가).
 - 아직 못 푼 것: Mega Crit의 휴식처·보스 유물·Ascension 설계 이유, Hades 문 보상, Darkest Dungeon 횃불·후퇴·"7개 중 4개", Balatro·Risk of Rain 2의 끝 설계 이유. GDC Vault 본문 접근 불가.
 
 ## 5. 라운드 기록
@@ -135,3 +145,4 @@
 - **비평 1차(egm-design)**: 런의 끝이 빠짐; 소모 압박 선택지와 확정 결정의 관계가 틀림; "7개 중 6개" 과장; 한 게임의 선택을 규칙처럼 씀; 빠진 층 5개. → R3 개정에 반영.
 - **R3**: 인용 원문 검증(6건 확인, 1건 정정, 1건 미확인) / 공용 자원 / 키스톤·대가 / 파티 역할 / 실패의 가독성.
 - **R4**: 현재 수치 표(로컬) / 런의 끝 / 위치의 깊이 / 회복이 싼 분대 게임 / 실패·수정 사례 / 성장 분배·관리 부담. 발견: 구현이 확정과 다른 곳 둘(캠프 자동 회복, 경험치 분배). 한계: 검색 한도 소진, 팬 위키 차단, 다수가 Wikipedia 등급.
+- **R5**: 저장한 1차 원문 정독 2건(Into the Breach·FTL / 그 밖) + 비평 2차. 정정: Q3의 Into the Breach 인용이 반대편 근거였다; "힐러 클래스"는 틀린 표현; 회복의 "확정 이탈"은 과장. 새로 확인: 구현과 확정의 차이 3곳(인장 하드코딩, 해금 문턱, 재분배 비용). 산출물: `proposals.md`(런의 끝 묶음, 물질 수입·지출, 보스의 역할과 유물, 경험치 한 줄 판단).
