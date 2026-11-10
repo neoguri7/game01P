@@ -119,6 +119,12 @@
       "behavior": "A purchased camp rune offer records the normal table.",
       "test": "camp_tests::CampOfferRecordsNormalTable",
       "passes": false
+    },
+    {
+      "id": "F17",
+      "behavior": "A three-card offer of all-skill runes fits the reward modal at 1280x800 without scrolling.",
+      "test": "reward_equip_tests::OfferModalDoesNotScroll",
+      "passes": false
     }
   ]
 }

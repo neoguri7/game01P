@@ -225,3 +225,12 @@ Existing assertions keep their meaning; no timeout changes; no check is dropped.
 
 ## 10. Open questions
 None.
+
+## 11. Amendment after the diff review (2026-11-11)
+The first implementation drew one Fits line per skill; at 1280x800 a three-card offer pushed the reward modal past its 720 px cap, so Pick/Skip and the last (rare) card fell below the fold. This section supersedes §5 `DrawRuneOfferCard`, §7 F14 and §7 FitsLineWraps where they differ.
+- **Card layout**: `PushID` → `BeginGroup` → title row `ui::Button("Pick", {84, 28})`, `SameLine`, name in the rarity colour, `SameLine`, `Common rune` / `Uncommon rune` / `Rare rune` in the same colour → effect summary → one `TextWrapped("Fits: %s", RuneFitInline(lines))` (or `Fits: no current party skill`), with a hover tooltip listing every preview line when there are more than 3 → duplicate-refund line → `EndGroup` → border → `ImGui::Spacing()` → `PopID`.
+- **New helper** (`FDungeonViews.h`): `[[nodiscard]] std::string RuneFitInline(const std::vector<std::string>& lines, std::size_t maxShown = 3);` — the first `maxShown` lines joined with ` | `, plus ` | +<N> more (hover)` when more exist.
+- **F14** now proves: the modal prints `Fits: ` + `RuneFitInline(lines)` for the first stored candidate; `RuneFitInline` of 2 lines is `A | B`, of 5 lines `A | B | C | +2 more (hover)`.
+- **F17** (new): WHEN a three-card offer of all-skill runes (`rune.power`, `rune.swift`, `rune.range`) is rendered at 1280x800 THEN the reward modal SHALL not scroll (`ScrollMax.y == 0`, height ≤ 720). Test: `reward_equip_tests::OfferModalDoesNotScroll`.
+- **FitsLineWraps** measures `rune.power` against `rune.ember` (one fitting skill) with the capped inline text; `fitsDelta > 0.5 * lineHeight`; the ±1 px equality is unchanged.
+- Decision: the plan's "before/after for every fitting skill" is met by the tooltip; the card shows the first three. Reason: the modal's height at the game's base resolution.
