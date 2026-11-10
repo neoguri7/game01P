@@ -4,7 +4,6 @@ Size: S | L · Player-facing: yes | no · Certainty: settled | uncertain · Base
 
 ## 1. Goal [S]
 <2–4 lines: what changes for the player, and why.>
-- Pillar served: <pillar from docs/design/pillars.md>.
 - Decisions it rests on: <lines from docs/design/decisions.md>, or "none".
 
 ## 2. Player experience [player-facing]

@@ -4,14 +4,14 @@ description: Design a game01P work package before any code is written — game d
 argument-hint: <WP-id> <one-line goal>
 ---
 
-You are the designer. The spec carries two things: the game design (why this is worth playing) and every implementation decision (so a cheaper model executes it without choosing). Read `docs/design/pillars.md`, `decisions.md` and `combat-math.md` first; they bind every WP.
+You are the designer. The spec carries two things: the game design (why this is worth playing) and every implementation decision (so a cheaper model executes it without choosing). Read `docs/design/decisions.md` and `combat-math.md` first; they bind every WP.
 
 ## Steps
-1. **Frame.** Write the goal, the pillar it serves, and the decisions it rests on. Set the header flags: size **S** (≤3 files, no new system) or **L**; **player-facing** yes/no; **certainty** settled/uncertain. Done when the header and §1 are filled.
+1. **Frame.** Write the goal and the decisions it rests on. Set the header flags: size **S** (≤3 files, no new system) or **L**; **player-facing** yes/no; **certainty** settled/uncertain. Done when the header and §1 are filled.
 2. **Settle open questions by kind.**
    - **Fact questions** ("how do proven games solve X", "what does the research show") → the `browse` agent, several in parallel for independent questions; mark sources a decision rests on as load-bearing. Reference games: dungeon and expedition design → Darkest Dungeon; build design → Path of Exile; UI and information design → Pillars of Eternity.
    - **Taste questions** (what the player should feel, which of two proven designs fits this game) with no ruling in `decisions.md` → collect them and ask the user once, as one-liners each with your recommendation and its source, so the user can accept them in one reply. Record each answer in `decisions.md`.
-   - Research never overrides `pillars.md` or a 확정 ruling in `decisions.md`.
+   - Research never overrides a 확정 ruling in `decisions.md`.
    Done when every decision is recorded with its source or the user's answer.
 3. **Uncertain mechanics prototype first.** If certainty is "uncertain", stop the spec here and propose the cheapest playable probe (a data-only tweak or a throwaway prototype) for the user to play; continue after their feedback.
 4. **Read the code the WP touches**, targeted (Grep for call sites, Read the exact functions). Done when every file in the file map is confirmed to exist, or is marked "create", and every signature you write matches the code.

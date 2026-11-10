@@ -3,7 +3,6 @@
 Ember Dungeon: C++23 / SDL3 / ImGui / EnTT, 4-unit grid-tactics dungeon roguelike, data-driven JSON content in `assets/data/`.
 
 ## Design sources (bind every WP)
-- `docs/design/pillars.md` — what the game is for; every WP serves a pillar.
 - `docs/design/decisions.md` — the user's rulings (확정/가정/미결). A 확정 ruling changes only with the user.
 - `docs/design/combat-math.md` — modifier order and owners; new modifiers slot into it.
 - Reference games: dungeon/expedition → Darkest Dungeon; builds → Path of Exile; UI/information → Pillars of Eternity.
