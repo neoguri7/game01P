@@ -331,3 +331,7 @@ List F1–F20 in numeric order. `files` = every path of §5, including `src/stat
 
 ## 11. Open questions
 None.
+
+## 12. Amendments during implementation
+- (2026-11-11) `tests/features/dungeon_sequence_tests.cpp` joins the file map. `AutoCompleteSeesFirstBossAtDungeonThree` runs on shipped content and resolves events with the legacy one-step `ChooseEventRest`; with `event.ember_shrine` in `common`, option 0 can open a rune offer and the legacy step then stays on the result screen (F15). Edit: in that case's Event branch, right after `ChooseEventRest`: `if (registry.ctx().get<game::FRewards>().offer.active) { CHECK(game::ResolveRuneOffer(registry, -1)); CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueEvent).has_value()); }`. The assertion `run.phase == Battle` and the case's meaning (auto-complete reaches the first boss at dungeon three) are unchanged.
+- Accepted deviations: tests land with each task (they need the new API to compile); F17 is proven in T2; F8a builds the battlefield before reading the room plan; F6 uses a temp `rewards.json` with the shipped `rarity_tables`.

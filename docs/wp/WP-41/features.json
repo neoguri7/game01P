@@ -36,6 +36,7 @@
     "tests/features/run_log_tests.cpp",
     "tests/features/headless_tools_tests.cpp",
     "tests/features/compendium_tests.cpp",
+    "tests/features/dungeon_sequence_tests.cpp",
     "docs/wp/WP-41/progress.md",
     "docs/wp/WP-41/features.json"
   ],
