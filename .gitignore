@@ -10,8 +10,9 @@ Testing/
 .cache/
 .ninja_deps
 .ninja_log
-docs/
-docs
+docs/*
+!docs/wp/
+.claude/settings.local.json
 
 
 .codex
