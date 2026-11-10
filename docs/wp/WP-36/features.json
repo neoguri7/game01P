@@ -1,0 +1,42 @@
+{
+  "wp": "WP-36",
+  "allowTimeoutChange": true,
+  "allowCheckDrop": ["tests/features/state_machine_tests.cpp", "tests/features/pipeline_tests.cpp"],
+  "files": [
+    "src/main.cpp",
+    "src/states/FTitleState.h", "src/states/FTitleState.cpp",
+    "src/states/FHubState.h", "src/states/FHubState.cpp",
+    "src/states/FBattleState.h", "src/states/FBattleState.cpp",
+    "src/states/FStateCatalog.h", "src/states/FStateCatalog.cpp",
+    "src/debug/PrototypeChecks.h", "src/debug/PrototypeChecks.cpp",
+    "src/ecs/systems/GridRenderSystem.h", "src/ecs/systems/CombatHudSystem.h", "src/ecs/systems/GridCameraSystem.h",
+    "src/gameplay/run/FPrototypeRun.h", "src/gameplay/run/FPrototypeRun.cpp",
+    "src/gameplay/FGameMode.h",
+    "src/gameplay/grid/FBattleLayout.h",
+    "src/ecs/systems/ActionResolverSystem.h", "src/ecs/systems/CombatOutcomeSystem.h", "src/ecs/systems/TurnFlowSystem.h",
+    "src/gameplay/combat/FBattleFlow.h", "src/gameplay/combat/FBattleFlow.cpp", "src/gameplay/combat/FBattleCommand.h",
+    "src/gameplay/combat/FCombatSheet.h", "src/gameplay/combat/FCombatSheet.cpp", "src/gameplay/combat/FCombatTypes.h",
+    "src/gameplay/battle/FBattleSetup.cpp",
+    "src/gameplay/grid/FBattlefieldData.h",
+    "src/gameplay/meta/FMetaProgress.h", "src/gameplay/meta/FMetaProgress.cpp",
+    "src/presentation/FSettings.h",
+    "tests/check_removed_flag.cmake",
+    "tests/features/state_machine_tests.cpp", "tests/features/pipeline_tests.cpp",
+    "tests/features/node_tree_tests.cpp", "tests/features/boss_goals_tests.cpp", "tests/features/battle_command_tests.cpp",
+    "CMakeLists.txt",
+    "assets/data/prototype-run.json", "assets/data/battlefield.json",
+    "assets/art/forest_ground.png", "assets/art/forest_oak.png", "assets/art/forest_waystone.png",
+    "assets/art/manifest.json",
+    "README.md",
+    ".github/workflows/windows-build.yml"
+  ],
+  "features": [
+    {"id": "F1a", "behavior": "--forest prints 'forest mode was removed' to stderr and exits 2 before engine init", "test": "ctest::removed_forest_flag", "passes": false},
+    {"id": "F1b", "behavior": "--verify-prototype prints 'forest mode was removed' to stderr and exits 2 before engine init", "test": "ctest::removed_verify_flag", "passes": false},
+    {"id": "F1c", "behavior": "GAME01P_MODE=forest prints 'forest mode was removed' to stderr and exits 2 before engine init", "test": "ctest::removed_mode_env", "passes": false},
+    {"id": "F2a", "behavior": "Ember title smoke passes with prototype-run.json and battlefield.json absent from the staged assets", "test": "ctest::dungeon_title_smoke", "passes": false},
+    {"id": "F2b", "behavior": "Ember battle smoke (GAME01P_START=battle) passes with prototype-run.json and battlefield.json absent from the staged assets", "test": "ctest::dungeon_battle_smoke", "passes": false},
+    {"id": "F4", "behavior": "node-tree fixture v1/v2 load and v3/missing file are rejected through a test-local helper over FPassiveTree::Load", "test": "node_tree_tests::PassiveTreeFileLoadsV1AndV2", "passes": false},
+    {"id": "F5", "behavior": "a battle without FDungeonRun appends no run-log line", "test": "boss_goals_tests::NoDungeonRunBattleNoAppend", "passes": false}
+  ]
+}
