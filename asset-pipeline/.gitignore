@@ -1,5 +1,0 @@
-__pycache__/
-*.pyc
-
-# 외부 게임 스크린샷(저작권물)은 커밋하지 않는다. scripts/fetch_references.py 로 로컬에만 받는다.
-reference/local/
