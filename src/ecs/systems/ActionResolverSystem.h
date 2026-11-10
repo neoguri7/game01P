@@ -364,8 +364,8 @@ private:
                                        combat->rng)) {
                         // WP-06 (P6-6, ★3): an applied status can change what the sheet derives (WP-13's
                         // speed_pct reads it on the next collect) — refresh only then, so a refused roll
-                        // leaves no trace. Ember-only guard: forest passives are added inline in
-                        // FBattleState and a refresh would flatten them back to base (FCombatSheet.h).
+                        // leaves no trace. Guarded on FDungeonRun: a registry without a dungeon run (test
+                        // fixtures, validation probes) keeps the sheet it was set up with (FCombatSheet.h).
                         if (registry.ctx().contains<FDungeonRun>()) {
                             RefreshCombatSheet(registry, target.unit, content);
                         }

@@ -21,7 +21,7 @@ const char* BattlePhaseName(EBattlePhase phase) {
 
 bool IsPresentationSettled(const entt::registry& registry) {
     const auto* gate = registry.ctx().find<FPresentationGate>();
-    if (gate == nullptr) return true;  // headless, fixtures, forest: nothing is being shown
+    if (gate == nullptr) return true;  // headless, fixtures: nothing is being shown
     if (gate->busy == 0) return true;
     const auto* watch = registry.ctx().find<FPresentationWatch>();
     return watch != nullptr && watch->timedOut;  // the fail-safe opens the gate (once per streak)

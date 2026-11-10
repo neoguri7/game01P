@@ -1,0 +1,4 @@
+- T1 tests added (red: 3 removed_* fail as expected)
+- T2 Ember-only boot in main.cpp, GridCameraSystem, CMake C2-C5: build OK
+- T3 forest code deleted, catalog/tests trimmed: build OK
+- T4 comments, T5 data/art/docs/workflow: build OK; staged prototype-run/battlefield absent

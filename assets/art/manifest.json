@@ -36,7 +36,6 @@
       "32704f46-acb0-469f-babb-f4c48cb0765e",
       "5821834b-7b5e-4775-a78d-911b5f9b9274"
     ],
-    "forest": "Forest mode (default executable) now uses the same art set as Ember: units from art/*.png via units.json, forest_* props/ground, icon_* HUD icons. The old 32x32 locally drawn assets/generated/ set was removed. Rejected ground jobs: ce3d53ba-51a7-4a67-9f2c-d4d4486de6d8, 0c1fc44c-378a-4bb2-91f1-a9e9088a418c, 204ed345-62f6-49b8-879a-5a06585cd550, d3abcc44-34e2-4c70-bfdf-5359b64783ae (vignette borders), 3dcf3bef/bed0f1a7 kept only as noted.",
     "theme": "Dark fantasy forest (style v4): near-black green walls of roots and mossy boulders, mossy fern/grass floors, thorn traps, canopy backdrop. UI uses a Diablo-like stone/bronze/gold treatment with Cinzel headings and Alegreya Sans body (OFL fonts in assets/fonts).",
     "iso": "Ember battles render on an isometric projection (presentation/FIsoView.h; logic stays orthogonal): dark-forest ground blocks, tree/boulder/thorn obstacles, a wider forest floor beyond the arena. UI follows Pillars of Eternity 2 (carved bronze/gunmetal plaques, parchment panels, slot frames).",
     "tiles_v4_rejected": [
@@ -204,27 +203,6 @@
       "seed": 2304,
       "tool": "create_image_pixflux",
       "transparent": true
-    },
-    {
-      "file": "forest_ground.png",
-      "transparent": false,
-      "tool": "create_image_pixflux",
-      "job_id": "d7180cb8-3f2e-4b20-8836-ac6184aa5aa3",
-      "note": "6x64 sheet: ferns/grass floor variants + mirrored dirt-trail crop from job bad8c3df-1692-4254-b773-65e653636f27"
-    },
-    {
-      "file": "forest_oak.png",
-      "job_id": "c69f3c02-8fa7-4428-8fae-47412b376379",
-      "transparent": true,
-      "seed": 3107,
-      "tool": "create_image_pixflux"
-    },
-    {
-      "file": "forest_waystone.png",
-      "job_id": "620a6ae5-c331-4a95-a265-c69cd7805680",
-      "transparent": true,
-      "seed": 3108,
-      "tool": "create_image_pixflux"
     },
     {
       "file": "icon_sword.png",

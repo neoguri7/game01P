@@ -1010,7 +1010,7 @@ void DrainWritesNoCombatLogLine() {
 
 void SheetRefreshOnlyInEmber() {
     // ① The resolver's status application refreshes through the Ember guard. With a run in context the
-    // sheet is recomputed from FBaseCombatStats; without it (forest) the tampered values must survive.
+    // sheet is recomputed from FBaseCombatStats; without it the tampered values must survive.
     {
         FCommandFixture fixture{"sheet-run", true};
         auto& r = fixture.registry();
@@ -1125,8 +1125,8 @@ void FreezeSpeedEndToEnd() {
         CHECK(roundTwo[2].entity == fixture.foe);     // 5 — a later slot than in round one
         CHECK(roundTwo[2].speed == 5);
     }
-    // Forest control: the same hit applies the status, but without FDungeonRun the sheet (and FSpeed) is
-    // left as-is — the forest passives stay in charge of those values.
+    // Control without FDungeonRun: the same hit applies the status, but the sheet (and FSpeed) is left
+    // as-is.
     {
         FCommandFixture fixture{"freeze-forest"};  // no FDungeonRun
         auto& r = fixture.registry();
@@ -1198,7 +1198,7 @@ void ThinkDelayScalesWithSpeed() {
         CHECK(combat.autoActionsThisTurn == 1);
         CHECK(queue.pending.size() == 1);
     }
-    // ② no FSettings (headless, forest): the pause runs at 1x — one half-delay step is not enough.
+    // ② no FSettings (headless): the pause runs at 1x — one half-delay step is not enough.
     {
         FBattleTest fixture;
         auto& registry = fixture.registry;

@@ -4,15 +4,12 @@
 
 #include "core/Logger.h"
 #include "gameplay/dungeon/FRunFlow.h"
-#include "states/FBattleState.h"
 #include "states/FEmberBattleState.h"
 #include "states/FEmberHubState.h"
 #include "states/FEmberModalHostState.h"
 #include "states/FEmberPreparationState.h"
 #include "states/FEmberRunEndState.h"
 #include "states/FEmberTitleState.h"
-#include "states/FHubState.h"
-#include "states/FTitleState.h"
 
 namespace game {
 
@@ -85,15 +82,6 @@ FStateCatalog FStateCatalog::MakeEmber() {
     });
     // [room types] A new room type appends its host here; its view registers in FModalViewRegistry.cpp.
     catalog.setStartIds(std::string(kEmberTitleId), std::string(kEmberBattleId));
-    return catalog;
-}
-
-FStateCatalog FStateCatalog::MakeForest() {
-    FStateCatalog catalog;
-    (void)catalog.add(kForestTitleId, [] { return std::unique_ptr<FBaseState>(std::make_unique<FTitleState>()); });
-    (void)catalog.add(kForestHubId, [] { return std::unique_ptr<FBaseState>(std::make_unique<FHubState>()); });
-    (void)catalog.add(kForestBattleId, [] { return std::unique_ptr<FBaseState>(std::make_unique<FBattleState>()); });
-    catalog.setStartIds(std::string(kForestTitleId), std::string(kForestBattleId));
     return catalog;
 }
 

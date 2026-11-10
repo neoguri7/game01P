@@ -12,7 +12,7 @@
 
 namespace game {
 
-/// One unit as placed in `assets/data/battlefield.json`. `unitTemplateId` names the content unit whose
+/// One unit as placed on a battlefield. `unitTemplateId` names the content unit whose
 /// stats/AP/speed the combat setup copies; `skills` overrides the unit's default skills (and carries the
 /// run-scope runes for the first playable battles). `entity` is filled by FEntityFactory and is the
 /// handle combat components are attached to.

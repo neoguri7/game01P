@@ -47,7 +47,7 @@ struct FSettingsLocation {
     bool saveWarned{false};  // "cannot persist" / write failure is logged once per resolution
 };
 
-/// The loaded settings, or the 1x / no-skip defaults when nothing was loaded (headless tests, forest).
+/// The loaded settings, or the 1x / no-skip defaults when nothing was loaded (headless tests).
 [[nodiscard]] const FSettings& CurrentSettings(entt::registry& registry);
 
 /// Boot-time load (the title anchor runs it once from InitializeDungeonUi). Resolves the path, reads the

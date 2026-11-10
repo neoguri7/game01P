@@ -43,8 +43,7 @@ void RefreshCombatSheet(
     health->max = base->maxHealth;
     if (speed != nullptr) speed->value = base->speed;
 
-    // ② 런 보너스 — FDungeonRun 경로(Ember)에서만. forest 패시브(FPrototypeRun)는 FBattleState.cpp의
-    //    인라인 가산이 계속 소유하므로 여기서 읽지 않는다(읽으면 이중 가산 — ForestNoDoubleBonus).
+    // ② 런 보너스 — FDungeonRun 경로(Ember)에서만.
     auto* run = registry.ctx().find<FDungeonRun>();
     if (run != nullptr && registry.all_of<FPartyMember>(entity)) {
         const auto* unit = registry.try_get<FUnitData>(entity);

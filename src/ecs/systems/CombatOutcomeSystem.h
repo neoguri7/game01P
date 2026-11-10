@@ -74,7 +74,7 @@ struct CombatOutcomeSystem {
             // WP-15/WP-20 cross contract: a won boss battle appends BossDefeated exactly once (this branch
             // runs once — `resolved` above and the `continuedAfterRoom` path that sets `resolved` itself both
             // keep it single). A fallback boss still appends (the FBossBattle marker carries its bossId).
-            // Forest battles have no FDungeonRun; the guard matters because AppendRunEvent creates a log when
+            // A battle without FDungeonRun (test fixtures) must not append: AppendRunEvent creates a log when
             // none exists.
             if (registry.ctx().contains<FDungeonRun>()) {
                 if (const auto* boss = registry.ctx().find<FBossBattle>()) {

@@ -39,7 +39,6 @@
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/progression/FPassiveTree.h"
-#include "gameplay/run/FPrototypeRun.h"
 #include "presentation/FPassiveTreePanel.h"
 #include "presentation/FUiTheme.h"
 
@@ -678,10 +677,20 @@ void RepeatableSoakThenExcluded() {
     CHECK(Candidates(tree, allocated).size() >= 2);
 }
 
-// --- prototype tree file loading (WP-32h) -------------------------------------------------------
-void PrototypeTreeFileLoadsV1AndV2() {
+// --- passive tree file loading (WP-32h) ---------------------------------------------------------
+// Test-local file reader (formerly FPrototypeRun::LoadPassiveTreeFile, minus its logging): a missing file or
+// invalid JSON gives nullopt, anything else is up to FPassiveTree::Load.
+std::optional<game::FPassiveTree> LoadTreeFile(const std::filesystem::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) return std::nullopt;
+    auto document = nlohmann::json::parse(file, nullptr, false);
+    if (document.is_discarded()) return std::nullopt;
+    return game::FPassiveTree::Load(document);
+}
+
+void PassiveTreeFileLoadsV1AndV2() {
     // v1: the frozen fixture tree (never the shipped assets/data/passive-tree.json).
-    const auto v1 = game::FPrototypeRun::LoadPassiveTreeFile(FixtureDataPath("passive-tree.json"));
+    const auto v1 = LoadTreeFile(FixtureDataPath("passive-tree.json"));
     CHECK(v1.has_value());
 
     // v2: the in-memory mechanism document written to a temp path.
@@ -691,7 +700,7 @@ void PrototypeTreeFileLoadsV1AndV2() {
         CHECK(file.good());
         file << MechanismDocument().dump();
     }
-    const auto v2 = game::FPrototypeRun::LoadPassiveTreeFile(v2Path);
+    const auto v2 = LoadTreeFile(v2Path);
     CHECK(v2.has_value());
 
     // An unknown future schema version is rejected by FPassiveTree::Load alone.
@@ -703,10 +712,10 @@ void PrototypeTreeFileLoadsV1AndV2() {
         CHECK(file.good());
         file << document.dump();
     }
-    CHECK(!game::FPrototypeRun::LoadPassiveTreeFile(v3Path).has_value());
+    CHECK(!LoadTreeFile(v3Path).has_value());
 
     // A path with no file behind it fails before parsing.
-    CHECK(!game::FPrototypeRun::LoadPassiveTreeFile(SavePath("proto-tree-absent")).has_value());
+    CHECK(!LoadTreeFile(SavePath("proto-tree-absent")).has_value());
 
     std::error_code error;
     std::filesystem::remove(v2Path, error);
@@ -781,7 +790,7 @@ int main() {
         {"LevelUpCandidatesAtLeastTwo", LevelUpCandidatesAtLeastTwo},
         {"NotablePathCandidateAfterLevelFive", NotablePathCandidateAfterLevelFive},
         {"RepeatableSoakThenExcluded", RepeatableSoakThenExcluded},
-        {"PrototypeTreeFileLoadsV1AndV2", PrototypeTreeFileLoadsV1AndV2},
+        {"PassiveTreeFileLoadsV1AndV2", PassiveTreeFileLoadsV1AndV2},
         {"PanelDrawSmoke", PanelDrawSmoke},
     });
 }

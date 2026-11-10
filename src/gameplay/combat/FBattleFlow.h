@@ -10,7 +10,7 @@ namespace game {
 
 /// How much of the last game state is still being shown. Gameplay owns the POD; the presentation
 /// (the ecs-side BattleAnimationSystem) *assigns* it every frame — never increments it — and gameplay only
-/// reads it. An absent context means "nothing to show" (headless tests, fixtures, forest).
+/// reads it. An absent context means "nothing to show" (headless tests, fixtures).
 struct FPresentationGate {
     int busy{0};
 };
@@ -67,8 +67,8 @@ struct FBattlePhaseInputs {
 /// Pure: same inputs, same phase — it takes no registry.
 [[nodiscard]] EBattlePhase DeriveBattlePhase(const FBattlePhaseInputs& inputs);
 
-/// Level-triggered wait predicate (WP-05a): the show is over when there is no gate (headless, fixtures,
-/// forest), nothing is left to show, or the fail-safe clock has timed out.
+/// Level-triggered wait predicate (WP-05a): the show is over when there is no gate (headless, fixtures),
+/// nothing is left to show, or the fail-safe clock has timed out.
 [[nodiscard]] bool IsPresentationSettled(const entt::registry& registry);
 
 /// Advances the fail-safe clock by one frame. Busy streaks accumulate; `busy == 0` resets the streak and

@@ -149,8 +149,8 @@ struct TurnFlowSystem {
             }
             // WP-06 (P6-6, ★3): the tick can change what the sheet derives (WP-13's speed_pct reads it on
             // its next collect), and the refresh must beat both the status-death early return below and
-            // the skip turn. Idempotent; Ember-only guard — a forest refresh would flatten the inline
-            // passives to base (FCombatSheet.h × FBattleState.cpp).
+            // the skip turn. Idempotent; guarded on FDungeonRun — a registry without a dungeon run keeps the
+            // sheet it was set up with (FCombatSheet.h).
             if (registry.ctx().contains<FDungeonRun>()) {
                 RefreshCombatSheet(registry, actor, *content);
             }

@@ -2,26 +2,16 @@
 
 A playable SDL3 + EnTT turn-based grid-tactics roguelike prototype.
 
-## Two preserved game modes
+## Game mode
 
-The default executable opens **Ember Dungeon** (controls and loop below). The **forest prototype** (`--forest`) offers the user's title, prepared
-party/equipment and individual passive tree, forest encounters, event and camp
-flow, and the shared 64×64 art set (`assets/art`, same as Ember). Click an action in the dock, then its target; movement
-spends one move AP for one orthogonal step. WASD pans the forest camera and the
-mouse wheel zooms it. The three-room lifecycle and checkpoint progression stay
-independent of Ember's save.
+The executable runs **Ember Dungeon** (controls and loop below); it has no other
+mode. The removed forest prototype mode's switches (`--forest`, `--verify-prototype`,
+`$env:GAME01P_MODE = "forest"`) print `forest mode was removed` and exit with
+code 2. `--ember` is still accepted and changes nothing.
 
-Launch the forest prototype with `game01P.exe --forest`, or set
-`$env:GAME01P_MODE = "forest"`. `--ember` explicitly selects the default again.
-Mode selection happens at startup, not during an active battle. The Ember
-controls and expedition loop are described below.
-
-Both modes use the same turn scheduler, value-token action queue, AP/status
-pipeline, collision/pathfinding and wall LOS rules. Forest skills retain empty
-cell targeting, line pierce, and the expanded Lunge/Snipe/Firebolt rows; Ember
-retains path traps, rune transactions and persistent dungeon checkpoints.
-Distinct app states and rendering/HUD systems preserve each authored layout;
-there is no second combat scheduler or resolver.
+Ember runs on one turn scheduler, value-token action queue, AP/status pipeline,
+collision/pathfinding and wall LOS rules, with path traps, rune transactions and
+persistent dungeon checkpoints; there is no second combat scheduler or resolver.
 
 ## Play
 
@@ -142,7 +132,6 @@ style controls and subject-specific text. The CLI wrapper that `style.md` used t
 
 ```powershell
 ctest --preset windows-msvc-debug --output-on-failure
-.\out\build\windows-msvc-debug\Debug\game01P.exe --forest --verify-prototype
 .\out\build\windows-msvc-debug\Debug\game01P.exe --ember --smoke-test
 .\out\build\windows-msvc-debug\Debug\game01P.exe --ember --capture .\out\title.png
 $env:GAME01P_START = "battle"
@@ -156,9 +145,8 @@ It also verifies focused-HUD keyboard shortcuts, modal keyboard capture, bad
 rune-drop content rejection, scheduler-independent AI token propagation, camp
 rune conservation/rejections, and actual choice-window text under changed
 balance data, empty-cell targeting and line pierce blocked by walls. It boots
-both modes' title/battle with SDL's dummy video/software renderer and runs the
-user's `--verify-prototype` harness (including preparation/passives, hitboxes,
-AP/tokens, autoplay and the complete forest room lifecycle).
+Ember's title and battle with SDL's dummy video/software renderer and checks
+that the removed forest prototype mode's switches exit with code 2.
 Tests use isolated checkpoint files, not the player's save.
 
 Content and balance live in `assets/data/dungeon.json`, `units.json`,

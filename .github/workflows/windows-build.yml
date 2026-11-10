@@ -49,7 +49,7 @@ jobs:
           cmake --build build/windows --config ${{ matrix.configuration }} --parallel
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Verify dungeon prototype
+      - name: Run tests
         shell: pwsh
         run: |
           ctest --test-dir build/windows -C ${{ matrix.configuration }} --output-on-failure

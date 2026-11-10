@@ -1431,8 +1431,8 @@ void FallbackBossStillAppends() {
     CHECK(events.front().id == fightId);  // an unmapped slot still reports generation.boss_unit
 }
 
-void ForestBattleNoAppend() {
-    // A forest-like registry (no FDungeonRun) must not append: AppendRunEvent would create a run log.
+void NoDungeonRunBattleNoAppend() {
+    // A registry without FDungeonRun must not append: AppendRunEvent would create a run log.
     entt::registry registry;
     registry.ctx().emplace<game::FTurnRuntime>();
     registry.ctx().emplace<game::FBattleOutcome>();
@@ -2139,7 +2139,7 @@ int main() {
         {"NoFrameOrderDependence", NoFrameOrderDependence},
         {"SinglePhaseBossUnchanged", SinglePhaseBossUnchanged},
         {"FallbackBossStillAppends", FallbackBossStillAppends},
-        {"ForestBattleNoAppend", ForestBattleNoAppend},
+        {"NoDungeonRunBattleNoAppend", NoDungeonRunBattleNoAppend},
         {"ContinuedRoomNoReAppend", ContinuedRoomNoReAppend},
         {"BossDefeatedAppendedOnce", BossDefeatedAppendedOnce},
         {"MidBossAppendsBeforeCamp", MidBossAppendsBeforeCamp},

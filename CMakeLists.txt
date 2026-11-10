@@ -91,26 +91,32 @@ if(BUILD_TESTING)
     set_tests_properties(ai_behavior PROPERTIES WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME dungeon_title_smoke COMMAND game01P --ember --smoke-test)
     add_test(NAME dungeon_battle_smoke COMMAND game01P --ember --smoke-test)
-    add_test(NAME forest_title_smoke COMMAND game01P --forest --smoke-test)
-    add_test(NAME forest_battle_smoke COMMAND game01P --forest --smoke-test)
-    add_test(NAME forest_prototype_checks COMMAND game01P --forest --verify-prototype)
-    set_tests_properties(dungeon_title_smoke dungeon_battle_smoke forest_title_smoke forest_battle_smoke forest_prototype_checks PROPERTIES
+    set_tests_properties(dungeon_title_smoke dungeon_battle_smoke PROPERTIES
         WORKING_DIRECTORY "$<TARGET_FILE_DIR:game01P>"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         TIMEOUT 30
         RUN_SERIAL TRUE
         FIXTURES_REQUIRED AssetStage)
-    # The prototype verifier runs ~26 s of scripted checks on a software renderer: give it headroom over the 30 s.
-    set_tests_properties(forest_prototype_checks PROPERTIES TIMEOUT 90)
     set_property(TEST dungeon_battle_smoke APPEND PROPERTY ENVIRONMENT "GAME01P_START=battle")
-    set_property(TEST forest_battle_smoke APPEND PROPERTY ENVIRONMENT "GAME01P_START=battle")
     # WP-00b: every test that boots the game exe writes its saves under the build tree, never the user's
     # %APPDATA%\Game01P\EmberDungeon. One directory per test keeps the runs independent.
-    set(SMOKE_TESTS dungeon_title_smoke dungeon_battle_smoke forest_title_smoke forest_battle_smoke forest_prototype_checks)
+    set(SMOKE_TESTS dungeon_title_smoke dungeon_battle_smoke)
     foreach(smoke_test IN LISTS SMOKE_TESTS)
         set_property(TEST ${smoke_test} APPEND PROPERTY ENVIRONMENT
             "GAME01P_SAVE_DIR=${CMAKE_BINARY_DIR}/test-saves/${smoke_test}")
     endforeach()
+    # WP-36: the removed forest prototype mode rejects its switches with exit code 2 before the engine starts, so
+    # these tests need no staged assets (no AssetStage fixture, default working directory). The dummy drivers and
+    # the save directory only matter while the old binary still boots (the red run).
+    add_test(NAME removed_forest_flag COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:game01P> -DARG=--forest
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_removed_flag.cmake")
+    add_test(NAME removed_verify_flag COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:game01P> -DARG=--verify-prototype
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_removed_flag.cmake")
+    add_test(NAME removed_mode_env COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:game01P> -DARG=--smoke-test
+        -DMODE_ENV=forest -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_removed_flag.cmake")
+    set_tests_properties(removed_forest_flag removed_verify_flag removed_mode_env PROPERTIES
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software;GAME01P_SAVE_DIR=${CMAKE_BINARY_DIR}/test-saves/removed_flags"
+        RUN_SERIAL TRUE)
     # B7: always run asset staging. A JSON-only change does not relink game01P, so the POST_BUILD copy below does not
     # run; without this fixture the smoke tests would read stale assets.
     add_test(NAME stage_assets COMMAND ${CMAKE_COMMAND} -E copy_directory

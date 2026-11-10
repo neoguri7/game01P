@@ -27,15 +27,11 @@
 #include "core/InputState.h"
 #include "core/SystemManager.h"
 #include "gameplay/dungeon/FDungeonRun.h"
-#include "gameplay/run/FPrototypeRun.h"
-#include "states/FBattleState.h"
 #include "states/FEmberBattleState.h"
 #include "states/FEmberHubState.h"
 #include "states/FEmberMenuRequest.h"
 #include "states/FEmberTitleState.h"
-#include "states/FHubState.h"
 #include "states/FStateCatalog.h"
-#include "states/FTitleState.h"
 #include "states/GameStateMachine.h"
 
 namespace {
@@ -177,7 +173,7 @@ struct FScopedEnvironmentVariable {
 // Tests
 // ------------------------------------------------------------------------------------------------
 
-/// Both shipped catalogs resolve every registered id and expose a contained start/debug-battle id.
+/// The shipped catalog resolves every registered id and exposes a contained start/debug-battle id.
 void CatalogResolvesEveryRegisteredId() {
     const auto check = [](game::FStateCatalog catalog, std::initializer_list<std::string_view> expected) {
         const auto ids = catalog.ids();
@@ -195,14 +191,10 @@ void CatalogResolvesEveryRegisteredId() {
 
     check(game::FStateCatalog::MakeEmber(), {"ember.title", "ember.hub", "ember.battle", "ember.prepare",
         "ember.runEnd", "ember.reward", "ember.event", "ember.camp", "ember.settings", "ember.compendium"});
-    check(game::FStateCatalog::MakeForest(), {"forest.title", "forest.hub", "forest.battle"});
 
     const auto ember = game::FStateCatalog::MakeEmber();
     CHECK(ember.startId() == "ember.title");
     CHECK(ember.debugBattleId() == "ember.battle");
-    const auto forest = game::FStateCatalog::MakeForest();
-    CHECK(forest.startId() == "forest.title");
-    CHECK(forest.debugBattleId() == "forest.battle");
 }
 
 /// A modal above the battle: the battle's render system draws once per frame with its update off,
@@ -413,9 +405,9 @@ void NoStateBeforeServices() {
 void StartStateCreatedOnce() {
     FScopedEnvironmentVariable start("GAME01P_START");
 
-    // Both shipped catalogs: the id selector is pure and the real engine boots on startId()/debugBattleId().
-    for (const bool ember : {true, false}) {
-        auto catalog = ember ? game::FStateCatalog::MakeEmber() : game::FStateCatalog::MakeForest();
+    // The shipped catalog: the id selector is pure and the real engine boots on startId()/debugBattleId().
+    {
+        auto catalog = game::FStateCatalog::MakeEmber();
         const std::string expectedStart(catalog.startId());
         const std::string expectedBattle(catalog.debugBattleId());
         CHECK(game::StartupStateId(catalog, false) == expectedStart);
@@ -574,61 +566,6 @@ void ShutdownUnwindsWholeStack() {
     CHECK(position("B.exit") < position("A.exit"));
 }
 
-/// forest: every reachable return point maps 1:1 to the WP-01 §4 table.
-void ForestMappingTable() {
-    // Rows deliberately NOT re-driven here (they are asserted elsewhere):
-    //  - FBattleState resolved / abandon / cancel -> hub: `--forest --verify-prototype`
-    //    ("battle result advances app flow") and PrototypeChecks' auto-combat path;
-    //  - FHubState proceed -> battle: PrototypeChecks "event continuation reaches next battle" and
-    //    "room flow enters next battle";
-    //  - the ImGui buttons (Prepare party, Start run, Title): immediate mode, not drivable headless.
-    const std::filesystem::path checkpoint = std::filesystem::path("out") / "state-machine-forest-checkpoint.json";
-    auto loaded = game_test::LoadTestRegistry(TestAssetRoots(), checkpoint.string());
-    CHECK(loaded.content);
-    auto& registry = loaded.registry;
-
-    auto run = game::FPrototypeRun::Load(registry.ctx().get<game::gameplay::FContentRegistry>());
-    CHECK(run.has_value());
-    CHECK(run->rooms.front().kind == game::EPrototypeRoom::Battle);
-    auto& runState = registry.ctx().emplace<game::FPrototypeRun>(std::move(*run));
-    game::FInputState::Initialize(registry);
-    auto& input = registry.ctx().get<game::FInputState>();
-
-    std::vector<FMappingRow> rows;
-
-    FTitleState title;
-    PressKey(registry, SDL_SCANCODE_RETURN);
-    rows.push_back({"FTitleState Confirm", "FTitleState::Update", title.Update(registry, 0.f),
-                    {EStateChangeKind::ReplaceTop, std::string(kForestHubId)}});
-    input.beginFrame();
-
-    // The prepared party starts a run whose first room is a battle, so the hub hands over without input.
-    CHECK(runState.Start(registry.ctx().get<game::gameplay::FContentRegistry>()));
-    CHECK(runState.CurrentRoom() != nullptr && runState.CurrentRoom()->kind == game::EPrototypeRoom::Battle);
-    FHubState hub;
-    hub.OnEnter(registry);
-    rows.push_back({"FHubState in a battle room", "FHubState::Update room", hub.Update(registry, 0.f),
-                    {EStateChangeKind::ReplaceTop, std::string(kForestBattleId)}});
-    input.beginFrame();
-
-    // Cancel leaves the battle room for the title and ends the run (behaviour unchanged).
-    PressKey(registry, SDL_SCANCODE_ESCAPE);
-    rows.push_back({"FHubState Cancel", "FHubState::Update back", hub.Update(registry, 0.f),
-                    {EStateChangeKind::ReplaceTop, std::string(kForestTitleId)}});
-    input.beginFrame();
-    CHECK(!runState.active);
-
-    // Update without OnEnter: the battle never became ready, so it bounces back to the hub.
-    FBattleState battle;
-    rows.push_back({"FBattleState not ready", "FBattleState::Update", battle.Update(registry, 0.f),
-                    {EStateChangeKind::ReplaceTop, std::string(kForestHubId)}});
-
-    for (const FMappingRow& row : rows) CheckRow(row.label, row.source, row.actual, row.expected);
-
-    std::error_code error;
-    std::filesystem::remove(checkpoint, error);
-}
-
 /// ember: every reachable return point maps 1:1 to the WP-01 §4 table.
 void EmberMappingTable() {
     // Rows deliberately NOT re-driven here (asserted by dungeon_rules / DungeonTests.cpp):
@@ -725,7 +662,6 @@ int main() {
         {"no state before services", NoStateBeforeServices},
         {"start state created once", StartStateCreatedOnce},
         {"shutdown unwinds the whole stack", ShutdownUnwindsWholeStack},
-        {"forest mapping table", ForestMappingTable},
         {"ember mapping table", EmberMappingTable},
         {"battle uniqueness under root", BattleUniquenessUnderRoot},
     });

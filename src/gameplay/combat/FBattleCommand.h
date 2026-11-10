@@ -12,7 +12,7 @@
 namespace game {
 
 /// Who issued a battle command (WP-06). Every SubmitBattleCommand caller states its side; a command that
-/// entered FActionQueue::pending through a direct push (forest, the pre-WP-12 HUD, tests that predate the
+/// entered FActionQueue::pending through a direct push (the pre-WP-12 HUD, tests that predate the
 /// API) has no provenance and is recorded as Unknown.
 enum class ECommandSource { Player, Ai, System, Test, Unknown };
 

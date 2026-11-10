@@ -14,7 +14,7 @@ namespace game {
 /// The catalog is the only owner of state ids. Engine and GameStateMachine pass ids through verbatim and
 /// never assemble them ("prefix + .battle" style); a state that needs a target id names it in its own header.
 ///
-/// Registration is explicit inside MakeEmber()/MakeForest(). No static self-registration: game01P_runtime is a
+/// Registration is explicit inside MakeEmber(). No static self-registration: game01P_runtime is a
 /// STATIC library, so the linker drops an unreferenced .obj and its initializer would silently disappear.
 class FStateCatalog {
 public:
@@ -37,12 +37,11 @@ public:
     /// Id of the state GAME01P_START=battle starts in. Engine uses it verbatim (no id assembly).
     [[nodiscard]] std::string_view debugBattleId() const noexcept { return debugBattleStateId; }
 
-    /// Set the two boot ids (normal start, GAME01P_START=battle). MakeEmber()/MakeForest() use it; a custom
+    /// Set the two boot ids (normal start, GAME01P_START=battle). MakeEmber() uses it; a custom
     /// catalog (tests, future modes) needs it to be bootable through the Engine.
     void setStartIds(std::string start, std::string debugBattle);
 
     static FStateCatalog MakeEmber();
-    static FStateCatalog MakeForest();
 
 private:
     struct FEntry {

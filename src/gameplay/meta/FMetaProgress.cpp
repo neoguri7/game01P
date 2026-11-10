@@ -719,7 +719,7 @@ bool InitializeMetaProgress(entt::registry& registry, std::string path, FMetaPre
 }
 
 void ShutdownMetaProgress(entt::registry& registry) {
-    // A no-op without an initialized store (the forest/verify shutdown paths). The wiring marker survives
+    // A no-op without an initialized store (a boot that failed before InitializeMetaProgress). The wiring marker survives
     // on purpose: a later InitializeMetaProgress does not register a second listener.
     registry.ctx().erase<FMetaProgressStore>();
 }

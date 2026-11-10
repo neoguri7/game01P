@@ -3,7 +3,6 @@
 #include "core/JsonLoader.h"
 #include "core/Logger.h"
 #include "debug/DebugOverlay.h"
-#include "debug/PrototypeChecks.h"
 #include "ecs/AnimationFunctions.h"
 #include "ecs/components/FPosition.h"
 #include "ecs/components/FSprite.h"
@@ -14,14 +13,12 @@
 #include "ecs/systems/BattleAnimationSystem.h"
 #include "ecs/systems/ActionResolverSystem.h"
 #include "ecs/systems/CollisionSystem.h"
-#include "ecs/systems/CombatHudSystem.h"
 #include "ecs/systems/EmberCombatHudSystem.h"
 #include "ecs/systems/EmberGridRenderSystem.h"
 #include "ecs/systems/CombatOutcomeSystem.h"
 #include "ecs/systems/DebugPrimitiveRenderSystem.h"
 #include "ecs/systems/FBattleFlowSystem.h"
 #include "ecs/systems/GridCameraSystem.h"
-#include "ecs/systems/GridRenderSystem.h"
 #include "ecs/systems/GridSelectSystem.h"
 #include "ecs/systems/MoveSystem.h"
 #include "ecs/systems/SpriteRenderSystem.h"
@@ -29,8 +26,6 @@
 #include "ecs/systems/TurnFlowSystem.h"
 #include "ecs/systems/TurnSystem.h"
 #include "gameplay/GameplayServices.h"
-#include "gameplay/FGameMode.h"
-#include "gameplay/run/FPrototypeRun.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/factory/FScene.h"
 #include "gameplay/dungeon/FDungeonRun.h"
@@ -43,6 +38,7 @@
 #include "presentation/FUiTheme.h"
 #include "states/FStateCatalog.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <charconv>
 #include <memory>
@@ -69,10 +65,8 @@ void RegisterSystems(game::SystemManager& systems)
     systems.addSystem<game::ecs::Stage0BattleSystem>();
     systems.addSystem<game::ecs::GridCameraSystem>();
     systems.addSystem<game::ecs::GridSelectSystem>();
-    systems.addSystem<game::ecs::GridRenderSystem>();
     systems.addSystem<game::ecs::EmberGridRenderSystem>();
     systems.addSystem<game::ecs::SpriteRenderSystem>();
-    systems.addSystem<game::ecs::CombatHudSystem>();
     systems.addSystem<game::ecs::EmberCombatHudSystem>();
 }
 
@@ -122,20 +116,23 @@ int main(int argc, char* argv[])
     std::uint32_t maxFrames = 0;
     std::string screenshotPath;
     std::string inputScriptPath;
-    game::EGameMode mode = game::EGameMode::Ember;
-    if (const char* value = SDL_getenv("GAME01P_MODE"); value && std::string_view(value) == "forest") {
-        mode = game::EGameMode::Forest;
+    // [WP-36] The removed forest prototype mode: its switches and GAME01P_MODE=forest exit with code 2 before the
+    // engine starts, so stale scripts surface instead of silently booting Ember.
+    if (const char* value = std::getenv("GAME01P_MODE"); value != nullptr && std::string_view(value) == "forest") {
+        std::fputs("forest mode was removed\n", stderr);
+        return 2;
     }
-    bool verifyPrototype = false;
     bool checkAnimation = false;
     int windowWidth = 1280;
-    int windowHeight = 0;  // follows the mode unless --window says otherwise
+    int windowHeight = 0;  // 0 = the default 800 unless --window says otherwise
     for (int index = 1; index < argc; ++index) {
         const std::string_view argument(argv[index]);
-        if (argument == "--ember") mode = game::EGameMode::Ember;
-        else if (argument == "--forest") mode = game::EGameMode::Forest;
-        else if (argument == "--verify-prototype") verifyPrototype = true;
-        else if (argument == "--check-animation") checkAnimation = true;
+        if (argument == "--ember") continue;  // Ember is the only mode; the switch stays accepted for old scripts.
+        if (argument == "--forest" || argument == "--verify-prototype") {
+            std::fputs("forest mode was removed\n", stderr);
+            return 2;
+        }
+        if (argument == "--check-animation") checkAnimation = true;
         else if (argument == "--smoke-test") {
             if (maxFrames == 0) maxFrames = 12;
         }
@@ -182,11 +179,10 @@ int main(int argc, char* argv[])
 
     game::Engine engine;
 
-    const bool ember = mode == game::EGameMode::Ember;
-    if (windowHeight == 0) windowHeight = ember ? 800 : 720;
-    // The catalog owns this mode's state ids and factories; the engine creates no state of its own.
-    engine.setStateCatalog(ember ? game::FStateCatalog::MakeEmber() : game::FStateCatalog::MakeForest());
-    if (!engine.initialize(ember ? "Ember Dungeon - Game01P" : "Game01P - Forest Prototype", windowWidth, windowHeight)) {
+    if (windowHeight == 0) windowHeight = 800;
+    // The catalog owns the state ids and factories; the engine creates no state of its own.
+    engine.setStateCatalog(game::FStateCatalog::MakeEmber());
+    if (!engine.initialize("Ember Dungeon - Game01P", windowWidth, windowHeight)) {
         return EXIT_FAILURE;
     }
     if (inputScriptCommands) {
@@ -206,14 +202,12 @@ int main(int argc, char* argv[])
             /*fixedTimestep=*/true);
     }
 
-    engine.getRegistry().ctx().emplace<game::FGameMode>(mode);
     game::FScene startupScene(engine.getRegistry(), "Stage0Startup");
     const auto shutdown = [&] {
-        engine.getRegistry().ctx().erase<game::FPrototypeRun>();
         startupScene.Unload();
         game::ShutdownTurnDemo(engine.getRegistry());
         game::ShutdownTurnRuntime(engine.getRegistry());
-        // [WP-20] no-op when meta was never initialized (forest/verify shutdown paths).
+        // [WP-20] no-op when meta was never initialized (a boot that failed before InitializeMetaProgress).
         game::ShutdownMetaProgress(engine.getRegistry());
         game::gameplay::FGameplayServices::Shutdown(engine.getRegistry());
         game::FAnimationLibrary::Shutdown(engine.getRegistry());
@@ -233,11 +227,11 @@ int main(int argc, char* argv[])
     engine.getSystemManager().addSystem<game::ecs::FBattleFlowSystem>();
     // [WP-11] intent system
     // [WP-15] boss goals
-    // [WP-20] meta save: the service initializes inside the ember block below (it needs InitializeDungeon's checkpoint;
+    // [WP-20] meta save: the service initializes in the boot block below (it needs InitializeDungeon's checkpoint;
     // the drawing block lives in FTitleMenuView).
     engine.getSystemManager().onAllSystemsRegistered(engine.getRegistry());
-    engine.setOverlayRenderer(ember ? game::RenderDungeonOverlay : game::RenderDebugOverlay);
-    if ((!ember || checkAnimation) && !LoadStage0Definitions(startupScene)) {
+    engine.setOverlayRenderer(game::RenderDungeonOverlay);
+    if (checkAnimation && !LoadStage0Definitions(startupScene)) {
         shutdown();
         return EXIT_FAILURE;
     }
@@ -252,55 +246,36 @@ int main(int argc, char* argv[])
         shutdown();
         return EXIT_FAILURE;
     }
-    const auto* content = engine.getRegistry().ctx().find<game::gameplay::FContentRegistry>();
-    auto run = content ? game::FPrototypeRun::Load(*content) : std::nullopt;
-    if (!run) {
-        LOG_ERROR("Prototype room/party definition is invalid; boot stopped.");
+    if (!game::InitializeDungeon(engine.getRegistry()) || !game::InitializeDungeonArt(engine.getRegistry()) ||
+        !game::InitializeForestScene(engine.getRegistry()) || !game::InitializeBattleAnim(engine.getRegistry()) ||
+        !game::ui::InitializeUiFrame(engine.getRegistry())) {
         shutdown();
         return EXIT_FAILURE;
     }
-    engine.getRegistry().ctx().emplace<game::FPrototypeRun>(std::move(*run));
-    if (verifyPrototype) {
-        const bool passed = game::RunPrototypeChecks(
-            *content, engine.getRegistry().ctx().get<game::ai::FAiLibrary>(),
-            engine.getRegistry().ctx().get<game::FPrototypeRun>());
+    // [WP-20] meta save: shipped-content fail-fast; resolves/loads/imports after the checkpoint exists.
+    if (!game::InitializeMetaProgress(engine.getRegistry())) {
         shutdown();
-        return passed ? EXIT_SUCCESS : EXIT_FAILURE;
+        return EXIT_FAILURE;
     }
-    if (ember) {
-        if (!game::InitializeDungeon(engine.getRegistry()) || !game::InitializeDungeonArt(engine.getRegistry()) ||
-            !game::InitializeForestScene(engine.getRegistry()) || !game::InitializeBattleAnim(engine.getRegistry()) ||
-            !game::ui::InitializeUiFrame(engine.getRegistry())) {
-            shutdown();
-            return EXIT_FAILURE;
-        }
-        // [WP-20] meta save: shipped-content fail-fast; resolves/loads/imports after the checkpoint exists.
-        if (!game::InitializeMetaProgress(engine.getRegistry())) {
-            shutdown();
-            return EXIT_FAILURE;
-        }
-        // [WP-21b] boot validation of the roster's skill pools — the prep screen's slot contract depends on
-        // it. The check lives here, not in InitializeMetaProgress: it validates SHIPPED content, while tests
-        // boot with the frozen fixture (3-skill pools) and call ValidateRosterContent directly when they
-        // mean to test the rule.
-        if (const auto problem = game::ValidateRosterContent(engine.getRegistry())) {
-            LOG_ERROR("Roster content is invalid: {}", *problem);
-            shutdown();
-            return EXIT_FAILURE;
-        }
-        // [WP-09h] boot validation of the unlock catalog's consumers — a kind=skill/rune row that reaches
-        // no content would sell a no-op (w9-hub critic F4). Same shipped-content grade as the roster check
-        // above; the frozen fixture world keeps its deliberately consumer-less rows because no test boots
-        // through this file — tests call ValidateUnlockTargets directly.
-        if (const auto problem = game::ValidateUnlockTargets(engine.getRegistry())) {
-            LOG_ERROR("Unlock content is invalid: {}", *problem);
-            shutdown();
-            return EXIT_FAILURE;
-        }
-        game::InitializeDungeonUi(engine.getRegistry());
-    } else {
-        game::ui::ApplyTheme();
+    // [WP-21b] boot validation of the roster's skill pools — the prep screen's slot contract depends on
+    // it. The check lives here, not in InitializeMetaProgress: it validates SHIPPED content, while tests
+    // boot with the frozen fixture (3-skill pools) and call ValidateRosterContent directly when they
+    // mean to test the rule.
+    if (const auto problem = game::ValidateRosterContent(engine.getRegistry())) {
+        LOG_ERROR("Roster content is invalid: {}", *problem);
+        shutdown();
+        return EXIT_FAILURE;
     }
+    // [WP-09h] boot validation of the unlock catalog's consumers — a kind=skill/rune row that reaches
+    // no content would sell a no-op (w9-hub critic F4). Same shipped-content grade as the roster check
+    // above; the frozen fixture world keeps its deliberately consumer-less rows because no test boots
+    // through this file — tests call ValidateUnlockTargets directly.
+    if (const auto problem = game::ValidateUnlockTargets(engine.getRegistry())) {
+        LOG_ERROR("Unlock content is invalid: {}", *problem);
+        shutdown();
+        return EXIT_FAILURE;
+    }
+    game::InitializeDungeonUi(engine.getRegistry());
 
     engine.applyStartupStateOverride();
 
@@ -308,46 +283,42 @@ int main(int argc, char* argv[])
     // call. Battles stay with GAME01P_AUTOPLAY=1. Unset env = zero behaviour change.
     std::shared_ptr<game::dev::FRunAutopilot> autopilot;
     if (const char* policyText = std::getenv(game::dev::kAutopilotEnv); policyText != nullptr && policyText[0] != '\0') {
-        if (!ember) {
-            SDL_Log("GAME01P_AUTOPILOT is ember-only; ignoring it in forest mode.");
-        } else {
-            const bool defaultPolicy = std::string_view(policyText) == "1" || std::string_view(policyText) == "default";
-            const std::string_view policyValue =
-                defaultPolicy ? game::dev::kDefaultAutopilotPolicy : std::string_view(policyText);
-            const auto policy = game::dev::ParseAutopilotPolicy(policyValue);
-            if (!policy) {
-                SDL_Log("GAME01P_AUTOPILOT: %s", policy.error().c_str());
+        const bool defaultPolicy = std::string_view(policyText) == "1" || std::string_view(policyText) == "default";
+        const std::string_view policyValue =
+            defaultPolicy ? game::dev::kDefaultAutopilotPolicy : std::string_view(policyText);
+        const auto policy = game::dev::ParseAutopilotPolicy(policyValue);
+        if (!policy) {
+            SDL_Log("GAME01P_AUTOPILOT: %s", policy.error().c_str());
+            shutdown();
+            return EXIT_FAILURE;
+        }
+        int maxRooms = 0;
+        if (const char* roomsText = std::getenv(game::dev::kAutopilotMaxRoomsEnv);
+            roomsText != nullptr && roomsText[0] != '\0') {
+            const std::string_view rooms(roomsText);
+            const auto roomsResult = std::from_chars(rooms.data(), rooms.data() + rooms.size(), maxRooms);
+            if (roomsResult.ec != std::errc{} || roomsResult.ptr != rooms.data() + rooms.size() || maxRooms < 1) {
+                SDL_Log("GAME01P_AUTOPILOT_MAX_ROOMS must be an integer >= 1.");
                 shutdown();
                 return EXIT_FAILURE;
             }
-            int maxRooms = 0;
-            if (const char* roomsText = std::getenv(game::dev::kAutopilotMaxRoomsEnv);
-                roomsText != nullptr && roomsText[0] != '\0') {
-                const std::string_view rooms(roomsText);
-                const auto roomsResult = std::from_chars(rooms.data(), rooms.data() + rooms.size(), maxRooms);
-                if (roomsResult.ec != std::errc{} || roomsResult.ptr != rooms.data() + rooms.size() || maxRooms < 1) {
-                    SDL_Log("GAME01P_AUTOPILOT_MAX_ROOMS must be an integer >= 1.");
-                    shutdown();
-                    return EXIT_FAILURE;
-                }
-            }
-            autopilot = std::make_shared<game::dev::FRunAutopilot>(*policy, maxRooms);
-            engine.setFrameDriver([autopilot](entt::registry& registry, std::string_view topStateId) {
-                switch (autopilot->tick(registry, topStateId)) {
-                case game::dev::EAutopilotStatus::Running:
-                    return game::EFrameDriverResult::Continue;
-                case game::dev::EAutopilotStatus::Finished:
-                    return game::EFrameDriverResult::Stop;
-                case game::dev::EAutopilotStatus::Stuck:
-                    return game::EFrameDriverResult::Fail;
-                }
+        }
+        autopilot = std::make_shared<game::dev::FRunAutopilot>(*policy, maxRooms);
+        engine.setFrameDriver([autopilot](entt::registry& registry, std::string_view topStateId) {
+            switch (autopilot->tick(registry, topStateId)) {
+            case game::dev::EAutopilotStatus::Running:
                 return game::EFrameDriverResult::Continue;
-            });
-            LOG_INFO("[autopilot] policy='{}' max_rooms={}", policyValue, maxRooms);
-            if (const char* autoplay = std::getenv("GAME01P_AUTOPLAY");
-                autoplay == nullptr || std::string_view(autoplay) != "1") {
-                LOG_WARN("[autopilot] GAME01P_AUTOPLAY is not 1: battles will wait for input");
+            case game::dev::EAutopilotStatus::Finished:
+                return game::EFrameDriverResult::Stop;
+            case game::dev::EAutopilotStatus::Stuck:
+                return game::EFrameDriverResult::Fail;
             }
+            return game::EFrameDriverResult::Continue;
+        });
+        LOG_INFO("[autopilot] policy='{}' max_rooms={}", policyValue, maxRooms);
+        if (const char* autoplay = std::getenv("GAME01P_AUTOPLAY");
+            autoplay == nullptr || std::string_view(autoplay) != "1") {
+            LOG_WARN("[autopilot] GAME01P_AUTOPLAY is not 1: battles will wait for input");
         }
     }
 

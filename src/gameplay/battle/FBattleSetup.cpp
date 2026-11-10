@@ -25,8 +25,8 @@
 namespace game {
 namespace {
 
-/// WP-22: the fallback loadout is capped to four skills — the HUD hotkeys, the 4-slot bar and the forest
-/// skill_slots are all 4 (W7 review, 4-slot hard limit). units.json `skills` is the authored POOL; the
+/// WP-22: the fallback loadout is capped to four skills — the HUD hotkeys and the 4-slot bar are both 4
+/// (W7 review, 4-slot hard limit). units.json `skills` is the authored POOL; the
 /// first four entries in pool order are the default loadout. The placement.skills override (prep screen,
 /// W5 test injections, captured run loadouts) is deliberately NOT capped here — it carries the run-scope
 /// loadout exactly as authored.
@@ -52,8 +52,8 @@ inline constexpr std::size_t kDefaultLoadoutSlots = 4;
 /// mapped bosses.json entry. Parts themselves are ordinary placements — the room document creates them, this
 /// block only links them (entities can never be added here).
 void AttachBossGoals(entt::registry& registry, const FBattlefieldData& battlefield) {
-    // Only a boss-slot dungeon battle has both the run and the marker; forest battles and validation probes
-    // (SetupCombatUnits on a throwaway registry) are a no-op.
+    // Only a boss-slot dungeon battle has both the run and the marker; battles without FDungeonRun and
+    // validation probes (SetupCombatUnits on a throwaway registry) are a no-op.
     if (!registry.ctx().contains<FDungeonRun>()) return;
     const auto* battle = registry.ctx().find<FBossBattle>();
     if (battle == nullptr) return;
@@ -158,8 +158,7 @@ bool SetupCombatUnits(
         const int maxHealth = static_cast<int>(unit->maxHealth);
         const FStats stats{unit->attack, unit->magicAttack, unit->defense, unit->magicDefense};
         // 불변 베이스(WP-03): 파생 갱신(RefreshCombatSheet)이 매번 여기서부터 재계산한다. 초기값은 아래
-        // FStats/FHealth/FSpeed와 동일 — 동작 불변. 여기서 갱신을 호출하지 않는다: forest는 인라인 패시브
-        // 가산(FBattleState.cpp)이 뒤에 오므로 순서가 겹치면 이중 가산이 된다.
+        // FStats/FHealth/FSpeed와 동일 — 동작 불변. 여기서는 갱신(RefreshCombatSheet)을 호출하지 않는다.
         registry.emplace<FBaseCombatStats>(
             placement.entity, FBaseCombatStats{stats, maxHealth, static_cast<int>(unit->speed)});
         registry.emplace<FStats>(placement.entity, stats);

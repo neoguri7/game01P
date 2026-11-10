@@ -39,7 +39,7 @@ using FMetaPrefDirProvider = std::function<std::optional<std::filesystem::path>(
 [[nodiscard]] bool InitializeMetaProgress(
     entt::registry& registry, std::string path = {}, FMetaPrefDirProvider prefPath = {});
 
-/// Erases the store. A no-op without one (the forest/verify shutdown paths). The listener registration
+/// Erases the store. A no-op without one (a boot that failed before InitializeMetaProgress). The listener registration
 /// marker deliberately survives: a re-initialize does not register a second listener (the registration
 /// rule is once per registry, Nystrom's lapsed-listener discipline).
 void ShutdownMetaProgress(entt::registry& registry);
@@ -133,7 +133,7 @@ struct FMetaUnlockRow {
 };
 
 /// [WP-21b] Public read-only view of the shipped catalogs. With a store: the store's catalog. Without one
-/// (meta never initialized — tests, forest): parsed from the FAssetManager documents `data/unlocks` /
+/// (meta never initialized — tests): parsed from the FAssetManager documents `data/unlocks` /
 /// `data/roster` when they exist, else empty. Never throws.
 [[nodiscard]] std::vector<FMetaUnlockRow> MetaUnlockCatalog(const entt::registry& registry);
 [[nodiscard]] std::optional<FMetaUnlockRow> FindMetaUnlockRow(const entt::registry& registry, std::string_view id);

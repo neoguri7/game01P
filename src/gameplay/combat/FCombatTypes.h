@@ -87,7 +87,7 @@ struct FBattleRng {
     }
 };
 
-/// Per-battle bookkeeping owned by the battle state (FBattleState creates and clears it with the rest of
+/// Per-battle bookkeeping owned by the battle state (FEmberBattleState creates and clears it with the rest of
 /// the battle-scoped context): the last turn serial an enemy action was scheduled for (player turns are
 /// scheduled by the HUD, so only auto actions need this guard). `autoPlay` is a debug switch (env
 /// `GAME01P_AUTOPLAY=1`): both sides fight automatically so the combat pipeline can be verified from the

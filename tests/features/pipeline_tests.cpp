@@ -49,7 +49,6 @@
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/grid/FGridTerrain.h"
 #include "gameplay/grid/FGridTypes.h"
-#include "gameplay/run/FPrototypeRun.h"
 
 namespace {
 
@@ -666,152 +665,6 @@ void PreviewLogsReason()
     CHECK(flooredFound);
 }
 
-// ---------------------------------------------------------------------------------------------
-// Forest (frozen mode): the inline passive add stays the only source of those bonuses
-// ---------------------------------------------------------------------------------------------
-
-/// 최소 forest 전장(패시브 가산 순서만 검증하면 되므로 1파티+1적).
-nlohmann::json ForestBattlefieldDocument()
-{
-    nlohmann::json document;
-    document["width"] = game::kGridWidth;
-    document["height"] = game::kGridHeight;
-    document["tile_size"] = 64;
-    document["origin_x"] = 0;
-    document["origin_y"] = 0;
-    document["terrain"] = nlohmann::json::array();
-    for (int y = 0; y < game::kGridHeight; ++y) {
-        document["terrain"].push_back(std::string(static_cast<std::size_t>(game::kGridWidth), '.'));
-    }
-    const nlohmann::json warrior{
-        {"id", "party.warrior"}, {"display_name", "Warrior"}, {"faction", "party"},
-        {"grid_x", 5}, {"grid_y", 6}, {"unit", "char.warrior"}};
-    const nlohmann::json imp{
-        {"id", "enemy.imp"}, {"display_name", "Imp"}, {"faction", "enemy"},
-        {"grid_x", 6}, {"grid_y", 6}, {"unit", "enemy.imp"}};
-    document["units"] = nlohmann::json::array({warrior, imp});
-    return document;
-}
-
-/// forest 경로 재현: FDungeonRun 없이 SetupCombatUnits → FBattleState.cpp:114-133 인라인 패시브 가산.
-struct FForestFixture {
-    entt::registry registry;
-    std::unique_ptr<game::FScene> scene;
-    game::FBattlefieldData battlefield;
-    std::filesystem::path checkpoint;
-
-    FForestFixture()
-    {
-        std::filesystem::create_directories("out");
-        checkpoint = std::filesystem::path("out") / ("pipeline-forest-checkpoint-" +
-            std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
-        game::FAssetManager::Initialize(registry, TestAssetRoots());
-        CHECK(game::gameplay::FGameplayServices::Initialize(registry));
-        CHECK(game::InitializeDungeon(registry, checkpoint.string()));
-        // InitializeDungeon은 런을 만들지 않는다 — forest 게이트(FDungeonRun 부재)를 그대로 재현한다.
-        CHECK(registry.ctx().find<game::FDungeonRun>() == nullptr);
-
-        scene = std::make_unique<game::FScene>(registry, "ForestPipelineTest");
-        scene->Load();
-        const auto created = game::FEntityFactory::CreateBattlefield(*scene, ForestBattlefieldDocument());
-        CHECK(created.has_value());
-        battlefield = *created;
-        registry.ctx().erase<game::FGridTerrain>();
-        registry.ctx().emplace<game::FGridTerrain>(battlefield.terrain);
-        if (auto* metrics = registry.ctx().find<game::FGridMetrics>()) {
-            *metrics = battlefield.metrics;
-        } else {
-            registry.ctx().emplace<game::FGridMetrics>(battlefield.metrics);
-        }
-        const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
-        CHECK(game::SetupCombatUnits(registry, battlefield, content));
-
-        // FPrototypeRun(forest): 활성 + 노드 할당 — 인라인 가산이 이 값을 쓴다.
-        auto& run = registry.ctx().emplace<game::FPrototypeRun>();
-        run.active = true;
-        run.tree = registry.ctx().get<game::FDungeonGrowth>().passiveTree;
-        run.party = {game::FPreparedMember{
-            .placementId = "party.warrior", .enabled = true,
-            .allocatedNodes = {"node.might", "node.vitality"}}};
-    }
-
-    ~FForestFixture()
-    {
-        scene.reset();
-        std::error_code error;
-        std::filesystem::remove(checkpoint, error);
-    }
-
-    /// FBattleState.cpp:114-133의 인라인 패시브 가산 재현(그 파일은 이 WP 비접점이라 테스트가 옮긴다).
-    void ApplyForestPassives()
-    {
-        auto& run = registry.ctx().get<game::FPrototypeRun>();
-        for (const game::FUnitPlacement& placement : battlefield.units) {
-            if (placement.faction != game::EUnitFaction::Party) continue;
-            const auto member = std::ranges::find_if(run.party, [&](const game::FPreparedMember& prepared) {
-                return prepared.placementId == placement.id && prepared.enabled;
-            });
-            if (member == run.party.end()) continue;
-            const game::FPassiveStatBonuses bonuses = run.PassiveBonuses(member->placementId);
-            auto& stats = registry.get<game::FStats>(placement.entity);
-            stats.attack += bonuses.attack;
-            stats.magicAttack += bonuses.magicAttack;
-            stats.defense += bonuses.defense;
-            stats.magicDefense += bonuses.magicDefense;
-            auto& health = registry.get<game::FHealth>(placement.entity);
-            health.max += bonuses.maxHealth;
-            health.current = health.max;
-            auto& speed = registry.get<game::FSpeed>(placement.entity);
-            speed.value += static_cast<std::int32_t>(bonuses.speed);
-        }
-    }
-};
-
-void ForestPathUnchanged()
-{
-    FForestFixture fixture;
-    auto& registry = fixture.registry;
-    const auto warrior = FindUnit(registry, "party.warrior");
-    CHECK(warrior != entt::null);
-    const game::FBaseCombatStats base = registry.get<game::FBaseCombatStats>(warrior);
-
-    // SetupCombatUnits는 시트 갱신을 호출하지 않는다(forest 순서: 인라인 가산 전에는 베이스 그대로).
-    CHECK(registry.get<game::FStats>(warrior).attack == base.stats.attack);
-    CHECK(registry.get<game::FHealth>(warrior).max == base.maxHealth);
-
-    fixture.ApplyForestPassives();
-
-    auto& run = registry.ctx().get<game::FPrototypeRun>();
-    const game::FPassiveStatBonuses bonuses = run.PassiveBonuses("party.warrior");
-    CHECK(bonuses.attack + bonuses.maxHealth > 0);  // 보너스가 없으면 테스트가 아무것도 증명하지 못한다
-    CHECK(registry.get<game::FStats>(warrior).attack == base.stats.attack + bonuses.attack);
-    CHECK(registry.get<game::FHealth>(warrior).max == base.maxHealth + bonuses.maxHealth);
-    CHECK(registry.get<game::FHealth>(warrior).current == registry.get<game::FHealth>(warrior).max);
-    CHECK(registry.get<game::FSpeed>(warrior).value == base.speed + bonuses.speed);
-}
-
-void ForestNoDoubleBonus()
-{
-    FForestFixture fixture;
-    auto& registry = fixture.registry;
-    const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
-    const auto warrior = FindUnit(registry, "party.warrior");
-    CHECK(warrior != entt::null);
-    const game::FBaseCombatStats base = registry.get<game::FBaseCombatStats>(warrior);
-
-    // 회귀 고정: 갱신이 FPrototypeRun 패시브를 읽기 시작하면(②의 FDungeonRun 게이트가 풀리면) 아래
-    // 인라인 가산과 겹쳐 보너스가 두 번 더해진다 — 그때 이 CHECK가 실패한다.
-    game::RefreshAllCombatSheets(registry, content);  // FDungeonRun 없음 → 베이스 재계산만
-    fixture.ApplyForestPassives();
-
-    auto& run = registry.ctx().get<game::FPrototypeRun>();
-    const game::FPassiveStatBonuses bonuses = run.PassiveBonuses("party.warrior");
-    CHECK(bonuses.attack + bonuses.maxHealth > 0);
-    CHECK(registry.get<game::FStats>(warrior).attack == base.stats.attack + bonuses.attack);
-    CHECK(registry.get<game::FHealth>(warrior).max == base.maxHealth + bonuses.maxHealth);
-    CHECK(registry.get<game::FSpeed>(warrior).value == base.speed + bonuses.speed);
-}
-
 } // namespace
 
 int main()
@@ -828,7 +681,5 @@ int main()
         {"attack modifier not double counted", AttackModifierNotDoubleCounted},
         {"preview equals resolution", PreviewEqualsResolution},
         {"preview logs reason", PreviewLogsReason},
-        {"forest path unchanged", ForestPathUnchanged},
-        {"forest no double bonus", ForestNoDoubleBonus},
     });
 }
