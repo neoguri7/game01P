@@ -36,3 +36,13 @@ Each line: source review · item · why it was deferred. A new WP picks items fr
 - `LoadRewards` rejects rarity weights above 1,000,000 (an overflow guard the spec did not ask for).
 - Simulation baselines from before WP-40 are not comparable (offers are tiered now).
 - Spec process: a fix that adds a feature must be added to `features.json` on main by the design session; an implementer edit trips the gate rule `spec-edit`.
+
+## From the WP-41 diff review (2026-11-11)
+- `FDungeonRewardView.cpp:168`: a rune picked from an offer opened by an event (or shown on the event screen) is not recorded for fit-on-the-spot; only the Reward phase records `pickedRuneId`. Decide whether the Event phase records it too and clears it on `ContinueEvent`.
+- `FDungeonRewardView.cpp:316`: the next-offer forecast line ignores a pending elite branch (a chance figure next to an option that promises a certain offer). Check at the playtest; hide it while a battle fork is pending if it confuses.
+- `FRewards.cpp:395-404`: the elite branch runs before the `offer.active` early return, so the log can say "withheld: too few legal candidates" when an offer was already open. Move the branch or reword the log.
+- `FRunSequence.cpp`: `elite.reward_materials` reuses `kMaxStartSupportValue` as its ceiling; give it its own constant.
+- No test pins "elite affix after cycle scale" at cycle ≥ 1 (F5 runs at cycle 0).
+- The event popup can now hold rune cards plus the fork panel: check its height at 1280x800 in the playtest (no no-scroll test exists for it, unlike the reward modal).
+- The autopilot's `fork=variant` policy exists but no simulation config uses it yet; elite and event numbers are untuned.
+- Spec process: shipped-content tests that drive events through the legacy one-step `ChooseEventRest` break when option 0 of a new event is gated or opens an offer; a WP that ships events should grep for `ChooseEventRest`/`ChooseEventLoot` callers first.
