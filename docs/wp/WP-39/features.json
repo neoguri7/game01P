@@ -34,7 +34,7 @@
     "docs/wp/WP-39/features.json"
   ],
   "allowTimeoutChange": false,
-  "allowCheckDrop": false,
+  "allowCheckDrop": [],
   "features": [
     {
       "id": "F1",
