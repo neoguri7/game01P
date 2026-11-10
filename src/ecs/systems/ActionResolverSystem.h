@@ -27,6 +27,7 @@
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FRunLog.h"
 #include "gameplay/grid/FGridQuery.h"
 #include "gameplay/grid/FGridTerrain.h"
 #include "ecs/components/FPosition.h"
@@ -284,6 +285,8 @@ private:
             FBattleEvent::FTarget reached{.unit = target.unit, .healthBefore = healthBefore ? healthBefore->current : 0,
                                           .hostile = !targetsOwnSide};
             bool died = false;
+            int dealt = target.damage;
+            bool crit = false;
 
             if (targetsOwnSide) {
                 // Zero-power support skills apply statuses without also becoming heals.
@@ -297,10 +300,18 @@ private:
                 }
             } else if (resolved->power > 0) {
                 // §1.1: 감소 항도 damage_type이 고른다(물리: 방어력, 마법: 마법방어력).
-                died = ApplyDamageToUnit(registry, target.unit, target.damage);
+                // WP-39: only a party hit that a crit can raise rolls, on the crit RNG (status rolls keep theirs).
+                dealt = target.damage;
+                if (target.critDamage > target.damage && combat != nullptr &&
+                    combat->critRng.rollChance(combat->critChancePercent)) {
+                    dealt = target.critDamage;
+                    crit = true;
+                    if (auto* roomStats = registry.ctx().find<FRoomBattleStats>()) ++roomStats->crits;
+                }
+                died = ApplyDamageToUnit(registry, target.unit, dealt);
                 if (log) {
                     std::string line = actorName + " / " + skillName + " -> " + targetName + " -"
-                        + std::to_string(target.damage) + " HP";
+                        + std::to_string(dealt) + " HP";
                     if (const auto* health = registry.try_get<FHealth>(target.unit)) {
                         line += " (" + std::to_string(health->current) + "/" + std::to_string(health->max) + ")";
                     }
@@ -310,6 +321,7 @@ private:
                         + " - def " + std::to_string(target.defense) + " = " + std::to_string(target.damage);
                     if (target.offense + target.power - target.defense < target.damage) line += " (min)";
                     line += "]";
+                    if (crit) line += " / CRIT";
                     if (died) line += " / KO";
                     log->push(std::move(line));
                     if (died) {
@@ -323,13 +335,13 @@ private:
                 // either side, so `died` is recomputed from IsAlive after the dispatch and the status
                 // application below is skipped for a target dead at that point. Trap and status-tick
                 // damage never reach this branch, so they can never fire these events.
-                const FHookContext hit{.owner = actor, .other = target.unit, .amount = target.damage,
+                const FHookContext hit{.owner = actor, .other = target.unit, .amount = dealt,
                                        .skillId = slot->skillId};
                 (void)FireHooks(registry, gameplay::EHookEvent::OnHit, hit);
                 const bool deadAfterHooks = !IsAlive(registry, target.unit);
                 const FHookContext reaction{.owner = deadAfterHooks ? actor : target.unit,
                                             .other = deadAfterHooks ? target.unit : actor,
-                                            .amount = target.damage, .skillId = slot->skillId};
+                                            .amount = dealt, .skillId = slot->skillId};
                 (void)FireHooks(registry,
                                 deadAfterHooks ? gameplay::EHookEvent::OnKill : gameplay::EHookEvent::OnDamageTaken,
                                 reaction);
@@ -342,6 +354,7 @@ private:
             }
 
             reached.died = died;
+            reached.crit = crit;
             const auto* healthAfter = registry.try_get<FHealth>(target.unit);
             reached.healthAfter = healthAfter ? healthAfter->current : reached.healthBefore;
             event.targets.push_back(reached);

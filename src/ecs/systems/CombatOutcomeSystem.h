@@ -136,6 +136,7 @@ private:
             stats->hpMin[id] = std::min(stats->hpMin[id], current);
             if (current <= 0) stats->ko = true;
         }
+        UpdateFirstContact(registry, *stats);
         auto* results = registry.ctx().find<FCommandResults>();
         if (results == nullptr || results->sessionId != stats->sessionId) return;
         std::uint64_t highest = stats->lastSeq;

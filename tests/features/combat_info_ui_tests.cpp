@@ -471,6 +471,32 @@ void PreviewMatchesPipeline() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// 3a. The preview badge carries the crit numbers (WP-39)
+// ---------------------------------------------------------------------------------------------
+
+void PreviewBadgeCarriesCrit() {
+    FCombatInfoBattle fixture;
+    OpenBattle(fixture);
+    const auto warrior = fixture.place(fixture.party("party.warrior"), {5, 5});
+    const auto imp = fixture.place(fixture.enemies()[0], {5, 4});
+    fixture.skills(warrior, {"skill.strike"});
+    fixture.skills(imp, {"skill.strike"});
+    fixture.frame(0.1f);
+    CHECK(fixture.snapshot().currentTurn->actor == warrior);
+
+    fixture.combat().critChancePercent = 15;
+    fixture.combat().selectedSkill = 0;
+    auto& selection = fixture.registry.ctx().get<game::FGridSelection>();
+    selection.hovered = fixture.registry.get<game::FGridPosition>(imp);
+
+    const FCombatInfoSnapshot info = BuildCombatInfoSnapshot(fixture.registry);
+    CHECK(info.preview.size() == 1);
+    CHECK(info.preview.front().damage > 0);
+    CHECK(info.preview.front().critDamage == 2 * info.preview.front().damage);
+    CHECK(info.preview.front().critChancePercent == 15);
+}
+
+// ---------------------------------------------------------------------------------------------
 // 3b. Move preview follows the HUD's move pool (no path the unit cannot walk)
 // ---------------------------------------------------------------------------------------------
 
@@ -889,6 +915,7 @@ int main() {
         {"LethalIntentsRankFirst", LethalIntentsRankFirst},
         {"OverlapCollapsesToBadge", OverlapCollapsesToBadge},
         {"PreviewMatchesPipeline", PreviewMatchesPipeline},
+        {"PreviewBadgeCarriesCrit", PreviewBadgeCarriesCrit},
         {"MovePreviewFollowsMoveAp", MovePreviewFollowsMoveAp},
         {"IntentNumbersRecalcPerFrame", IntentNumbersRecalcPerFrame},
         {"IntentNumberMatchesExecution", IntentNumberMatchesExecution},

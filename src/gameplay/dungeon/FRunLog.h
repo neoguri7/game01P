@@ -21,7 +21,8 @@ inline constexpr std::size_t kRunLogRetention = 200;
 
 /// Per-battle accumulation for one room (WP-19a). It lives in the gameplay layer (this header) so the
 /// frame-by-frame accumulation code, which needs the ECS battle context, can live in its system header
-/// without making gameplay depend on ecs/systems.
+/// without making gameplay depend on ecs/systems. The first-contact step (UpdateFirstContact) lives in
+/// gameplay too, so a test can call it without the system.
 ///
 /// Keys are the unit's `FUnitData.definition.id` — the same id `CaptureRunParty` matches against
 /// `FRunMember::id`. `hpStart` is snapshotted when a new battle session appears, `hpMin` is the frame
@@ -35,7 +36,15 @@ struct FRoomBattleStats {
     std::uint64_t lastSeq{0};
     std::uint64_t sessionId{0};
     bool active{false};
+    int crits{0};
+    int firstDamageRound{0};     // 0 = not yet
+    int firstAdjacentRound{0};   // 0 = not yet
+    std::string objectiveId;     // set by ResolveRoomVictory when an objective was evaluated
+    bool objectiveMet{false};
 };
+
+/// Sets firstAdjacentRound / firstDamageRound to max(1, stats.rounds) the first time each is true.
+void UpdateFirstContact(entt::registry& registry, FRoomBattleStats& stats);
 
 /// The one fatal enemy intent facts set the run-end screen may show (WP-19a E8). Facts only: what was
 /// declared at commit, what was expected at execution, and what actually happened. Written into

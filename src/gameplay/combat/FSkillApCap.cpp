@@ -50,7 +50,13 @@ std::optional<FTempoTuning> LoadTempoTuning(const FAssetManager& assets) {
         return tuning;
     }
     if (!ReadOptionalBalanceInt(*balance, "skill_ap_cap", 1, tuning.skillApCap) ||
-        !ReadOptionalBalanceInt(*balance, "push_collision_damage", 0, tuning.pushCollisionDamage)) {
+        !ReadOptionalBalanceInt(*balance, "push_collision_damage", 0, tuning.pushCollisionDamage) ||
+        !ReadOptionalBalanceInt(*balance, "crit_chance_percent", 0, tuning.critChancePercent) ||
+        !ReadOptionalBalanceInt(*balance, "crit_multiplier_percent", 100, tuning.critMultiplierPercent)) {
+        return std::nullopt;
+    }
+    if (tuning.critChancePercent > 100) {
+        LOG_ERROR("dungeon balance crit_chance_percent is {} — a chance is at most 100.", tuning.critChancePercent);
         return std::nullopt;
     }
     return tuning;

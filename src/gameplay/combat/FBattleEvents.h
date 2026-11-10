@@ -21,6 +21,7 @@ struct FBattleEvent {
         int healthAfter{0};
         bool hostile{false};  // hurt or afflicted, as opposed to healed or helped
         bool died{false};
+        bool crit{false};
     };
 
     EKind kind{EKind::Skill};

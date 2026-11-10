@@ -23,11 +23,14 @@ inline constexpr int kDefaultPushCollisionDamage = 1;
 struct FTempoTuning {
     int skillApCap{kDefaultSkillApCap};
     int pushCollisionDamage{kDefaultPushCollisionDamage};
+    int critChancePercent{0};
+    int critMultiplierPercent{200};
 };
 
-/// Reads `skill_ap_cap` and `push_collision_damage` from `data/dungeon` balance. A missing document or key
-/// keeps the defaults; nullopt + LOG_ERROR only when a PRESENT value is not an integer inside its bound
-/// (`skill_ap_cap >= 1`, `push_collision_damage >= 0`) — the callers stop the boot on that (R19).
+/// Reads `skill_ap_cap`, `push_collision_damage`, `crit_chance_percent` and `crit_multiplier_percent` from
+/// `data/dungeon` balance. A missing document or key keeps the defaults; nullopt + LOG_ERROR only when a
+/// PRESENT value is not an integer inside its bound (`skill_ap_cap >= 1`, `push_collision_damage >= 0`,
+/// `0 <= crit_chance_percent <= 100`, `crit_multiplier_percent >= 100`) — the callers stop the boot on that (R19).
 [[nodiscard]] std::optional<FTempoTuning> LoadTempoTuning(const FAssetManager& assets);
 
 /// D-1 gate, file-free half: `cap` must be at least 1 and every authored skill must cost at most it.

@@ -19,6 +19,7 @@
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/grid/FGridSelection.h"
 #include "gameplay/grid/FGridTypes.h"
+#include "gameplay/dungeon/FBattleObjective.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FRunFlow.h"
 #include "gameplay/dungeon/FRunSeed.h"
@@ -129,6 +130,7 @@ void FEmberBattleState::OnEnter(entt::registry& Registry)
     Registry.ctx().erase<game::FCombatLog>();
     Registry.ctx().emplace<game::FCombatLog>();
     Registry.ctx().erase<game::FCombatRuntime>();
+    Registry.ctx().erase<game::FBattleObjective>();
     Registry.ctx().emplace<game::FCombatRuntime>();
     Registry.ctx().get<game::FCombatRuntime>().rng.state =
         Registry.ctx().get<game::FDungeonRun>().seed + static_cast<std::uint32_t>(
@@ -151,6 +153,9 @@ void FEmberBattleState::OnEnter(entt::registry& Registry)
         outcome.victory = true;
         game::SettleUnitAnimations(Registry);
     }
+    // WP-39: crits and the seeded objective belong to a fought battle only (a room re-entered at its reward
+    // step has neither). GAME01P_STAKES=0 switches them off for the auto-play test harnesses.
+    if (!continuedAfterRoom && game::StakesEnabled()) game::ApplyBattleStakes(Registry);
     // WP-05a lifetime: every battle owns a fresh presentation watch (the flow system advances it) and a
     // fresh flow state; the previous battle's values must not leak into this one. `roomClearedOnEnter`
     // carries the saved-phase continue, `handoffDone` is the one handoff guard.
@@ -185,6 +190,7 @@ void FEmberBattleState::OnExit(entt::registry& Registry)
     Registry.ctx().erase<game::FBattleOutcome>();
     Registry.ctx().erase<game::FCombatLog>();
     Registry.ctx().erase<game::FCombatRuntime>();
+    Registry.ctx().erase<game::FBattleObjective>();
     Registry.ctx().erase<game::FGridSelection>();
     Registry.ctx().erase<game::FGridMetrics>();
     Registry.ctx().erase<game::FGridTerrain>();

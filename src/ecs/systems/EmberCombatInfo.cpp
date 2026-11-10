@@ -275,7 +275,8 @@ void BuildSkillPreview(entt::registry& registry, FCombatInfoSnapshot& snapshot) 
         if (cell == nullptr) {
             continue;
         }
-        snapshot.preview.push_back(FPreviewBadge{*cell, target.damage, target.heal, target.lethal});
+        snapshot.preview.push_back(FPreviewBadge{*cell, target.damage, target.heal, target.lethal, target.critDamage,
+                                                 preview->critChancePercent});
     }
 }
 

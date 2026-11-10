@@ -19,6 +19,11 @@
 #include "core/AssetManager.h"
 #include "core/EngineState.h"
 #include "core/Logger.h"
+#include "ecs/components/FFaction.h"
+#include "ecs/components/FGridPosition.h"
+#include "ecs/components/FHealth.h"
+#include "gameplay/combat/FCombatQuery.h"
+#include "gameplay/combat/FCombatRules.h"
 #include "gameplay/combat/FIntent.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FDungeonRun.h"
@@ -27,8 +32,35 @@
 #include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunLogSection.h"
 #include "gameplay/dungeon/FRunSequence.h"
+#include "gameplay/factory/FEntityDefinitions.h"
 
 namespace game {
+
+void UpdateFirstContact(entt::registry& registry, FRoomBattleStats& stats) {
+    const int round = std::max(1, stats.rounds);
+    bool adjacent = false;
+    bool damaged = false;
+    for (const auto& [id, start] : stats.hpStart) {
+        const auto minimum = stats.hpMin.find(id);
+        if (minimum != stats.hpMin.end() && minimum->second < start) damaged = true;
+    }
+    for (const entt::entity other : registry.view<FUnitData, FHealth>(entt::exclude<FPartyMember>)) {
+        const FHealth& health = registry.get<FHealth>(other);
+        if (health.current < health.max) damaged = true;
+    }
+    for (const entt::entity member : registry.view<FPartyMember, FUnitData, FHealth, FGridPosition>()) {
+        if (!IsAlive(registry, member)) continue;
+        const FGridPosition& cell = registry.get<FGridPosition>(member);
+        for (const entt::entity other : registry.view<FUnitData, FHealth, FGridPosition>(entt::exclude<FPartyMember>)) {
+            if (IsAlive(registry, other) && GridDistance(cell, registry.get<FGridPosition>(other)) == 1) {
+                adjacent = true;
+            }
+        }
+    }
+    if (adjacent && stats.firstAdjacentRound == 0) stats.firstAdjacentRound = round;
+    if (damaged && stats.firstDamageRound == 0) stats.firstDamageRound = round;
+}
+
 namespace {
 
 // ---------------------------------------------------------------------------------------------
@@ -241,6 +273,11 @@ nlohmann::json BuildRoomEnd(entt::registry& registry, const FRunEvent& event, co
     nlohmann::json skillsUsed = nlohmann::json::object();
     int rounds = 0;
     bool ko = false;
+    int crits = 0;
+    int firstDamageRound = 0;
+    int firstAdjacentRound = 0;
+    std::string objectiveId;
+    bool objectiveMet = false;
     // The battle identity, captured before the stats are consumed: the intent telemetry is battle-scoped,
     // so a room must never borrow the previous battle's numbers.
     std::uint64_t battleSession = 0;
@@ -248,6 +285,11 @@ nlohmann::json BuildRoomEnd(entt::registry& registry, const FRunEvent& event, co
         battleSession = stats->sessionId;
         rounds = stats->rounds;
         ko = stats->ko;
+        crits = stats->crits;
+        firstDamageRound = stats->firstDamageRound;
+        firstAdjacentRound = stats->firstAdjacentRound;
+        objectiveId = stats->objectiveId;
+        objectiveMet = stats->objectiveMet;
         for (const auto& [id, start] : stats->hpStart) {
             const auto minimum = stats->hpMin.find(id);
             const int lowest = minimum != stats->hpMin.end() ? minimum->second : start;
@@ -260,9 +302,18 @@ nlohmann::json BuildRoomEnd(entt::registry& registry, const FRunEvent& event, co
         stats->hpMin.clear();
         stats->skillsUsed.clear();
         stats->lastSeq = 0;
+        stats->crits = 0;
+        stats->firstDamageRound = 0;
+        stats->firstAdjacentRound = 0;
+        stats->objectiveId.clear();
+        stats->objectiveMet = false;
         stats->active = false;  // the session id stays: the same battle must not re-snapshot
     }
     line["rounds"] = rounds;
+    line["crits"] = crits;
+    line["first_damage_round"] = firstDamageRound;
+    line["first_adjacent_round"] = firstAdjacentRound;
+    if (!objectiveId.empty()) line["objective"] = {{"id", objectiveId}, {"met", objectiveMet}};
     line["hp_loss"] = std::move(hpLoss);
     line["skills_used"] = std::move(skillsUsed);
     nlohmann::json intents{{"committed", 0}, {"tileCommitted", 0}, {"unitCommitted", 0},

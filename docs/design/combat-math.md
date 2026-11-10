@@ -12,12 +12,13 @@
 2. 룬(태그·형태·강화·상태)
 3. 런 성장(노드 + 물질 스탯)
 4. 최종 수치
+5. 적용 시 굴림 (치명타) — 아군 스킬의 직접 피해에만, 대상별 1회. 최종 수치 × crit_multiplier_percent / 100, 보스 피해 상한은 그 뒤에 적용. 적은 굴리지 않는다. (WP-39)
 
 원문 근거: "순서를 숨기면 플레이어가 이중 변환을 시도하며 혼란을 겪는다 (Grim Dawn 트랜스뮤터 사례)." (§5)
 
 주의: 2번 항목의 "형태·강화"는 원문에서 §5 개편 3차로 폐기된 **룬 축(속성/형태/강화)**과 같은 단어다 (§5 "폐기(개편 3차): 룬 축(속성/형태/강화)"). 이 목록은 원문 문구를 그대로 옮긴 것이며, 현재 룬 모델이 어떤 태그를 쓰는지는 원문에서 확정되지 않았다.
 
-Owner per stage: TBD (filled by WPs that add modifiers)
+Owner per stage: 1–4 TBD (filled by WPs that add modifiers); 5 = ActionResolverSystem (roll), PreviewSkill (numbers).
 
 ## 2. 피해 공식 (§5, 잠정)
 

@@ -50,6 +50,8 @@ struct FPreviewBadge {
     int damage{0};
     int heal{0};
     bool lethal{false};
+    int critDamage{0};
+    int critChancePercent{0};
 };
 
 /// What one living party member is promised to take this round (same per-frame preview as the badges).

@@ -492,6 +492,8 @@ void TextScaleKeepsZones() {
         // reaches the next zone (turn order starts at x=480 on the 1280 canvas).
         const float seedLine = lineWidth("Collapsed barracks  /  seed 4294967295", 12.f * u) + 8.f * u;
         CHECK(layout.zones.title.x + seedLine < layout.zones.turnOrder.x);
+        const float objectiveLine = lineWidth("Unbroken +1: No ally goes down (lost)", 12.f * u) + 8.f * u;
+        CHECK(layout.zones.title.x + objectiveLine < layout.zones.turnOrder.x);
 
         // The onboarding strip is inside the arena and never covers a HUD zone, at both window shapes.
         CHECK(layout.arena.contains(layout.onboarding.strip));

@@ -104,6 +104,9 @@ struct FCombatRuntime {
     int autoActionsThisTurn{0};
     bool autoPlay{false};
     FBattleRng rng;
+    int critChancePercent{0};       // 0 = crits are off (the default for tests and probes)
+    int critMultiplierPercent{200};
+    FBattleRng critRng;             // crit rolls only, so status rolls keep their sequence
     float thinkDelay{0.f};
     int selectedSkill{0};
     bool moveSelected{false};

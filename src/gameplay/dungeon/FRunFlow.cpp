@@ -12,6 +12,7 @@
 #include <nlohmann/json.hpp>
 
 #include "core/Logger.h"
+#include "gameplay/dungeon/FBattleObjective.h"
 #include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FEventContent.h"
 #include "gameplay/dungeon/FEventEffects.h"
@@ -19,6 +20,7 @@
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRoomTypeRegistry.h"
 #include "gameplay/dungeon/FRunEventLog.h"
+#include "gameplay/dungeon/FRunLog.h"
 #include "gameplay/dungeon/FRunSequence.h"
 
 namespace game {
@@ -476,6 +478,24 @@ std::expected<FRunResult, std::string> ResolveRoomVictory(entt::registry& regist
     run->phase = EDungeonPhase::Reward;
     run->message = "Room secured. Each member gains " + std::to_string(experienceReward) + " EXP.";
     if (levelsGained > 0) run->message += " Level up: allocate a passive node.";
+    // WP-39: the battle objective, judged on the room stats the battle accumulated. Latched on the objective
+    // (for the HUD) and on the stats (for the room_end line the RoomCleared event writes below).
+    auto* objective = registry.ctx().find<FBattleObjective>();
+    auto* roomStats = registry.ctx().find<FRoomBattleStats>();
+    if (objective != nullptr && roomStats != nullptr && roomStats->active) {
+        const bool met = !IsBattleObjectiveFailed(objective->def, roomStats->rounds, roomStats->ko);
+        objective->settled = true;
+        objective->met = met;
+        roomStats->objectiveId = objective->def.id;
+        roomStats->objectiveMet = met;
+        if (met) {
+            run->materials += objective->def.rewardMaterials;
+            run->message += " Objective met: " + objective->def.displayName + " (+" +
+                            std::to_string(objective->def.rewardMaterials) + " material).";
+        } else {
+            run->message += " Objective missed: " + objective->def.displayName + ".";
+        }
+    }
     // WP-17: the rune is no longer granted here — the room only decides whether to open an offer (the reward
     // modal's pick/skip owns the grant). WP-08: a boss room is a sequence slot (`boss` mid/final), never a
     // room index. Before the save, so a continued run comes back with the same offer.

@@ -1262,6 +1262,33 @@ void GatedBodyPreviewZeroDamage() {
     CHECK(capped.blockedByGate);
 }
 
+// WP-39: the crit preview follows the boss gate cap. FMiniBattle(110, 50, 2, 20): hero attack 20 + strike
+// power 4 - body defense 5 = 19 base damage; the gate floor is 55, so the allowance is current - 55.
+void GatedBodyCritFollowsCap() {
+    FMiniBattle battle(110, 50, 2, 20);
+    battle.registry.ctx().get<game::FCombatRuntime>().critChancePercent = 15;
+    const auto resolved = game::ResolveSkillSlot(game::FSkillSlot{"skill.strike", {}}, battle.Content());
+    CHECK(resolved.has_value());
+    const auto bodyCell = battle.registry.get<game::FGridPosition>(battle.body);
+    const auto actorCell = battle.registry.get<game::FGridPosition>(battle.actor);
+    const int floor = game::BossPhaseFloor(110, 50);
+    const auto previewAt = [&](int hp) {
+        battle.SetBodyHp(hp);
+        const auto preview = game::PreviewSkill(battle.registry, battle.actor, *resolved, bodyCell, actorCell);
+        CHECK(preview.has_value() && preview->targets.size() == 1);
+        return preview->targets.front();
+    };
+    const auto roomy = previewAt(110);            // allowance 55 >= 2 * 19
+    CHECK(roomy.damage == 19);
+    CHECK(roomy.critDamage == 38);
+    const auto tight = previewAt(floor + 30);     // 19 < allowance 30 < 38
+    CHECK(tight.damage == 19);
+    CHECK(tight.critDamage == 30);
+    const auto shut = previewAt(floor);           // allowance 0 <= 19
+    CHECK(shut.damage == 0);
+    CHECK(shut.critDamage == 0);
+}
+
 void GatedHitLogsZero() {
     FMiniBattle battle(110, 50, 2);
     const int floor = game::BossPhaseFloor(110, 50);
@@ -2131,6 +2158,7 @@ int main() {
         {"TransitionLoggedOnce", TransitionLoggedOnce},
         {"PartsGateCapsBodyAtThreshold", PartsGateCapsBodyAtThreshold},
         {"GatedBodyPreviewZeroDamage", GatedBodyPreviewZeroDamage},
+        {"GatedBodyCritFollowsCap", GatedBodyCritFollowsCap},
         {"GatedHitLogsZero", GatedHitLogsZero},
         {"ContinuedBossRoomShowsAllDefeated", ContinuedBossRoomShowsAllDefeated},
         {"GateLiftsAfterPartsDie", GateLiftsAfterPartsDie},

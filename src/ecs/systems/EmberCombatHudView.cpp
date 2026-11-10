@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <string>
 #include <utility>
@@ -23,7 +24,9 @@
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/data/FStatusContent.h"
+#include "gameplay/dungeon/FBattleObjective.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FRunLog.h"
 #include "gameplay/grid/FGridQuery.h"
 #include "gameplay/grid/FGridTerrain.h"
 #include "presentation/FBattleAnim.h"
@@ -331,7 +334,31 @@ void TopBar(entt::registry& registry, const FUiLayout& layout, const FDungeonRun
     {
         ui::FBodyFont body(12.f * u);
         ImGui::SetCursorScreenPos({zones.title.x + 8.f * u, zones.title.y + 16.f * u});
-        ImGui::TextDisabled("%s  /  seed %u", run.roomName.c_str(), run.seed);
+        // WP-39: while the battle carries an objective the line shows it (room name and seed stay in the
+        // run log); without one it keeps the room name and seed.
+        const auto* objective = registry.ctx().find<FBattleObjective>();
+        if (objective == nullptr) {
+            ImGui::TextDisabled("%s  /  seed %u", run.roomName.c_str(), run.seed);
+        } else {
+            char line[96];
+            std::snprintf(line, sizeof line, "%s +%d: %s", objective->def.displayName.c_str(),
+                          objective->def.rewardMaterials, objective->def.text.c_str());
+            bool lost = objective->settled && !objective->met;
+            if (!objective->settled) {
+                if (const auto* stats = registry.ctx().find<FRoomBattleStats>(); stats != nullptr && stats->active) {
+                    lost = IsBattleObjectiveFailed(objective->def, stats->rounds, stats->ko);
+                }
+            }
+            if (objective->settled && objective->met) {
+                std::snprintf(line + std::strlen(line), sizeof line - std::strlen(line), " (met)");
+                ImGui::TextColored(pal::kGoldV, "%s", line);
+            } else if (lost) {
+                std::snprintf(line + std::strlen(line), sizeof line - std::strlen(line), " (lost)");
+                ImGui::TextDisabled("%s", line);
+            } else {
+                ImGui::TextColored(pal::kGoldV, "%s", line);
+            }
+        }
     }
 
     const FRect& order = zones.turnOrder;
@@ -876,9 +903,14 @@ void PreviewOverlays(entt::registry& registry, const FUiLayout& layout) {
     for (const FIntentBadge& badge : info->intents) ++intentStacks[{badge.cell.x, badge.cell.y}];
     for (const FPreviewBadge& badge : info->preview) {
         if (badge.damage <= 0 && badge.heal <= 0) continue;
-        char text[16];
-        if (badge.damage > 0) std::snprintf(text, sizeof text, "-%d", badge.damage);
-        else std::snprintf(text, sizeof text, "+%d", badge.heal);
+        char text[32];
+        if (badge.damage > 0 && badge.critDamage > 0) {
+            std::snprintf(text, sizeof text, "-%d  %d%% -%d", badge.damage, badge.critChancePercent, badge.critDamage);
+        } else if (badge.damage > 0) {
+            std::snprintf(text, sizeof text, "-%d", badge.damage);
+        } else {
+            std::snprintf(text, sizeof text, "+%d", badge.heal);
+        }
         const float width = LabelWidth(size, text);
         const glm::vec2 center = view->cellCenter(badge.cell.x, badge.cell.y);
         const auto stack = intentStacks.find({badge.cell.x, badge.cell.y});
@@ -919,27 +951,29 @@ void DamagePopOverlays(entt::registry& registry, const FUiLayout& layout) {
         const float life = std::max(pop.lifetime, 1e-3f);
         const float phase = std::clamp(pop.age / life, 0.f, 1.f);
         const glm::vec2 center = view->cellCenter(pop.at.x, pop.at.y);
-        char text[16];
-        std::snprintf(text, sizeof text, "-%d", pop.damage);
-        const float width = LabelWidth(size, text);
+        char text[24];
+        const float popSize = pop.crit ? size * 1.35f : size;
+        if (pop.crit) std::snprintf(text, sizeof text, "CRIT -%d", pop.damage);
+        else std::snprintf(text, sizeof text, "-%d", pop.damage);
+        const float width = LabelWidth(popSize, text);
         const int cellX = static_cast<int>(std::floor(pop.at.x));
         const int cellY = static_cast<int>(std::floor(pop.at.y));
         const auto stack = cellStacks.find({cellX, cellY});
         const int lift = ui::PlateLiftSteps(stack != cellStacks.end() ? stack->second : 0);
         const float bottom =
             PlateBottom(registry, *view, cellX, cellY) - lift * stackStep - kDamagePopRise * phase * view->scale;
-        const ImVec2 at{center.x - width * .5f, bottom - size};
+        const ImVec2 at{center.x - width * .5f, bottom - popSize};
         const auto alpha = static_cast<int>(255.f * (1.f - phase * phase));
         const float pad = kIntentPlatePad * u;
         draw->ChannelsSetCurrent(kBoardPlateChannel);
-        DrawPlateBehindText(draw, at, width, size, pad, 3.f * u, WithAlpha(kIntentBack, alpha));
-        ui::DrawPlateOutline(draw, {at.x - pad, at.y - pad}, {at.x + width + pad, at.y + size + pad}, 3.f * u,
+        DrawPlateBehindText(draw, at, width, popSize, pad, 3.f * u, WithAlpha(kIntentBack, alpha));
+        ui::DrawPlateOutline(draw, {at.x - pad, at.y - pad}, {at.x + width + pad, at.y + popSize + pad}, 3.f * u,
                              WithAlpha(pal::kBronze, alpha));
         draw->ChannelsSetCurrent(kBoardCaretChannel);
         ui::DrawPlateCaret(draw, {center.x, bottom}, CellAnchor(registry, *view, cellX, cellY), u,
                            WithAlpha(kDamagePopText, alpha));
         draw->ChannelsSetCurrent(kBoardPlateChannel);
-        Label(draw, at, size, WithAlpha(kDamagePopText, alpha), text);
+        Label(draw, at, popSize, WithAlpha(kDamagePopText, alpha), text);
     }
 }
 

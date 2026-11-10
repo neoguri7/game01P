@@ -50,12 +50,14 @@ struct FPreviewTarget {
     /// WP-15: the boss gate reduced this hit (BossBodyDamageCap) — a display hook for WP-12; the numbers
     /// above are already the capped ones.
     bool blockedByGate{false};
+    int critDamage{0};  // 0 = a crit cannot raise this hit
 };
 
 struct FSkillPreview {
     int apCost{1};
     std::vector<FGridPosition> cells;
     std::vector<FPreviewTarget> targets;
+    int critChancePercent{0};
 };
 
 /// 프리뷰 = 실제 계산(WP-03): 리졸버와 같은 경로(갱신된 컴포넌트 + ComputeSkillDamage/Heal + 같은 대상

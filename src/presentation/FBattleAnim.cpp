@@ -168,9 +168,10 @@ void React(entt::registry& registry, float delay, const FBattleEvent::FTarget& t
         if (target.healthBefore > target.healthAfter && !CurrentSettings(r).skipAnimations) {
             if (auto* effects = r.ctx().find<FBattleEffects>(); effects != nullptr) {
                 if (const auto* cell = r.try_get<FGridPosition>(target.unit); cell != nullptr) {
-                    effects->pops.push_back(FDamagePop{
-                        glm::vec2{static_cast<float>(cell->x), static_cast<float>(cell->y)},
-                        target.healthBefore - target.healthAfter, 0.f});
+                    FDamagePop pop{glm::vec2{static_cast<float>(cell->x), static_cast<float>(cell->y)},
+                                   target.healthBefore - target.healthAfter, 0.f};
+                    pop.crit = target.crit;
+                    effects->pops.push_back(pop);
                 }
             }
         }

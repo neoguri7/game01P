@@ -105,6 +105,7 @@ struct FDamagePop {
     int damage{0};
     float age{0.f};
     float lifetime{.8f};
+    bool crit{false};
 };
 
 struct FBattleEffects {

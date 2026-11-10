@@ -12,6 +12,8 @@
 #include "ecs/components/FSpeed.h"
 #include "ecs/components/FStats.h"
 #include "gameplay/combat/FCombatQuery.h"
+#include "gameplay/combat/FCombatRules.h"
+#include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FRunSequence.h"
@@ -184,6 +186,17 @@ std::optional<FSkillPreview> PreviewSkill(
             entry.damage = capped;
             entry.healthAfter = std::max(0, current - entry.damage);
             entry.lethal = entry.healthAfter == 0;
+            // WP-39: a party hit may crit; the number is the boss-capped doubled damage, shown only when it
+            // raises the hit. The preview rolls nothing (the resolver owns the roll).
+            if (casterIsParty && terms.damage > 0) {
+                if (const auto* runtime = registry.ctx().find<FCombatRuntime>();
+                    runtime != nullptr && runtime->critChancePercent > 0) {
+                    const int crit = BossBodyDamageCap(
+                        registry, target, ComputeCritDamage(terms.damage, runtime->critMultiplierPercent));
+                    entry.critDamage = crit > entry.damage ? crit : 0;
+                    preview.critChancePercent = runtime->critChancePercent;
+                }
+            }
         }
 
         // 부여 목록: 리졸버가 실제로 적용하는 것과 같다 — 정의가 있는 상태만, lethal이면 없음. WP-15b: 면역

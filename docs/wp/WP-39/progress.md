@@ -1,0 +1,5 @@
+- T1 tests added (red: 13 cases fail as expected: F2 F3 F5 F6 F7 F8 F9 F10 F11 F13 F14 F15 F16; F1 F4 F12 and all pre-existing pass): build OK
+- T2 crit rules (ComputeCritDamage, tuning, PreviewSkill, resolver roll, crits stat, balance keys): build OK, F1-F7 pass
+- T3 objectives (loader, pick, failure rule, dungeon.json, ResolveRoomVictory, room_end objective + stakes keys): build OK, F8-F12 and F14 pass
+- T4 first contact (UpdateFirstContact, AccumulateRoomStats call): build OK, F13 pass
+- T5 stakes wiring, test switch, badge/plate/pop/top bar, combat-math: build OK, all tests pass

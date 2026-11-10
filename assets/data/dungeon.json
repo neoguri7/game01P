@@ -15,8 +15,14 @@
     "enemy_health_per_depth": 5,
     "enemy_attack_per_depth": 1,
     "skill_ap_cap": 2,
-    "push_collision_damage": 1
+    "push_collision_damage": 1,
+    "crit_chance_percent": 15,
+    "crit_multiplier_percent": 200
   },
+  "battle_objectives": [
+    {"id": "objective.unbroken", "display_name": "Unbroken", "text": "No ally goes down", "kind": "no_ally_down", "reward_materials": 1},
+    {"id": "objective.swift", "display_name": "Swift", "text": "Win by round 5", "kind": "win_by_round", "rounds": 5, "reward_materials": 1}
+  ],
   "camp": {
     "actions_per_camp": 0,
     "upgrade_cost_steps": [1, 2, 4, 7, 11],

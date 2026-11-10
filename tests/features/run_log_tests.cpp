@@ -301,6 +301,23 @@ void ContinuedAppendsSameFile() {
     }
 }
 
+void RoomEndCarriesStakes() {
+    FBoot boot(UniqueDir("run-log-stakes"));
+    auto& registry = boot.registry;
+    game::StartRun(registry, kSeed, true);
+    CHECK(!game::BuildDungeonBattlefield(registry).empty());
+    registry.ctx().insert_or_assign(game::FRoomBattleStats{.rounds = 4, .active = true, .crits = 2, .firstDamageRound = 3});
+    CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    const auto ends = EventsOfType(boot.log(), "room_end");
+    CHECK(ends.size() == 1);
+    for (const char* key : {"crits", "first_damage_round", "first_adjacent_round"}) {
+        CHECK(ends.front().contains(key));
+        CHECK(ends.front()[key].is_number_integer());
+    }
+    CHECK(ends.front()["crits"] == 2);
+    CHECK(ends.front()["first_damage_round"] == 3);
+}
+
 void SchemaKeysPerType() {
     const std::map<std::string, std::vector<std::string>> required = {
         {"log_session", {"t", "schema_version", "log_id", "log_started_at"}},
@@ -897,6 +914,7 @@ int main() {
         {"AppendFailureDisablesFileOnly", AppendFailureDisablesFileOnly},
         {"ContinuedAppendsSameFile", ContinuedAppendsSameFile},
         {"SchemaKeysPerType", SchemaKeysPerType},
+        {"RoomEndCarriesStakes", RoomEndCarriesStakes},
         {"ReportSummarize", ReportSummarize},
         {"OfferCampEventLogged", OfferCampEventLogged},
         {"RoundsCountedAcrossTurns", RoundsCountedAcrossTurns},

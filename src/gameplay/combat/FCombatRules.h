@@ -11,6 +11,9 @@ inline constexpr int kMinimumDamage = 1;
 
 [[nodiscard]] int ComputeDamage(int offense, int power, int defense);
 
+/// Crit damage of a hit that deals `damage`: integer floor of damage * multiplierPercent / 100.
+[[nodiscard]] int ComputeCritDamage(int damage, int multiplierPercent);
+
 /// Grid distance used by range checks: Manhattan (칸 단위, design §4 그리드 = 12x12).
 [[nodiscard]] int GridDistance(const FGridPosition& from, const FGridPosition& to);
 
