@@ -1,0 +1,33 @@
+{
+  "wp": "WP-35",
+  "allowTimeoutChange": false,
+  "files": [
+    "CMakeLists.txt",
+    "CMakePresets.json",
+    ".claude/scripts/build.mjs",
+    ".claude/scripts/lib/locks.mjs",
+    ".claude/scripts/lib/evidence.mjs",
+    ".claude/scripts/lib/runner.mjs",
+    ".claude/scripts/wp-gate.mjs",
+    ".claude/scripts/wp-merge.mjs",
+    ".claude/scripts/test/presets.test.mjs",
+    ".claude/scripts/test/build.test.mjs",
+    ".claude/scripts/test/gate.test.mjs",
+    ".claude/scripts/test/merge.test.mjs"
+  ],
+  "features": [
+    {"id": "F1", "behavior": "agent preset cache: Embedded debug info, Tracy OFF, hashed shared VCPKG_INSTALLED_DIR", "test": "node:.claude/scripts/test/presets.test.mjs::AgentPresetCache", "passes": false},
+    {"id": "F2", "behavior": "default presets keep EditAndContinue (text assertions)", "test": "node:.claude/scripts/test/presets.test.mjs::DefaultPresetKeepsFormat", "passes": false},
+    {"id": "F3", "behavior": "smoke env uses SDL3 driver variable names", "test": "node:.claude/scripts/test/presets.test.mjs::SmokeEnvUsesSdl3Names", "passes": false},
+    {"id": "F4", "behavior": "runBuild filters output and writes evidence.json", "test": "node:.claude/scripts/test/build.test.mjs::FiltersAndEvidence", "passes": false},
+    {"id": "F5", "behavior": "locks poll, time out, and take over dead owners", "test": "node:.claude/scripts/test/build.test.mjs::Locks", "passes": false},
+    {"id": "F6", "behavior": "reconfigure when cache missing or feature-test set changed", "test": "node:.claude/scripts/test/build.test.mjs::ReconfigureOnFeatureSetChange", "passes": false},
+    {"id": "F7", "behavior": "retry the build once on MSB3073/MSB3075", "test": "node:.claude/scripts/test/build.test.mjs::RetryTransientLock", "passes": false},
+    {"id": "F8", "behavior": "wp-gate reports each rule violation", "test": "node:.claude/scripts/test/gate.test.mjs::Rejections", "passes": false},
+    {"id": "F9", "behavior": "wp-gate derives passes from evidence and node tests", "test": "node:.claude/scripts/test/gate.test.mjs::DerivesPasses", "passes": false},
+    {"id": "F10", "behavior": "wp-gate overlap check between two WPs on main", "test": "node:.claude/scripts/test/gate.test.mjs::Overlap", "passes": false},
+    {"id": "F11", "behavior": "wp-merge refuses unsafe merges without side effects", "test": "node:.claude/scripts/test/merge.test.mjs::Refusals", "passes": false},
+    {"id": "F12", "behavior": "wp-merge squash-merges, builds, commits, cleans up", "test": "node:.claude/scripts/test/merge.test.mjs::SquashBuildCommit", "passes": false},
+    {"id": "F13", "behavior": "wp-merge rolls back on conflict or red build", "test": "node:.claude/scripts/test/merge.test.mjs::RollbackOnRedBuild", "passes": false}
+  ]
+}

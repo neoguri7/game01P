@@ -14,10 +14,10 @@ Size: S | L · Player-facing: yes | no · Certainty: settled | uncertain · Base
 
 ## 3. Behaviors [S]
 One row per observable behavior. EARS form: `WHEN <trigger> [IF <condition>] THEN <system> SHALL <response>`.
-| ID | Behavior | Proving test (`suite::Name`, file) |
+| ID | Behavior | Proving test |
 |---|---|---|
-| F1 | WHEN … THEN … SHALL … | `camp_tests::…` in `tests/features/camp_tests.cpp` |
-The same IDs go into `features.json`; the gate script, not the implementer, sets `passes`.
+| F1 | WHEN … THEN … SHALL … | `camp_tests::CaseName` |
+Proving-test grammar: `<ctest test name>::<Case>` (a C++ feature-test case registered as `{"<Case>", …}` in `tests/features/<ctest test name>.cpp`), `ctest::<ctest test name>` (a whole ctest entry), or `node:<file>::<test name>` (a `node:test` test). The same IDs go into `features.json` (`{"wp", "files", "allowTimeoutChange", "allowCheckDrop", "features": [{"id", "behavior", "test", "passes": false}]}`); the gate script, not the implementer, derives `passes`.
 
 ## 4. Numbers
 Every gameplay value this WP introduces: name, value, unit, data file + JSON path. Mark balance-tunable values `knob: [min, max]` and name the balance metric each knob moves. New modifiers name their stage in `docs/design/combat-math.md`.

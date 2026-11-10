@@ -22,7 +22,7 @@ Spend tokens where they buy quality. Opus designs and reviews; Sonnet 5.5 implem
 1. **Design** (Opus, main session): `/wp-spec <WP-id> <goal>` → `docs/wp/<id>/spec.md` + `features.json`, gated by `spec-critic` plus EGM goldfish reviewers sized to the WP; the spec is committed to main before implementation.
 2. **Implement** (Sonnet 5.5): the `implementer` agent, launched in the background, in its own worktree. WPs with disjoint file maps may run in parallel. `BLOCKED:` questions come back to the design session.
 3. **Gate + review**: `.claude/scripts/wp-gate.mjs` checks scope, test integrity and evidence deterministically; then the `diff-reviewer` agent (Opus) reviews the diff against the spec. Must-fix items go back to the same implementer (SendMessage).
-4. **Merge**: `node .claude/scripts/wp-merge.mjs <id> --reviewed <sha>` — squash-merges `wp/<id>` into main as `WP-<id>: <imperative>`, re-runs build + ctest on main, removes the worktree. Push only when the user asks.
+4. **Merge**: `node .claude/scripts/wp-merge.mjs <id> --reviewed <sha>` — squash-merges `wp/<id>` into main with the spec H1 as the commit message (e.g. `WP-35: Agent build tooling …`), re-runs build + ctest on main, removes the worktree. Push only when the user asks.
 Delegated work runs as background agents launched from the main session.
 
 ## Build and test (Windows, PowerShell 7)
