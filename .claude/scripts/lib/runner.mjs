@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { acquireLock, LockTimeout } from './locks.mjs';
@@ -29,7 +30,18 @@ export async function runBuild({
   run,
   lockRoot = path.join(process.env.LOCALAPPDATA ?? path.join(cwd, 'out'), 'game01P'),
   lockTimeoutMs = 1800000,
+  priority = 'below-normal',
+  setPriority = os.setPriority,
+  cpuCount = os.availableParallelism(),
 }) {
+  if (priority !== 'normal') {
+    try {
+      setPriority(0, os.constants.priority.PRIORITY_BELOW_NORMAL);
+    } catch {}
+  }
+  const toolOpts = {
+    env: { MSBUILDDISABLENODEREUSE: '1', VCPKG_MAX_CONCURRENCY: String(Math.max(1, Math.floor(cpuCount / 4))) },
+  };
   const evidence = {
     sha: '',
     dirty: false,
@@ -82,7 +94,7 @@ export async function runBuild({
       const releaseConfigure = await acquireLock(path.join(lockRoot, 'configure.lock'), lockOpts);
       let res;
       try {
-        res = await run('cmake', ['--preset', preset, `-DVCPKG_INSTALLED_DIR=${vcpkgDir}`]);
+        res = await run('cmake', ['--preset', preset, `-DVCPKG_INSTALLED_DIR=${vcpkgDir}`], toolOpts);
       } finally {
         releaseConfigure();
       }
@@ -99,9 +111,9 @@ export async function runBuild({
 
     // --- build (F7: one retry on transient DLL-copy lock)
     if (exitCode === 0) {
-      const buildArgs = ['--build', '--preset', preset, '--parallel'];
-      let res = await run('cmake', buildArgs);
-      if (res.code !== 0 && /MSB3073|MSB3075/.test(res.output)) res = await run('cmake', buildArgs);
+      const buildArgs = ['--build', '--preset', preset, '--parallel', String(Math.max(1, cpuCount - 2))];
+      let res = await run('cmake', buildArgs, toolOpts);
+      if (res.code !== 0 && /MSB3073|MSB3075/.test(res.output)) res = await run('cmake', buildArgs, toolOpts);
       if (res.code !== 0) {
         exitCode = 2;
         const errs = filterBuildOutput(res.output);
@@ -127,7 +139,7 @@ export async function runBuild({
       const releaseCtest = await acquireLock(path.join(lockRoot, 'ctest.lock'), lockOpts);
       let res;
       try {
-        res = await run('ctest', args);
+        res = await run('ctest', args, toolOpts);
       } finally {
         releaseCtest();
       }

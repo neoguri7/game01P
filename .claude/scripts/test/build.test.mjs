@@ -271,3 +271,94 @@ test("LockTimeoutExitsFour", async () => {
     rel2();
   }
 });
+
+function makeConfiguredRepo() {
+  const cwd = makeRepo();
+  const lockRoot = tmp('wp37-lock-');
+  cacheWrite(cwd, 'windows-msvc-agent', vcpkgDir(cwd, lockRoot));
+  fs.writeFileSync(path.join(cwd, 'out', 'build', 'windows-msvc-agent', 'feature-set.json'), JSON.stringify(['a_tests.cpp']));
+  return { cwd, lockRoot };
+}
+function recRun(calls, build) {
+  return async (cmd, args, opts) => {
+    calls.push({ cmd, args, opts });
+    if (cmd === 'git') return { code: 0, output: args[0] === 'rev-parse' ? 'abc\n' : '' };
+    if (cmd === 'cmake' && args[0] === '--build') return build ? build() : { code: 0, output: 'ok' };
+    if (cmd === 'ctest') {
+      const i = args.indexOf('--output-junit');
+      fs.mkdirSync(path.dirname(args[i + 1]), { recursive: true });
+      fs.writeFileSync(args[i + 1], JUNIT.replace(/<failure[^>]*\/>/, '').replace(/<testcase name="gamma[^>]*\/>/, ''));
+      return { code: 0, output: '' };
+    }
+    return { code: 0, output: '' };
+  };
+}
+
+test('LowPriorityAndCappedParallelism', async () => {
+  const env16 = { MSBUILDDISABLENODEREUSE: '1', VCPKG_MAX_CONCURRENCY: '4' };
+  const { cwd, lockRoot } = makeConfiguredRepo();
+  const events = [];
+  const calls = [];
+  const run = recRun(calls);
+  const r = await runBuild({
+    cwd, lockRoot, cpuCount: 16,
+    run: (...a) => { events.push('run'); return run(...a); },
+    setPriority: (...a) => events.push(['sp', ...a]),
+  });
+  assert.equal(r.exitCode, 0);
+  assert.deepEqual(events[0], ['sp', 0, os.constants.priority.PRIORITY_BELOW_NORMAL]);
+  assert.equal(events.filter((e) => Array.isArray(e)).length, 1);
+  const builds = calls.filter((c) => c.cmd === 'cmake' && c.args[0] === '--build');
+  assert.equal(builds.length, 1);
+  assert.deepEqual(builds[0].args.slice(-2), ['--parallel', '14']);
+  for (const c of calls) {
+    if (c.cmd === 'git') assert.equal(c.opts, undefined);
+    else assert.deepEqual(c.opts, { env: env16 });
+  }
+  assert.ok(calls.some((c) => c.cmd === 'ctest'));
+
+  // retry path
+  const o2 = makeConfiguredRepo();
+  const calls2 = [];
+  let n = 0;
+  await runBuild({
+    cwd: o2.cwd, lockRoot: o2.lockRoot, cpuCount: 16, noTest: true, setPriority: () => {},
+    run: recRun(calls2, () => (++n === 1 ? { code: 1, output: 'error MSB3073: x' } : { code: 0, output: 'ok' })),
+  });
+  const b2 = calls2.filter((c) => c.cmd === 'cmake' && c.args[0] === '--build');
+  assert.equal(b2.length, 2);
+  for (const c of b2) {
+    assert.deepEqual(c.args.slice(-2), ['--parallel', '14']);
+    assert.deepEqual(c.opts, { env: env16 });
+  }
+
+  // normal priority / throwing setPriority
+  const o3 = makeConfiguredRepo();
+  let spCalls = 0;
+  await runBuild({ cwd: o3.cwd, lockRoot: o3.lockRoot, noTest: true, priority: 'normal', setPriority: () => spCalls++, run: recRun([]) });
+  assert.equal(spCalls, 0);
+  const o4 = makeConfiguredRepo();
+  const r4 = await runBuild({
+    cwd: o4.cwd, lockRoot: o4.lockRoot, noTest: true, run: recRun([]),
+    setPriority: () => { throw new Error('nope'); },
+  });
+  assert.equal(r4.exitCode, 0);
+
+  // small cpu count
+  const o5 = makeConfiguredRepo();
+  const calls5 = [];
+  await runBuild({ cwd: o5.cwd, lockRoot: o5.lockRoot, noTest: true, cpuCount: 2, setPriority: () => {}, run: recRun(calls5) });
+  const b5 = calls5.find((c) => c.cmd === 'cmake' && c.args[0] === '--build');
+  assert.deepEqual(b5.args.slice(-2), ['--parallel', '1']);
+  assert.equal(b5.opts.env.VCPKG_MAX_CONCURRENCY, '1');
+});
+
+test('CliPriorityFlagAndEnv', async () => {
+  const { parseArgs, makeRun } = await import('../lib/cli.mjs');
+  assert.equal(parseArgs(['--normal-priority']).priority, 'normal');
+  assert.ok(!('priority' in parseArgs([])));
+  assert.throws(() => parseArgs(['--bogus']), /unknown argument: --bogus/);
+  process.env.WP37_PARENT = 'p';
+  const res = await makeRun(os.tmpdir())(process.execPath, ['-e', 'process.stdout.write(process.env.WP37_PROBE + process.env.WP37_PARENT)'], { env: { WP37_PROBE: 'x' } });
+  assert.equal(res.output, 'xp');
+});

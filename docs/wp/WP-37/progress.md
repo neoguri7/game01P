@@ -1,0 +1,2 @@
+- T1 runner: F1-F3 done (setPriority, --parallel N-2, env on cmake/ctest).
+- T2 CLI: cli.mjs + build.mjs done; node tests and full build.mjs green.
