@@ -24,6 +24,8 @@
 8. **뼈대에서 빠진 층**: 턴의 행동 경제와 위치의 깊이(이동 AP 1 / 스킬 AP 2, 12x12 격자 — 확정 53~62, 한 번도 명작과 견주지 않았다), 파티 구성과 역할, 적·조우 구성, 화폐 경제(물질·인장·처치 EXP), 관리 부담(유닛 4 × 스킬 4 × 소켓 3 × 노드 트리 대 재시작 2분).
 9. 명작만 조사했다(생존 편향). 실패하거나 고친 전술 로그라이크 사례가 Archnemesis 하나뿐이다.
 
+10. R3 원문 검증 결과: Archnemesis 선언문, Last Epoch 제작 글, GGG Hrishi, Slay the Spire 휴식 30%("By default, rest sites only offer a choice between Rest and Smith"), Hades 듀오 전제는 **확인됨**. Slay the Spire 의도 문장은 Wikipedia의 말이었고 개발자 인용으로 교체했다. **Hades의 문이 다음 보상을 보여준다는 것은 확인하지 못했다 — 사실로 인용하지 않는다**(expansion-plan §5.1은 이것을 "리뷰 에이전트의 지식"으로 쓰고 있다). Ascension 20단계의 단계별 대응은 복원하지 못했다(`docs/digests/r3/verify/r3-verify.md`).
+
 ## 1. 층별 뼈대
 
 ### L1 런의 구조 (던전 → 방 → 캠프)
@@ -38,7 +40,7 @@
 ### L2 전투 (정보와 주사위의 위치)
 | 명작의 규칙 | 근거 | 지금 우리 게임 | 판정 |
 |---|---|---|---|
-| 적의 다음 행동을 미리 보여준다 | Into the Breach(위); Slay the Spire 의도 표시 — 원래 숨겼으나 "did not mesh well with the roguelike nature of permadeath" [2차 Wikipedia 요약] | 적 의도 표시, 피해 미리보기 | 일치 |
+| 적의 다음 행동을 미리 보여준다 | Into the Breach(위); Slay the Spire 의도 표시 — 처음에는 없었다. Yano: "Enemies were very random and we had no idea what they were going to do"; "In an RPG a battle is not life and death" [원문, Rock Paper Shotgun 2018-02-19, Wiltshire] | 적 의도 표시, 피해 미리보기 | 일치 |
 | 플레이어 쪽 주사위는 없거나, 있으면 불리한 쪽을 다듬는다 | Into the Breach(없음), XCOM 2(연속 빗나감 보정), Pillars(graze 삭제) | 빗나감 없음. 아군 치명타 15%(유리한 쪽만), 미리보기에 치명타 피해·확률 표시 | 일치. "의도 공개 + 플레이어 쪽 유리한 굴림"은 조사한 6개 게임에 같은 조합이 없다(표본이 작음) → 플레이테스트 가설(WP-39)로 판정 |
 | 숫자를 드러내고, 결과는 한 박자로 연출 | Darkest Dungeon 스트레스 [원문, dd-despair affl.txt:238, :242] | 치명타 연출, 확률 표시 | 일치 |
 | 시간 압박이 없으면 한 칸씩 전진하는 플레이가 나온다 | Invisible, Inc.: X-COM의 비폭탄 임무는 "has no time pressure and allows players to advance, inch by inch"; 목표는 "interesting tradeoffs with every move, and keeping busywork to a minimum" [원문, gamedeveloper.com Lantz] | 전멸 조건. 압박은 보너스 목표 `Swift`(+1 물질)뿐 | **빈 곳** → §2.3 |
@@ -53,8 +55,8 @@
 | 희소한 것이 탐나는 것이 된다 | Wilson: "rare to see someone using that skill, but if they do have it then it's something that's highly sought after and coveted" [원문, poe-maroon] | 룬 희귀도 3단계(WP-40) | 일치 |
 | 발견이 보상이다 / 무한 콤보는 막는다 | Wilson: "it can be very rewarding… to discover a certain build that immediately makes you very effective" [원문]; Mega Crit: "Going infinite… makes the actual playing of the game trivial" [원문] | 위력 증가 상한(+100%) | 일치. R2: Kasavin은 "memorable, breakthrough runs where you sail to victory"를 일부러 허용한다 [원문, gamesradar] — 상한이 "터지는 런"을 막는지는 플레이테스트로 본다 |
 | 죽은 선택지는 선택률로 찾는다 | Mega Crit: 거의 안 뽑히면 "basically not a card in our game at that point" [원문] | 런 로그에 제안·선택·등급 기록(WP-40) | 도구는 있음. 집계 스크립트가 없다 → 도구 WP 후보 |
-| 기회비용 없는 강화는 실패 | GGG Hrishi: "this item didn't have much of an opportunity cost, since you could slap it on anything" [요약, pathofexile.com 포럼] | 태그 조건 없는 룬(Brutality, Quicken, Far Reach, Counter Guard). 비용은 소켓 수뿐 | **검토 필요.** 소켓 1~3개가 기회비용으로 충분한지 → 플레이테스트·선택률로 판정 |
-| 제작·획득의 실패는 바닥을 둔다 | Last Epoch: "the last attempted craft always still succeeds" [요약, 포럼 개발자 글] | pity, 건너뛰기 환급, 중복 환급 | 일치 |
+| 기회비용 없는 강화는 실패 | GGG Hrishi: "this item didn't have much of an opportunity cost, since you could slap it on anything" [원문, pathofexile.com 포럼 1979637 보관본; 인용은 문장 앞부분] | 태그 조건 없는 룬(Brutality, Quicken, Far Reach, Counter Guard). 비용은 소켓 수뿐 | **검토 필요.** 소켓 1~3개가 기회비용으로 충분한지 → 플레이테스트·선택률로 판정 |
+| 제작·획득의 실패는 바닥을 둔다 | Last Epoch: "the last attempted craft always still succeeds" [원문, forum.lastepoch.com t/45597] | pity, 건너뛰기 환급, 중복 환급 | 일치 |
 
 ### L4 런 사이 (메타)
 | 명작의 규칙 | 근거 | 지금 우리 게임 | 판정 |
@@ -110,7 +112,7 @@ R2 근거 (`r2-build-around.md`):
 방향(확장 후보): 노드 트리 키스톤(규칙을 바꾸고 대가가 있는 노드) · 전제 조건이 있는 룬(특정 룬 둘을 가졌을 때만 뜨는 것). 둘 다 "런 EXP가 노드 포인트의 공급원"(확정) 안에서 가능하다.
 
 ### 2.5 엘리트의 형태 (L1, WP-41 후속)
-R2 근거 (`r2-elites-events.md`): Slay the Spire의 엘리트는 막마다 이름 있는 고유 적이고 보상은 유물이다. 수치 강화형은 "불타는 엘리트"에만 쓴다 [2차 위키]. PoE Archnemesis는 겹치고 읽기 어려운 수식어로 반발을 사 3.20에서 교체됐고, 방향은 수식어가 "say what they do"였다 [요약, 원문 대조 필요].
+R2 근거 (`r2-elites-events.md`): Slay the Spire의 엘리트는 막마다 이름 있는 고유 적이고 보상은 유물이다. 수치 강화형은 "불타는 엘리트"에만 쓴다 [2차 위키]. PoE Archnemesis는 겹치고 읽기 어려운 수식어로 반발을 사 3.20에서 교체됐고, 방향은 "Mods say what they do rather than having a thematic name you must learn and remember"였다 [원문, 3.20 선언문 보관본]. 같은 글: 새 체계에서 보상은 "hidden… so you don't know what kind of rewards you will get until you kill the monster".
 지금: 같은 조우 + 수식어 1개, 효과를 고르기 전에 보여준다 — Archnemesis의 실패는 피했다. 다만 "수치만 올린 일반 적"은 약한 형태다.
 방향(확장 후보): 엘리트 전용 조우(고유 적 또는 고유 행동 패턴). 콘텐츠 작업이라 뼈대 뒤.
 
