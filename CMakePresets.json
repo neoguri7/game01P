@@ -43,6 +43,18 @@
       "inherits": "windows-msvc-base"
     },
     {
+      "name": "windows-msvc-agent",
+      "displayName": "Windows MSVC Agent (Debug, no Edit-and-Continue, no Tracy)",
+      "inherits": "windows-msvc-base",
+      "cacheVariables": {
+        "CMAKE_MSVC_DEBUG_INFORMATION_FORMAT": {
+          "type": "STRING",
+          "value": "Embedded"
+        },
+        "GAME01P_ENABLE_TRACY": "OFF"
+      }
+    },
+    {
       "name": "linux-clang-base",
       "hidden": true,
       "inherits": "vcpkg-base",
@@ -118,6 +130,11 @@
       "configuration": "Release"
     },
     {
+      "name": "windows-msvc-agent",
+      "configurePreset": "windows-msvc-agent",
+      "configuration": "Debug"
+    },
+    {
       "name": "linux-clang-debug",
       "configurePreset": "linux-clang-debug"
     },
@@ -147,6 +164,14 @@
       "name": "windows-msvc-release",
       "configurePreset": "windows-msvc-release",
       "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-msvc-agent",
+      "configurePreset": "windows-msvc-agent",
+      "configuration": "Debug",
       "output": {
         "outputOnFailure": true
       }

@@ -1,0 +1,7 @@
+- T0: four failing test files committed (407d80c).
+- T1: CMakeLists.txt MSVC format guard + SDL3 env names; CMakePresets.json windows-msvc-agent presets.
+- T2: lib/locks, evidence, runner, build.mjs; build.test.mjs 4/4 pass.
+- T4: wp-gate.mjs; gate.test.mjs 3/3 pass.
+- T5: wp-merge.mjs; merge.test.mjs 3/3 pass.
+- T3/T6: presets.test.mjs 3/3; full node suite 13/13; build.mjs exit 0, evidence ok.
+- Review round 1: lock timeout exit 4 for configure/ctest locks, merge squashes verified SHA with safe cleanup, gate proves from HEAD, lock takeover/EPERM hardening, decisions.md; node suite 15/15.

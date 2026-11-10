@@ -1,0 +1,5 @@
+- wp-merge `--reviewed` accepts a full SHA or a prefix of at least 7 characters of the branch head.
+- `runBuild` takes an optional `lockTimeoutMs` parameter (default 1800000) so lock timeouts are testable.
+- When no line matches `ERROR_RE`, the build/configure failure report falls back to the last 30 lines of output.
+- wp-gate strips `NODE_TEST_CONTEXT` from the env of the nested `node --test`, which otherwise misbehaves when the gate runs under `node --test`.
+- runner.mjs falls back to `<cwd>/out` as lock-root parent when `LOCALAPPDATA` is unset (non-Windows).

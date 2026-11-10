@@ -5,7 +5,9 @@ cmake_minimum_required (VERSION 3.21)
 # Enable Hot Reload for MSVC compilers if supported.
 if (POLICY CMP0141)
   cmake_policy(SET CMP0141 NEW)
-  set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<AND:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>,$<$<CONFIG:Debug,RelWithDevInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDevInfo>:ProgramDatabase>>")
+  if(NOT DEFINED CMAKE_MSVC_DEBUG_INFORMATION_FORMAT)
+    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<AND:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>,$<$<CONFIG:Debug,RelWithDevInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDevInfo>:ProgramDatabase>>")
+  endif()
 endif()
 
 project ("game01P")
@@ -94,7 +96,7 @@ if(BUILD_TESTING)
     add_test(NAME forest_prototype_checks COMMAND game01P --forest --verify-prototype)
     set_tests_properties(dungeon_title_smoke dungeon_battle_smoke forest_title_smoke forest_battle_smoke forest_prototype_checks PROPERTIES
         WORKING_DIRECTORY "$<TARGET_FILE_DIR:game01P>"
-        ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy;SDL_RENDER_DRIVER=software"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         TIMEOUT 30
         RUN_SERIAL TRUE
         FIXTURES_REQUIRED AssetStage)
