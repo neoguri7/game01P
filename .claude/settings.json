@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmake *)",
+      "Bash(ctest *)",
+      "PowerShell(cmake *)",
+      "PowerShell(ctest *)",
+      "Bash(node .claude/skills/doc-digest/check-digest.mjs *)",
+      "Bash(pdftotext *)",
+      "Read(//c/Users/marti/.claude/plugins/cache/egm/egm/*/agents/**)",
+      "Read(//c/Users/marti/.claude/plugins/cache/egm/egm/*/resources/**)"
+    ],
+    "ask": [
+      "Bash(git push)",
+      "Bash(git push *)",
+      "PowerShell(git push)",
+      "PowerShell(git push *)"
+    ]
+  },
+  "env": {
+    "GAME01P_SAVE_DIR": "out/agent-save"
+  },
+  "worktree": {
+    "baseRef": "head",
+    "symlinkDirectories": ["docs"]
+  },
+  "enabledPlugins": {
+    "egm@egm": true
+  },
+  "extraKnownMarketplaces": {
+    "egm": {
+      "source": {
+        "source": "github",
+        "repo": "google/elephant-goldfish-model"
+      }
+    }
+  }
+}
