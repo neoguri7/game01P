@@ -22,7 +22,7 @@ Spend tokens where they buy quality. Opus designs and reviews; Sonnet 5.5 implem
 2. **Implement** (Sonnet 5.5): the `implementer` agent, launched in the background, in its own worktree. WPs with disjoint file maps may run in parallel. `BLOCKED:` questions come back to the design session.
 3. **Gate + review**: `.claude/scripts/wp-gate.mjs` checks scope, test integrity and evidence deterministically; then the `diff-reviewer` agent (Opus) reviews the diff against the spec. Must-fix items go back to the same implementer (SendMessage).
 4. **Merge**: `node .claude/scripts/wp-merge.mjs <id> --reviewed <sha>` — squash-merges `wp/<id>` into main with the spec H1 as the commit message (e.g. `WP-35: Agent build tooling …`), re-runs build + ctest on main, removes the worktree. Push only when the user asks.
-Delegated work runs as background agents launched from the main session.
+Delegated work runs as local background agents launched from the main session (git worktrees on this machine). No Claude cloud sessions and no remote agent isolation unless the user asks; GitHub Actions is used only for long simulations.
 
 ## Build and test (Windows, PowerShell 7)
 `node .claude/scripts/build.mjs [--preset windows-msvc-agent]` — configure if needed, build, ctest; one at a time per worktree; writes `out/evidence.json`. Raw commands for reference: `cmake --preset <p>` · `cmake --build --preset <p> --parallel` · `ctest --preset <p> --output-on-failure`. Long commands need an explicit timeout (≥600000 ms).
