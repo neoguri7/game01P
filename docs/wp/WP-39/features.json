@@ -1,0 +1,136 @@
+{
+  "wp": "WP-39",
+  "files": [
+    "src/gameplay/dungeon/FBattleObjective.h",
+    "src/gameplay/dungeon/FBattleObjective.cpp",
+    "tests/features/combat_stakes_tests.cpp",
+    "src/gameplay/combat/FCombatRules.h",
+    "src/gameplay/combat/FCombatRules.cpp",
+    "src/gameplay/combat/FCombatTypes.h",
+    "src/gameplay/combat/FSkillApCap.h",
+    "src/gameplay/combat/FSkillApCap.cpp",
+    "src/gameplay/combat/FCombatSheet.h",
+    "src/gameplay/combat/FCombatSheet.cpp",
+    "src/gameplay/combat/FBattleEvents.h",
+    "src/ecs/systems/ActionResolverSystem.h",
+    "src/gameplay/dungeon/FRunLog.h",
+    "src/gameplay/dungeon/FRunLog.cpp",
+    "src/ecs/systems/CombatOutcomeSystem.h",
+    "src/gameplay/dungeon/FRunFlow.cpp",
+    "src/states/FEmberBattleState.cpp",
+    "src/ecs/systems/EmberCombatInfo.h",
+    "src/ecs/systems/EmberCombatInfo.cpp",
+    "src/ecs/systems/EmberCombatHudView.cpp",
+    "src/presentation/FBattleAnim.h",
+    "src/presentation/FBattleAnim.cpp",
+    "assets/data/dungeon.json",
+    "CMakeLists.txt",
+    "docs/design/combat-math.md",
+    "tests/features/boss_goals_tests.cpp",
+    "tests/features/run_log_tests.cpp",
+    "tests/features/combat_info_ui_tests.cpp",
+    "tests/features/compendium_tests.cpp",
+    "docs/wp/WP-39/progress.md",
+    "docs/wp/WP-39/features.json"
+  ],
+  "allowTimeoutChange": false,
+  "allowCheckDrop": false,
+  "features": [
+    {
+      "id": "F1",
+      "behavior": "Crit chance 0 never crits; resolution equals preview.",
+      "test": "combat_stakes_tests::ZeroChanceNeverCrits",
+      "passes": false
+    },
+    {
+      "id": "F2",
+      "behavior": "Party preview carries crit damage and chance; non-party actors carry none.",
+      "test": "combat_stakes_tests::PreviewCarriesCrit",
+      "passes": false
+    },
+    {
+      "id": "F3",
+      "behavior": "A successful crit roll deals crit damage, flags the event target, logs CRIT and counts it.",
+      "test": "combat_stakes_tests::CritRollDealsCritDamage",
+      "passes": false
+    },
+    {
+      "id": "F4",
+      "behavior": "Enemies never crit and never advance the crit RNG (chance 50).",
+      "test": "combat_stakes_tests::EnemiesNeverCrit",
+      "passes": false
+    },
+    {
+      "id": "F5",
+      "behavior": "Crit rolls use critRng only; the battle RNG is untouched.",
+      "test": "combat_stakes_tests::CritUsesItsOwnRng",
+      "passes": false
+    },
+    {
+      "id": "F6",
+      "behavior": "On a gated boss body crit damage follows the cap: doubled, capped, or none.",
+      "test": "boss_goals_tests::GatedBodyCritFollowsCap",
+      "passes": false
+    },
+    {
+      "id": "F7",
+      "behavior": "Crit tuning loads 15/200 from shipped data and rejects out-of-range values.",
+      "test": "combat_stakes_tests::CritTuningLoads",
+      "passes": false
+    },
+    {
+      "id": "F8",
+      "behavior": "Battle objectives load from shipped data; malformed rows are rejected.",
+      "test": "combat_stakes_tests::ObjectivesLoad",
+      "passes": false
+    },
+    {
+      "id": "F9",
+      "behavior": "Objective pick is a pure function of seed, depth and room and covers both rows.",
+      "test": "combat_stakes_tests::ObjectivePickIsSeeded",
+      "passes": false
+    },
+    {
+      "id": "F10",
+      "behavior": "Objective failure rules for NoAllyDown and WinByRound.",
+      "test": "combat_stakes_tests::ObjectiveFailureRules",
+      "passes": false
+    },
+    {
+      "id": "F11",
+      "behavior": "A won room pays the objective reward when met, latches settled/met, and reports the result in the message and room_end.",
+      "test": "combat_stakes_tests::VictoryPaysMetObjective",
+      "passes": false
+    },
+    {
+      "id": "F12",
+      "behavior": "Without an objective or active stats a won room pays room materials only and room_end has no objective.",
+      "test": "combat_stakes_tests::NoObjectiveNoBonus",
+      "passes": false
+    },
+    {
+      "id": "F13",
+      "behavior": "First adjacency and first damage rounds are recorded once.",
+      "test": "combat_stakes_tests::FirstContactRecordedOnce",
+      "passes": false
+    },
+    {
+      "id": "F14",
+      "behavior": "room_end carries crits and first-contact rounds.",
+      "test": "run_log_tests::RoomEndCarriesStakes",
+      "passes": false
+    },
+    {
+      "id": "F15",
+      "behavior": "The preview badge carries crit damage and chance.",
+      "test": "combat_info_ui_tests::PreviewBadgeCarriesCrit",
+      "passes": false
+    },
+    {
+      "id": "F16",
+      "behavior": "ApplyBattleStakes wires crit tuning, crit RNG and the seeded objective; GAME01P_STAKES=0 disables stakes.",
+      "test": "combat_stakes_tests::StakesWireIntoBattle",
+      "passes": false
+    }
+  ]
+}
