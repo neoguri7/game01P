@@ -1,6 +1,6 @@
 # 설계 뼈대와 근거 (improve-loop 기록)
 
-상태: 5라운드 반영(2026-11-11). 미결의 구체 선택지는 `proposals.md`에 있다. 이 문서는 Ember Dungeon의 뼈대를 **근본적인 층부터** 적고, 층마다 "명작이 실제로 한 것 → 지금 우리 게임(확정 결정 포함) → 판정 → 다음에 확인할 것"을 근거와 함께 남긴다. 순서는 **뼈대 → 체계적 확장 → 밸런스(맨 마지막)**. 수치는 다루지 않는다. 구현 설계는 각 WP 스펙이 맡는다. 확정 결정(`decisions.md`)을 바꾸는 것은 §3 "사용자 판단"에만 올린다.
+상태: 6라운드 반영(2026-11-11). 미결의 구체 선택지는 `proposals.md`에 있다. 이 문서는 Ember Dungeon의 뼈대를 **근본적인 층부터** 적고, 층마다 "명작이 실제로 한 것 → 지금 우리 게임(확정 결정 포함) → 판정 → 다음에 확인할 것"을 근거와 함께 남긴다. 순서는 **뼈대 → 체계적 확장 → 밸런스(맨 마지막)**. 수치는 다루지 않는다. 구현 설계는 각 WP 스펙이 맡는다. 확정 결정(`decisions.md`)을 바꾸는 것은 §3 "사용자 판단"에만 올린다.
 
 근거 등급: **[원문]** 저장한 원문과 대조됨 · **[보관본]** 웹 보관본 원문과 대조됨 · **[요약]** 요약 도구를 거침(결정의 근거로 쓰기 전 대조 필요) · **[2차]** 위키·기사·리뷰 · **[미확인]** 1차 자료 없음. 조사 원본: `docs/digests/r1/`~`r4/`(로컬, 추적 안 함).
 
@@ -20,7 +20,7 @@
 - **명작**: 조사한 게임은 모두 끝이 있는 런이다. 도전 사다리는 첫 클리어 뒤에 열린다(Hades Pact, Slay the Spire Ascension, Darkest Dungeon Stygian [2차]). Hades는 이야기의 매듭을 여러 지점에 둔다 — Kasavin: "a strong sense of resolution at various points, so that players could happily walk away" [원문]. Into the Breach는 런 길이를 고르게 한다 — Davis: "you'd choose how many islands you'd do… customizing a play experience, like a board game" [원문].
 - **지금**: 확정 — 던전은 계속 이어지고 런은 전멸로만 끝난다(23, 156). "런 성공"은 정의가 없다(F8). **미결** — 승리 지점(테마 최종 보스 격파 = 승리, 이후 계속 여부 선택; 권고: 채택)(238).
 - **판정**: **뼈대의 가장 근본적인 미결.** 승리가 없으면 "첫 클리어 뒤"가 없고, 난이도 사다리·이야기의 매듭·런 길이 선택이 모두 설 자리가 없다. 조사한 명작과 가장 크게 다른 지점이다. → §3 Q0.
-- **R4**: 승리 없는 런이 주 모드인 선례로 가장 가까운 것은 Vampire Survivors("the goal is to survive as long as possible")인데, 그 게임도 기본 세션에 "a soft time limit of 15, 20, or 30 minutes"를 두고 무한 모드는 해금이다 [2차 Wikipedia]. **"이기고, 원하면 계속"은 출시된 형태다** — Balatro: "The player wins a run by completing ante 8." "However, the player can still continue playing in endless mode even after beating ante 8."; 무한 모드에서 져도 "the player still won" [2차 Wikipedia]. Risk of Rain 2도 승리와 무한 반복을 함께 둔다 [2차]. 고정된 끝이 주는 것 — Davis: FTL에서 "asking the player to commit to the two or three hours to finish it wasn't great"; 그래서 "selecting if you wanted to do the final mission immediately, or play the game more"; 끝은 "a nice culmination, an epic conclusion" [원문, gamedeveloper.com]. 반대쪽 위험: 끝을 두면 그 끝이 평가받는다 — Hades II "Some critics felt the game's true ending was underwhelming." [2차]. 데이터에는 이미 `run.end_on_final_boss = false` 스위치가 있다.
+- **R4**: 승리 없는 런이 주 모드인 선례로 가장 가까운 것은 Vampire Survivors("the goal is to survive as long as possible")인데, 그 게임도 기본 세션에 "a soft time limit of 15, 20, or 30 minutes"를 두고 무한 모드는 해금이다 [2차 Wikipedia]. **"이기고, 원하면 계속"은 출시된 형태다** — Balatro: "The player wins a run by completing ante 8." "However, the player can still continue playing in endless mode even after beating ante 8."; 무한 모드에서 져도 "the player still won" [2차 Wikipedia]. Risk of Rain 2도 승리와 무한 반복을 함께 둔다 [2차]. 고정된 끝이 주는 것 — Davis: FTL에서 "asking the player to commit to the two or three hours to finish it wasn't great"; 그래서 "selecting if you wanted to do the final mission immediately, or play the game more"; 끝은 "a nice culmination, an epic conclusion" [원문, gamedeveloper.com]. 반대쪽 위험: 끝을 두면 그 끝이 평가받는다 — Hades II "Some critics felt the game's true ending was underwhelming." [2차]. 데이터에는 이미 `run.end_on_final_boss = false` 스위치가 있다. **R6 현황**: 최종 보스 격파는 이미 "대업적"으로 기록되고 런은 멈추지 않는다(`FMetaProgress.cpp`). 작성된 보스는 Ember Crypt 중간 보스 하나뿐이고, 최종 보스와 두 번째 테마의 보스는 범용 보스 유닛으로 대체된다 — 승리 지점을 두려면 최종 보스가 먼저 있어야 한다.
 - **마지막 전투(R5 정독)**: FTL의 최종 보스에 대해 개발자 본인 — "It took an already hard game and put a ridiculously difficult cap on top of it."; "it was inherently unfair". Into the Breach는 보스를 두지 않았고("a 15-health enemy that you have to kill. It doesn't work"), 마지막 임무가 밋밋하다는 반응을 인정했다("we seem to have disappointed at least some people") [모두 원문]. 뚜껑처럼 얹은 최종전은 불공정으로, 정점이 없는 최종전은 밋밋함으로 읽힌다.
 - **남은 것**: Balatro·Risk of Rain 2 개발자의 설계 이유, 무한 모드의 피로·수치 폭주에 대한 개발자 발언은 [미확인]. 런·세션 길이의 목표를 말한 개발자 자료는 Davis의 "두세 시간은 좋지 않았다"뿐이다.
 
@@ -30,6 +30,7 @@
 - **지금(R4-0 수치 표)**: 12x12 격자(144칸), 아군 4 + 적 3~4(보스 방 최대 6) → 유닛당 약 18~20칸. 아군은 9행, 적은 1~3행에서 시작(6~8줄 간격), 이동은 턴당 2칸. 이동 AP와 스킬 AP가 분리되어 행동 후에도 이동할 수 있다. 실제 던전의 방은 `open`·`open_variant`뿐(벽 2~5칸, 함정 1~3칸) — 통로·엄폐·분할 방은 구현돼 있으나 데이터에서 꺼져 있다(`boss_rooms_allow_heavy = false`). 밀기·당기기는 3개(shove, charge, hook: 1칸), 전부 전사 스킬. 적 11종이 AI 하나(`ai.default`)를 쓴다 — 차이는 스킬 구성(문제 유형 약 8개)과 수치.
 - **R4-2 주사위 없이 위치를 결정으로 만드는 수단**(조사한 게임에서 쓰인 수): 밀기·넉백(Into the Breach, Fights in Tight Spaces, Tactical Breach Wizards, Hoplite — 4) · "이동이냐 행동이냐"의 제약(Shotgun King: 공격 또는 이동; Advance Wars: 간접 사격은 이동 후 불가; Hoplite: 대기 삭제 — "Waiting … no longer possible … results in more interesting choices" [원문, 개발 블로그]) · 적 의도 공개(3) · 지형·고지대(Divinity: Original Sin 2, Advance Wars — 2) · 미리보기(3). 엄폐·측면은 XCOM뿐이고 명중률을 깎는 방식이라 옮겨지지 않는다. 판 크기에 수치를 준 개발자는 Into the Breach뿐이다(8x8, 3기) — "너무 크면 걷기만 한다"는 개발자 자료는 없다 [미확인]. 분리형 AP와 통합형 AP의 장단을 비교한 개발자 자료도 없다 [미확인].
 - **판정**: 우리가 가진 것은 의도 공개와 미리보기다. 약한 것은 **밀기의 폭**(한 클래스에만 있다)과 **지형**(만들어 놓고 꺼 둔 상태)이다. "이동이냐 행동이냐"의 맞교환은 확정(53)으로 없다 — 조사한 게임 넷이 쓰는 원천이지만 확정을 뒤집을 만한 개발자 근거는 없다. 걸어가는 턴이 실제 문제인지는 런 로그의 전투당 라운드 수와 플레이테스트로 먼저 본다.
+- **R6 현황**: 시야 차단은 이미 구현돼 있다 — 벽은 이동과 사선을 막고(`HasGridLineOfSight`), 유닛은 막지 않는다. 플레이어 스킬과 적 의도 모두에 적용된다. 엄폐 방의 엄폐 칸은 벽이다. 즉 통로·엄폐·분할 방을 켜면 "사선을 끊는 위치"가 생긴다 — 확정 피해 게임에서 엄폐가 작동하는 형태다.
 - **확장 후보(확정 안)**: 꺼 둔 방 종류(통로·엄폐·분할)를 일반 방에 켜기 · 전사 외 클래스에 위치를 바꾸는 스킬 하나씩 · 적 AI 유형 추가(지금은 하나).
 
 ### L2 파티와 스킬의 정체성
@@ -73,7 +74,7 @@
 
 ### L8 런 사이 (메타와 장기 목표)
 - **명작**: 죽음과 재시작의 고통을 줄인다 — Kasavin: "to take the pain out of dying and having to restart" [원문]. 파워 누적은 논쟁 지점(Hades Mirror [원문] 대 플레이어 불만 [2차]). 해금을 무작위에 묶지 않는다 — FTL: "some of the ship unlocks were too difficult because of the randomness involved" [원문]. 사다리는 본편 뒤에, 너무 늦지 않게 — Cooke: 최고 난이도를 요구한 도전은 "a lot of players never got to experience them" [원문]. Hades의 Pact는 Ascension에서 왔다 — Kasavin: "that game's brilliantly structured endgame via its Ascension system, which inspired our Pact of Punishment system" [원문].
-- **지금**: 확정 — 메타는 옵션을 팔고 파워를 팔지 않는다; 해금은 인장 구매. 선택제 사다리 없음(회차 스케일만).
+- **지금**: 확정 — 메타는 옵션을 팔고 파워를 팔지 않는다; 해금은 인장 구매. 선택제 사다리 없음(회차 스케일만). **R6 현황**: 등급 사다리의 뼈대는 코드에 있다 — 인장은 (등급, 위치)의 첫 클리어마다 나오고 기록 탭에 RANKS가 있지만 등급이 하나만 연결돼 있다. 평생 벌 수 있는 인장은 16, 해금 목록 비용은 35(`proposals.md` P0). 명단은 4인 고정이고 기질·훈장은 효과가 없으며 승격은 꺼져 있다 — 런 사이에 플레이어가 고르는 것은 스킬 4개와 해금뿐이다. 온보딩은 힌트 세 줄이다.
 - **판정**: 일치. 사다리는 L0(승리 지점)이 정해진 뒤의 확장이다. 고르는 형태(Hades)와 고정 순서(Slay the Spire)의 우열을 말한 개발자 자료는 없다 [미확인]. 사다리 단계 중 규칙 변화의 비율(Ascension 약 6/20)은 2차 집계라 규칙으로 쓰지 않는다. Hades식 "Heat의 보상이 영구 강화 재료"는 확정 규칙과 맞지 않는다.
 
 ### L9 실패의 가독성과 재시작
@@ -146,3 +147,4 @@
 - **R3**: 인용 원문 검증(6건 확인, 1건 정정, 1건 미확인) / 공용 자원 / 키스톤·대가 / 파티 역할 / 실패의 가독성.
 - **R4**: 현재 수치 표(로컬) / 런의 끝 / 위치의 깊이 / 회복이 싼 분대 게임 / 실패·수정 사례 / 성장 분배·관리 부담. 발견: 구현이 확정과 다른 곳 둘(캠프 자동 회복, 경험치 분배). 한계: 검색 한도 소진, 팬 위키 차단, 다수가 Wikipedia 등급.
 - **R5**: 저장한 1차 원문 정독 2건(Into the Breach·FTL / 그 밖) + 비평 2차. 정정: Q3의 Into the Breach 인용이 반대편 근거였다; "힐러 클래스"는 틀린 표현; 회복의 "확정 이탈"은 과장. 새로 확인: 구현과 확정의 차이 3곳(인장 하드코딩, 해금 문턱, 재분배 비용). 산출물: `proposals.md`(런의 끝 묶음, 물질 수입·지출, 보스의 역할과 유물, 경험치 한 줄 판단).
+- **R6**: 설계안 비평(Blocker 2, Major 7 — 인장 경제 오기, 대업적 선택지 누락, 수입 수치 오류, 유물 후보 실격) + 현황 조사 2차(거점, 온보딩, 보스, 쓰러짐, 방 종류·시야, AI, 교체, 목표, 시간 기록). 산출물: `proposals.md` 2차 초안(인장 예산표, 런의 끝 M/A/B/C, 로그 추가 항목과 지표, 회복 H1~H4, 유물 규칙 7개와 후보 5개, 경험치 문구).
