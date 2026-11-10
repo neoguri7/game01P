@@ -1,0 +1,124 @@
+{
+  "wp": "WP-40",
+  "files": [
+    "src/gameplay/data/FRuneContent.h",
+    "src/gameplay/data/FRuneContent.cpp",
+    "src/gameplay/data/FContentRegistry.cpp",
+    "assets/data/runes.json",
+    "assets/data/rewards.json",
+    "src/gameplay/dungeon/FRewards.h",
+    "src/gameplay/dungeon/FRewards.cpp",
+    "src/gameplay/dungeon/FRewardSection.cpp",
+    "src/gameplay/dungeon/FDungeonCamp.cpp",
+    "src/presentation/FDungeonViews.h",
+    "src/presentation/FDungeonRewardView.cpp",
+    "src/gameplay/dungeon/FRunLog.cpp",
+    "tests/features/reward_offer_tests.cpp",
+    "tests/features/content_a_tests.cpp",
+    "tests/features/run_log_tests.cpp",
+    "tests/features/camp_tests.cpp",
+    "tests/features/reward_equip_tests.cpp",
+    "docs/wp/WP-40/progress.md",
+    "docs/wp/WP-40/features.json"
+  ],
+  "allowTimeoutChange": false,
+  "allowCheckDrop": [],
+  "features": [
+    {
+      "id": "F1",
+      "behavior": "Shipped runes carry the 8/8/8 rarity table.",
+      "test": "content_a_tests::ShippedRunesHaveRarityTable",
+      "passes": false
+    },
+    {
+      "id": "F2",
+      "behavior": "Unknown rune rarity fails boot; absent rarity is common.",
+      "test": "content_a_tests::UnknownRuneRarityFailsBoot",
+      "passes": false
+    },
+    {
+      "id": "F3",
+      "behavior": "rarity_tables load, validate, and are optional; shipped file holds the three tables.",
+      "test": "reward_offer_tests::RarityTablesLoadAndValidate",
+      "passes": false
+    },
+    {
+      "id": "F4",
+      "behavior": "A table with only a rare weight yields only rare cards while enough exist.",
+      "test": "reward_offer_tests::TierTableDrivesCardRarity",
+      "passes": false
+    },
+    {
+      "id": "F5",
+      "behavior": "An empty rolled rarity falls down, then up.",
+      "test": "reward_offer_tests::EmptyTierFallsDownThenUp",
+      "passes": false
+    },
+    {
+      "id": "F6",
+      "behavior": "A single-rarity pool draws the same list with tiering off and with any table.",
+      "test": "reward_offer_tests::UniformRarityMatchesUntieredDraw",
+      "passes": false
+    },
+    {
+      "id": "F7",
+      "behavior": "A tiered draw is deterministic and never repeats a rune.",
+      "test": "reward_offer_tests::TieredOfferIsDeterministicAndUnique",
+      "passes": false
+    },
+    {
+      "id": "F8",
+      "behavior": "An offer records the table it resolved to: normal for monster rooms, boss for boss rooms, empty with tiering off.",
+      "test": "reward_offer_tests::OfferRecordsItsRarityTable",
+      "passes": false
+    },
+    {
+      "id": "F9",
+      "behavior": "The offer table name survives save/load; a non-string value drops the offer.",
+      "test": "reward_offer_tests::SaveRestoresRarityTable",
+      "passes": false
+    },
+    {
+      "id": "F10",
+      "behavior": "Cards display in stable ascending rarity and resolve their stored index.",
+      "test": "reward_offer_tests::DisplayOrderPutsRareLast",
+      "passes": false
+    },
+    {
+      "id": "F11",
+      "behavior": "The reward modal prints a rarity line per card, and the odds line when the offer has a table.",
+      "test": "reward_offer_tests::CardShowsRarityAndOdds",
+      "passes": false
+    },
+    {
+      "id": "F12",
+      "behavior": "The fit preview resolves before/after from the fitted slot; bare skill when tag-illegal or sockets are full.",
+      "test": "reward_offer_tests::FitPreviewUsesFittedRunes",
+      "passes": false
+    },
+    {
+      "id": "F13",
+      "behavior": "The preview line lists changed numbers in fixed order with its suffixes.",
+      "test": "reward_offer_tests::FitPreviewLineFormat",
+      "passes": false
+    },
+    {
+      "id": "F14",
+      "behavior": "The reward modal prints one preview line per fitting skill.",
+      "test": "reward_offer_tests::CardShowsFitPreview",
+      "passes": false
+    },
+    {
+      "id": "F15",
+      "behavior": "The run log offer record carries table, rarities and picked_rarity.",
+      "test": "run_log_tests::OfferRecordCarriesRarities",
+      "passes": false
+    },
+    {
+      "id": "F16",
+      "behavior": "A purchased camp rune offer records the normal table.",
+      "test": "camp_tests::CampOfferRecordsNormalTable",
+      "passes": false
+    }
+  ]
+}
