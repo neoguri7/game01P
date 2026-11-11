@@ -1,0 +1,144 @@
+{
+  "wp": "WP-42",
+  "files": [
+    "src/gameplay/combat/FIntent.h",
+    "src/gameplay/combat/FIntent.cpp",
+    "src/gameplay/dungeon/FRunEventLog.h",
+    "src/gameplay/dungeon/FRunFlow.cpp",
+    "src/gameplay/dungeon/FRunLog.cpp",
+    "src/core/Engine.h",
+    "src/core/Engine.cpp",
+    "src/core/FFramePlan.h",
+    "src/main.cpp",
+    ".claude/scripts/lib/runlog.mjs",
+    ".claude/scripts/runlog-report.mjs",
+    ".claude/scripts/baseline.mjs",
+    ".claude/scripts/test/runlog.test.mjs",
+    "docs/playtest/README.md",
+    "docs/playtest/TEMPLATE.md",
+    "tests/features/run_log_tests.cpp",
+    "tests/features/intent_tests.cpp",
+    "tests/features/headless_tools_tests.cpp",
+    "src/gameplay/dungeon/FRunLog.h",
+    "src/ecs/systems/CombatOutcomeSystem.h",
+    "tests/features/run_flow_tests.cpp"
+  ],
+  "allowTimeoutChange": false,
+  "allowCheckDrop": [],
+  "features": [
+    {
+      "id": "F1",
+      "behavior": "WHEN a rune offer is resolved (pick or skip) THEN the `offer` line SHALL carry `candidates`: the offered rune ids, in the same order as `rarities`.",
+      "test": "run_log_tests::OfferRecordCarriesCandidates",
+      "passes": false
+    },
+    {
+      "id": "F2",
+      "behavior": "WHEN the run enters the Camp phase THEN the log SHALL get one `camp_enter` line with `depth`, `party_hp_before_heal`, `party_hp`, `party_hp_max`, `materials`, `ms`, `frame`, written after the `dungeon_clear` line.",
+      "test": "run_log_tests::CampEnterRecordsEntryState",
+      "passes": false
+    },
+    {
+      "id": "F3",
+      "behavior": "WHEN `LeaveCamp` succeeds THEN the log SHALL get one `camp_leave` line with the camp's `depth` (before the increment), `materials`, `ms`, `frame`; a refused `LeaveCamp` (open offer) SHALL write none.",
+      "test": "run_log_tests::CampLeaveRecorded",
+      "passes": false
+    },
+    {
+      "id": "F4",
+      "behavior": "WHEN a `room_end` line is built THEN it SHALL carry `ms` (`RunLogMilliseconds()`) and `frame` (`RunLogFrameIndex`).",
+      "test": "run_log_tests::RoomEndCarriesClock",
+      "passes": false
+    },
+    {
+      "id": "F5",
+      "behavior": "WHEN an attack intent whiffs THEN `FIntentStats::whiffReasons[reason]` SHALL grow by 1 together with `whiffed`, so the reason counts always sum to `whiffed`.",
+      "test": "intent_tests::WhiffReasonsCounted",
+      "passes": false
+    },
+    {
+      "id": "F6",
+      "behavior": "WHEN a `room_end` line is built THEN `intents.whiff_reasons` SHALL be an object reason → count copied from the same battle's stats (empty object when nothing whiffed or the stats belong to another battle).",
+      "test": "run_log_tests::RoomEndCarriesWhiffReasons",
+      "passes": false
+    },
+    {
+      "id": "F7",
+      "behavior": "WHEN a `BossDefeated` run event is delivered THEN the log SHALL get one `boss_defeat` line with `depth`, `room`, `boss` (the event id) and `slot` (`\"mid\"`, `\"final\"`, or `\"\"` when the slot is unknown).",
+      "test": "run_log_tests::BossDefeatRecordsSlot",
+      "passes": false
+    },
+    {
+      "id": "F8",
+      "behavior": "WHEN the `run_end` line is written THEN it SHALL carry `start_depth` (the `depth` of the log's first `run_start` line; key absent when the log has none) and `final_bosses` (the number of `boss_defeat` lines with `slot == \"final\"` in the log).",
+      "test": "run_log_tests::RunEndCarriesStartDepthAndFinalBosses",
+      "passes": false
+    },
+    {
+      "id": "F9",
+      "behavior": "WHEN fast-forward is on THEN a frame SHALL use the fixed step `kScriptFixedDeltaSeconds` and SHALL NOT rasterize, except a frame on which a capture is due; WHEN it is off THEN the frame plan SHALL equal today's behavior.",
+      "test": "headless_tools_tests::FastForwardFramePlan",
+      "passes": false
+    },
+    {
+      "id": "F10",
+      "behavior": "WHEN the report library parses log text THEN unparsable lines SHALL be skipped and the rest returned in order.",
+      "test": "node:.claude/scripts/test/runlog.test.mjs::parse skips broken lines",
+      "passes": false
+    },
+    {
+      "id": "F11",
+      "behavior": "WHEN logs are aggregated THEN battles SHALL report count, wins, defeats, mean rounds, mean first-damage round (rooms with 0 excluded), mean wall seconds and mean sim seconds (frames / 60), each also split by elite.",
+      "test": "node:.claude/scripts/test/runlog.test.mjs::battle metrics",
+      "passes": false
+    },
+    {
+      "id": "F12",
+      "behavior": "WHEN logs are aggregated THEN skill use SHALL be reported per party member from `room_end.skills_by_member` as count and share of that member's uses, and a share ≥ 0.60 or ≤ 0.05 SHALL be flagged.",
+      "test": "node:.claude/scripts/test/runlog.test.mjs::skill shares per member",
+      "passes": false
+    },
+    {
+      "id": "F19",
+      "behavior": "WHEN an accepted skill command of a party unit is counted into `skillsUsed` THEN it SHALL also be counted into `FRoomBattleStats::skillsByMember[<unit id>][<skill id>]`, enemy commands SHALL NOT be, and `room_end` SHALL carry the map as `skills_by_member`.",
+      "test": "run_log_tests::SkillsCountedPerMember",
+      "passes": false
+    },
+    {
+      "id": "F13",
+      "behavior": "WHEN logs are aggregated THEN each rune SHALL report offered, picked and pick rate; each rarity offered and picked; and the skip rate over all offers. Offers without `candidates` count only toward rarity and skip figures.",
+      "test": "node:.claude/scripts/test/runlog.test.mjs::rune pick rates",
+      "passes": false
+    },
+    {
+      "id": "F14",
+      "behavior": "WHEN logs are aggregated THEN forks SHALL report, per `kind`, the count, the variant rate (`choice == 1`) and the mean HP fraction at the choice; events SHALL report a count per (event, choice).",
+      "test": "node:.claude/scripts/test/runlog.test.mjs::fork and event choices",
+      "passes": false
+    },
+    {
+      "id": "F15",
+      "behavior": "WHEN logs are aggregated THEN camps SHALL report visits, mean entry HP fraction before and after the free heal, mean entry materials, spend per `camp.id` (count and total) and mean stay seconds; a `camp_enter`/`camp_leave` pair with a `log_session` line between them SHALL be left out of the stay mean.",
+      "test": "node:.claude/scripts/test/runlog.test.mjs::camp metrics",
+      "passes": false
+    },
+    {
+      "id": "F16",
+      "behavior": "WHEN logs are aggregated THEN each whiff reason SHALL report count and rate = count ÷ (committed − invalidated), and the rate SHALL be 0 when the denominator is ≤ 0.",
+      "test": "node:.claude/scripts/test/runlog.test.mjs::whiff rates by reason",
+      "passes": false
+    },
+    {
+      "id": "F17",
+      "behavior": "WHEN the report text is formatted THEN it SHALL contain the eight section headings of §5 in order, and a metrics object built from zero runs SHALL format without throwing.",
+      "test": "node:.claude/scripts/test/runlog.test.mjs::report sections",
+      "passes": false
+    },
+    {
+      "id": "F18",
+      "behavior": "WHEN the baseline runner builds the environment for a seed THEN it SHALL set exactly the variables listed in §5 for `baseline.mjs`, with the save directory under `out/baseline/<label>/seed-<n>`.",
+      "test": "node:.claude/scripts/test/runlog.test.mjs::baseline environment",
+      "passes": false
+    }
+  ]
+}
