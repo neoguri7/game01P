@@ -1,0 +1,90 @@
+{
+  "wp": "WP-46",
+  "files": [
+    "src/gameplay/dungeon/FDungeonRun.h",
+    "src/gameplay/dungeon/FDungeonRun.cpp",
+    "src/gameplay/dungeon/FDungeonSave.cpp",
+    "src/gameplay/dungeon/FRunFlow.h",
+    "src/gameplay/dungeon/FRunFlow.cpp",
+    "src/gameplay/dungeon/FRunLog.cpp",
+    "src/gameplay/dungeon/FRunPath.cpp",
+    "src/states/FEmberModalHostState.cpp",
+    "src/states/FEmberRunEndState.h",
+    "src/states/FEmberRunEndState.cpp",
+    "src/presentation/FDungeonDefeatView.cpp",
+    "src/presentation/FDungeonCampView.cpp",
+    "src/ecs/systems/EmberCombatHudView.cpp",
+    "tests/features/run_flow_tests.cpp",
+    "tests/features/run_modal_tests.cpp",
+    "tests/features/run_debrief_tests.cpp",
+    "tests/features/camp_tests.cpp",
+    "src/gameplay/meta/FMetaProgress.h",
+    "src/gameplay/meta/FMetaProgress.cpp",
+    "tests/features/meta_save_tests.cpp",
+    "src/presentation/FDungeonViews.h"
+  ],
+  "allowTimeoutChange": false,
+  "allowCheckDrop": [],
+  "features": [
+    {
+      "id": "F1",
+      "behavior": "IsThemeClearedCamp is true only at the camp after a theme's last dungeon",
+      "test": "run_flow_tests::ThemeClearedCampDetected",
+      "passes": false
+    },
+    {
+      "id": "F2",
+      "behavior": "Returning in triumph sets Victory, deletes the save, keeps the checkpoint, logs run_end victory/return and shows the run-end screen",
+      "test": "run_flow_tests::ReturnInTriumphEndsRunAsVictory",
+      "passes": false
+    },
+    {
+      "id": "F3",
+      "behavior": "Returning in triumph is refused at other camps, outside the camp and with an open rune offer",
+      "test": "run_flow_tests::ReturnInTriumphRefusedElsewhere",
+      "passes": false
+    },
+    {
+      "id": "F4",
+      "behavior": "Retry and leave work in the Victory phase as after a defeat",
+      "test": "run_flow_tests::VictoryExitsDropTheRun",
+      "passes": false
+    },
+    {
+      "id": "F5",
+      "behavior": "Leaving the run at camp keeps the save and continuing restores the camp",
+      "test": "run_flow_tests::LeaveRunAtCampKeepsSave",
+      "passes": false
+    },
+    {
+      "id": "F6",
+      "behavior": "The place label is theme name, n/total and the cycle from the second pass on",
+      "test": "run_flow_tests::RunPlaceLabelFormat",
+      "passes": false
+    },
+    {
+      "id": "F7",
+      "behavior": "The camp host applies ReturnInTriumph and LeaveRun; the run-end state accepts retry and leave in Victory",
+      "test": "run_modal_tests::CampAndRunEndAcceptVictoryIntents",
+      "passes": false
+    },
+    {
+      "id": "F8",
+      "behavior": "Run-end heading and loss section title follow the phase",
+      "test": "run_debrief_tests::RunEndTextsFollowPhase",
+      "passes": false
+    },
+    {
+      "id": "F9",
+      "behavior": "The camp modal shows the victory variant at a theme-cleared camp and the next place elsewhere",
+      "test": "camp_tests::CampViewShowsThemeVictory",
+      "passes": false
+    },
+    {
+      "id": "F10",
+      "behavior": "A triumph grants kTriumphSeals every time and nothing without meta progress",
+      "test": "meta_save_tests::TriumphGrantsSealsEveryTime",
+      "passes": false
+    }
+  ]
+}
