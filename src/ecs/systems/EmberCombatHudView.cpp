@@ -26,6 +26,7 @@
 #include "gameplay/data/FStatusContent.h"
 #include "gameplay/dungeon/FBattleObjective.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FRunewordInfo.h"
 #include "gameplay/dungeon/FRunLog.h"
 #include "gameplay/grid/FGridQuery.h"
 #include "gameplay/grid/FGridTerrain.h"
@@ -704,6 +705,7 @@ void SkillSlots(entt::registry& registry, const FUiLayout& layout, const FTurnSn
                 std::to_string(slots[index].runeIds.size()) + " | statuses: " +
                 std::to_string(resolved->statuses.size());
             AppendControlChances(tip, content, *resolved);
+            if (const std::string word = RunewordSlotLine(content, slots[index]); !word.empty()) tip += "\n" + word; // [WP-45]
             ImGui::SetTooltip("%s", tip.c_str());
         }
         ImGui::PopID();

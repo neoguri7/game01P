@@ -8,7 +8,6 @@
     {"id": "skill.pin", "kind": "skill", "cost": 3, "seal_gate": 4},
     {"id": "skill.storm", "kind": "skill", "cost": 5, "seal_gate": 6},
     {"id": "skill.shackle", "kind": "skill", "cost": 4, "seal_gate": 5},
-    {"id": "rune.inferno", "kind": "rune", "cost": 4, "seal_gate": 4},
     {"id": "rune.chain", "kind": "rune", "cost": 4, "seal_gate": 5},
     {"id": "party.rogue_stub", "kind": "roster", "cost": 8, "seal_gate": 8}
   ]

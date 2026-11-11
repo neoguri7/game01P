@@ -30,6 +30,7 @@
 #include "core/events/FEventBus.h"
 #include "ecs/components/FActionPoints.h"
 #include "ecs/components/FActiveStatuses.h"
+#include "ecs/components/FDead.h"
 #include "ecs/components/FFaction.h"
 #include "ecs/components/FGridPosition.h"
 #include "ecs/components/FHealth.h"
@@ -45,10 +46,13 @@
 #include "gameplay/combat/FBattleEvents.h"
 #include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/combat/FEngineIgnition.h"
+#include "gameplay/combat/FRuneword.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/data/FEngineContent.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunLog.h"
+#include "gameplay/dungeon/FRunewordInfo.h"
 #include "gameplay/grid/FGridTerrain.h"
 #include "gameplay/grid/FGridTypes.h"
 
@@ -196,9 +200,10 @@ struct FIgnitionFixture {
     entt::entity actor{entt::null};
     entt::entity foe{entt::null};
 
-    explicit FIgnitionFixture(std::string_view label, std::vector<game::FSkillSlot> actorSlots)
+    explicit FIgnitionFixture(std::string_view label, std::vector<game::FSkillSlot> actorSlots,
+                              std::vector<std::string> roots = TestAssetRoots())
         : checkpoint(MakeCheckpointPath(label)),
-          loaded(game_test::LoadTestRegistry(TestAssetRoots(), checkpoint.string())) {
+          loaded(game_test::LoadTestRegistry(std::move(roots), checkpoint.string())) {
         CHECK(loaded.content);
         CHECK(loaded.dungeon);
         auto& r = registry();
@@ -621,6 +626,438 @@ void IgnitionLoggedToRunLog() {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// WP-45 runewords
+// ---------------------------------------------------------------------------------------------
+
+const char* const kEmberText = "Hitting a burning enemy deals half the burn's remaining damage to every enemy next to it";
+const char* const kFrostText = "Hitting a frozen enemy freezes one enemy next to it for 1 turn";
+const char* const kArcText = "Hitting a shocked enemy deals half that hit to every other shocked enemy";
+const char* const kKindledText = "Killing a burning enemy moves its burn to the nearest enemy that is not burning";
+
+/// The fixture's engine document with the section-4 name, text and effect set on each row.
+[[nodiscard]] nlohmann::json RunewordEngines() {
+    nlohmann::json document = ReadJsonFile(std::filesystem::path{kTestFixtureRoot} / "data" / "engine_ignition.json");
+    const auto set = [&document](std::size_t index, const char* name, nlohmann::json effect, const char* text) {
+        document["engines"][index]["name"] = name;
+        document["engines"][index]["effect"] = std::move(effect);
+        document["engines"][index]["text"] = text;
+    };
+    set(0, "Ember Engine", {{"kind", "detonate"}, {"percent", 50}}, kEmberText);
+    set(1, "Frost Lock", {{"kind", "spread"}, {"turns", 1}}, kFrostText);
+    set(2, "Arc", {{"kind", "arc"}, {"percent", 50}}, kArcText);
+    set(3, "Kindled", {{"kind", "carry"}}, kKindledText);
+    return document;
+}
+
+/// A temp root holding RunewordEngines(), declared before the fixture that boots from it.
+struct FRunewordFixture {
+    FTempRoot temp;
+    FIgnitionFixture fixture;
+
+    static std::string_view Prepare(const FTempRoot& temp, std::string_view label) {
+        WriteJsonFile(temp.root / "data" / "engine_ignition.json", RunewordEngines());
+        return label;
+    }
+
+    FRunewordFixture(std::string_view label, std::vector<game::FSkillSlot> actorSlots)
+        : temp(label), fixture(Prepare(temp, label), std::move(actorSlots), RootsWith(temp)) {}
+};
+
+[[nodiscard]] int Hp(entt::registry& registry, entt::entity unit) { return registry.get<game::FHealth>(unit).current; }
+
+[[nodiscard]] const game::FStatusEffect* FindStatus(entt::registry& registry, entt::entity unit, std::string_view id) {
+    const auto* active = registry.try_get<game::FActiveStatuses>(unit);
+    if (active == nullptr) return nullptr;
+    for (const game::FStatusEffect& effect : active->effects) {
+        if (std::string_view{effect.statusId} == id) return &effect;
+    }
+    return nullptr;
+}
+
+[[nodiscard]] std::string DisplayName(const game::gameplay::FContentRegistry& content, std::string_view runeId) {
+    const auto* rune = content.runes.find(std::string{runeId});
+    return rune != nullptr ? rune->displayName : std::string{runeId};
+}
+
+void RunewordEffectSchema() {
+    const auto loadWith = [](const auto& edit) {
+        FTempRoot temp{"rw-schema"};
+        nlohmann::json document = RunewordEngines();
+        edit(document);
+        WriteJsonFile(temp.root / "data" / "engine_ignition.json", document);
+        return game::gameplay::FContentRegistry::load(game::FAssetManager{RootsWith(temp)});
+    };
+    {
+        const auto content = loadWith([](nlohmann::json&) {});
+        CHECK(content.has_value());
+        const auto* ember = content->engines.find("engine.ember");
+        CHECK(ember != nullptr);
+        CHECK(ember->effectKind == "detonate");
+        CHECK(ember->effectPercent == 50);
+        CHECK(!ember->text.empty());
+        const auto* frost = content->engines.find("engine.frost");
+        CHECK(frost != nullptr);
+        CHECK(frost->effectTurns == 1);
+    }
+    {
+        const game::FAssetManager plain{TestAssetRoots()};
+        const auto content = game::gameplay::FContentRegistry::load(plain);
+        CHECK(content.has_value());
+        for (const auto& engine : content->engines.rows) CHECK(engine.effectKind.empty());
+    }
+    CHECK(!loadWith([](nlohmann::json& d) { d["engines"][0]["effect"]["kind"] = "boom"; }).has_value());
+    CHECK(!loadWith([](nlohmann::json& d) { d["engines"][0].erase("text"); }).has_value());
+    CHECK(!loadWith([](nlohmann::json& d) { d["engines"][0]["effect"]["percent"] = 0; }).has_value());
+    CHECK(!loadWith([](nlohmann::json& d) { d["engines"][0]["effect"]["percent"] = 1001; }).has_value());
+    CHECK(!loadWith([](nlohmann::json& d) { d["engines"][0]["effect"].erase("percent"); }).has_value());
+    CHECK(!loadWith([](nlohmann::json& d) { d["engines"][1]["effect"]["turns"] = 0; }).has_value());
+    CHECK(!loadWith([](nlohmann::json& d) { d["engines"][1]["effect"]["turns"] = 11; }).has_value());
+    CHECK(!loadWith([](nlohmann::json& d) { d["engines"][0]["requires_runes"] = {"rune.fire"}; }).has_value());
+}
+
+void ShipRunewordData() {
+    const nlohmann::json engines = ReadJsonFile("assets/data/engine_ignition.json");
+    const nlohmann::json expected = RunewordEngines();
+    CHECK(engines["engines"].size() == 4);
+    for (std::size_t index = 0; index < 4; ++index) {
+        const auto& row = engines["engines"][index];
+        CHECK(row["id"] == expected["engines"][index]["id"]);
+        CHECK(row["name"] == expected["engines"][index]["name"]);
+        CHECK(row["effect"] == expected["engines"][index]["effect"]);
+        CHECK(row["text"] == expected["engines"][index]["text"]);
+    }
+    const std::vector<std::string> catalysts{"rune.fire", "rune.cold", "rune.lightning", "rune.ember",
+                                             "rune.frostbite", "rune.shock", "rune.duration"};
+    const std::vector<std::string> retired{"rune.power", "rune.inferno", "rune.glacial"};
+    const nlohmann::json runes = ReadJsonFile("assets/data/runes.json");
+    int catalystCount = 0;
+    int retiredCount = 0;
+    for (const auto& row : runes["runes"]) {
+        const std::string id = row["id"].get<std::string>();
+        const std::string kind = row.value("kind", std::string{});
+        if (kind == "catalyst") {
+            ++catalystCount;
+            CHECK(std::ranges::find(catalysts, id) != catalysts.end());
+        } else if (kind == "retired") {
+            ++retiredCount;
+            CHECK(std::ranges::find(retired, id) != retired.end());
+        } else {
+            CHECK(kind.empty());
+            CHECK(std::ranges::find(catalysts, id) == catalysts.end());
+            CHECK(std::ranges::find(retired, id) == retired.end());
+        }
+    }
+    CHECK(catalystCount == 7);
+    CHECK(retiredCount == 3);
+    const std::string unlocks = ReadJsonFile("assets/data/unlocks.json").dump();
+    for (const std::string& id : retired) CHECK(unlocks.find("\"" + id + "\"") == std::string::npos);
+}
+
+void ActiveRunewordIsFirstComplete() {
+    FRunewordFixture f{"rw-first", {}};
+    const auto& content = f.fixture.Content();
+    const auto active = [&content](std::vector<std::string> runes) -> std::string {
+        const game::FSkillSlot slot = Slot("skill.strike", std::move(runes));
+        const auto* engine = game::ActiveRuneword(content, slot);
+        return engine != nullptr ? engine->id : std::string{};
+    };
+    CHECK(active({"rune.fire", "rune.ember"}) == "engine.ember");
+    CHECK(active({"rune.fire", "rune.duration"}) == "engine.ember_kindled");
+    CHECK(active({"rune.fire", "rune.ember", "rune.duration"}) == "engine.ember");
+    CHECK(active({"rune.ember", "rune.fire"}) == "engine.ember");
+    CHECK(active({"rune.fire"}).empty());
+    CHECK(active({}).empty());
+    FIgnitionFixture plain{"rw-first-plain", {}};
+    const game::FSkillSlot slot = Slot("skill.strike", {"rune.fire", "rune.ember"});
+    CHECK(game::ActiveRuneword(plain.Content(), slot) == nullptr);
+}
+
+void EmberEngineBurnsNeighbours() {
+    const auto emberSlots = [] { return std::vector<game::FSkillSlot>{Slot("skill.strike", {"rune.fire", "rune.ember"})}; };
+    {
+        FRunewordFixture f{"rw-ember", emberSlots()};
+        auto& fx = f.fixture;
+        auto& r = fx.registry();
+        const entt::entity near = fx.MakeUnit("near", 5, 3, false, {});
+        const entt::entity far = fx.MakeUnit("far", 5, 2, false, {});
+        GiveStatus(r, fx.foe, "status.burn", 4);
+        (void)fx.Tackle(fx.StartTurn(), fx.foe, "skill.strike");
+        CHECK(Hp(r, near) == 50 - 6);
+        CHECK(Hp(r, far) == 50);
+        CHECK(CountLines(Log(r).lines, "Ember Engine scorches 1 nearby for 6") == 1);
+    }
+    {
+        FRunewordFixture f{"rw-ember-noburn", emberSlots()};
+        auto& fx = f.fixture;
+        auto& r = fx.registry();
+        const entt::entity near = fx.MakeUnit("near", 5, 3, false, {});
+        (void)fx.Tackle(fx.StartTurn(), fx.foe, "skill.strike");
+        CHECK(Hp(r, near) == 50);
+        CHECK(CountLines(Log(r).lines, "Ember Engine scorches") == 0);
+    }
+    {
+        FRunewordFixture f{"rw-ember-alone", emberSlots()};
+        auto& fx = f.fixture;
+        GiveStatus(fx.registry(), fx.foe, "status.burn", 4);
+        (void)fx.Tackle(fx.StartTurn(), fx.foe, "skill.strike");
+        CHECK(CountLines(Log(fx.registry()).lines, "Ember Engine scorches") == 0);
+    }
+    {
+        FRunewordFixture f{"rw-ember-half", {Slot("skill.strike", {"rune.fire"})}};
+        auto& fx = f.fixture;
+        auto& r = fx.registry();
+        const entt::entity near = fx.MakeUnit("near", 5, 3, false, {});
+        GiveStatus(r, fx.foe, "status.burn", 4);
+        (void)fx.Tackle(fx.StartTurn(), fx.foe, "skill.strike");
+        CHECK(Hp(r, near) == 50);
+    }
+    {
+        FRunewordFixture f{"rw-ember-enemy", emberSlots()};
+        auto& fx = f.fixture;
+        auto& r = fx.registry();
+        const entt::entity raider = fx.MakeUnit("Raid", 6, 3, false, {Slot("skill.strike", {"rune.fire", "rune.ember"})});
+        const entt::entity near = fx.MakeUnit("near", 5, 3, false, {});
+        const entt::entity third = fx.MakeUnit("third", 4, 3, false, {});
+        GiveStatus(r, near, "status.burn", 4);
+        game::RunewordOnHit(r, {.owner = raider, .other = near, .amount = 5, .skillId = "skill.strike"});
+        CHECK(Hp(r, near) == 50);
+        CHECK(Hp(r, third) == 50);
+        CHECK(Hp(r, raider) == 50);
+        CHECK(Hp(r, fx.foe) == 50);
+    }
+}
+
+void FrostLockSpreadsFreeze() {
+    const auto slots = [] { return std::vector<game::FSkillSlot>{Slot("skill.strike", {"rune.cold", "rune.frostbite"})}; };
+    {
+        FRunewordFixture f{"rw-frost", slots()};
+        auto& fx = f.fixture;
+        auto& r = fx.registry();
+        const entt::entity a = fx.MakeUnit("a", 5, 3, false, {});
+        const entt::entity b = fx.MakeUnit("b", 4, 4, false, {});
+        GiveStatus(r, fx.foe, "status.freeze", 0);
+        (void)fx.Tackle(fx.StartTurn(), fx.foe, "skill.strike");
+        const entt::entity lower = entt::to_integral(a) < entt::to_integral(b) ? a : b;
+        const entt::entity upper = lower == a ? b : a;
+        const auto* frozen = FindStatus(r, lower, "status.freeze");
+        CHECK(frozen != nullptr);
+        if (frozen != nullptr) CHECK(frozen->turnsRemaining == 1);
+        CHECK(!HasStatus(r, upper, "status.freeze"));
+        CHECK(CountLines(Log(r).lines, "Frost Lock spreads") == 1);
+    }
+    {
+        FRunewordFixture f{"rw-frost-both", slots()};
+        auto& fx = f.fixture;
+        auto& r = fx.registry();
+        const entt::entity a = fx.MakeUnit("a", 5, 3, false, {});
+        const entt::entity b = fx.MakeUnit("b", 4, 4, false, {});
+        GiveStatus(r, fx.foe, "status.freeze", 0);
+        GiveStatus(r, a, "status.freeze", 0);
+        GiveStatus(r, b, "status.freeze", 0);
+        (void)fx.Tackle(fx.StartTurn(), fx.foe, "skill.strike");
+        CHECK(CountLines(Log(r).lines, "Frost Lock spreads") == 0);
+    }
+    {
+        FRunewordFixture f{"rw-frost-immune", slots()};
+        auto& fx = f.fixture;
+        auto& r = fx.registry();
+        const entt::entity a = fx.MakeUnit("a", 5, 3, false, {});
+        const entt::entity b = fx.MakeUnit("b", 4, 4, false, {});
+        GiveStatus(r, fx.foe, "status.freeze", 0);
+        const entt::entity lower = entt::to_integral(a) < entt::to_integral(b) ? a : b;
+        const entt::entity upper = lower == a ? b : a;
+        r.get<game::FActiveStatuses>(lower).immune.push_back("status.freeze");
+        (void)fx.Tackle(fx.StartTurn(), fx.foe, "skill.strike");
+        CHECK(!HasStatus(r, lower, "status.freeze"));
+        CHECK(HasStatus(r, upper, "status.freeze"));
+    }
+}
+
+void ArcHitsOtherShocked() {
+    FRunewordFixture f{"rw-arc", {Slot("skill.strike", {"rune.lightning", "rune.shock"})}};
+    auto& fx = f.fixture;
+    auto& r = fx.registry();
+    r.get<game::FStats>(fx.foe) = game::FStats{1, 1, 0, 0};
+    const entt::entity p = fx.MakeUnit("p", 9, 9, false, {});
+    const entt::entity q = fx.MakeUnit("q", 9, 8, false, {});
+    GiveStatus(r, p, "status.paralyze", 50);
+    GiveStatus(r, fx.foe, "status.paralyze", 50);
+    (void)fx.Tackle(fx.StartTurn(), fx.foe, "skill.strike");
+    const int dealt = 50 - Hp(r, fx.foe);
+    CHECK(dealt >= 4);
+    CHECK(50 - Hp(r, p) == dealt * 50 / 100);
+    CHECK(Hp(r, q) == 50);
+    CHECK(CountLines(Log(r).lines, "Arc arcs to 1 for ") == 1);
+}
+
+void KindledCarriesBurn() {
+    FRunewordFixture f{"rw-kindled", {Slot("skill.strike", {"rune.fire", "rune.duration"})}};
+    auto& fx = f.fixture;
+    auto& r = fx.registry();
+    r.get<game::FHealth>(fx.foe).current = 1;
+    r.get<game::FActiveStatuses>(fx.foe).effects.push_back(game::FStatusEffect{"status.burn", 2, 7, false});
+    const entt::entity n = fx.MakeUnit("n", 5, 2, false, {});
+    const entt::entity burning = fx.MakeUnit("burning", 5, 3, false, {});
+    const entt::entity m = fx.MakeUnit("m", 9, 9, false, {});
+    r.get<game::FActiveStatuses>(burning).effects.push_back(game::FStatusEffect{"status.burn", 3, 9, false});
+    // `burning` is the nearest enemy but already burns, so the burn goes to the next nearest, `n`.
+    (void)fx.Tackle(fx.StartTurn(), fx.foe, "skill.strike");
+    CHECK(r.all_of<game::FDead>(fx.foe));
+    const auto* carried = FindStatus(r, n, "status.burn");
+    CHECK(carried != nullptr);
+    if (carried != nullptr) {
+        CHECK(carried->turnsRemaining == 2);
+        CHECK(carried->magnitude == 7);
+    }
+    const auto* kept = FindStatus(r, burning, "status.burn");
+    CHECK(kept != nullptr);
+    if (kept != nullptr) CHECK(kept->magnitude == 9);
+    CHECK(!HasStatus(r, m, "status.burn"));
+    CHECK(CountLines(Log(r).lines, "Kindled carries") == 1);
+}
+
+void RunewordActsOncePerSkillUse() {
+    const auto slots = [] { return std::vector<game::FSkillSlot>{Slot("skill.strike", {"rune.fire", "rune.ember"})}; };
+    {
+        FRunewordFixture f{"rw-once", slots()};
+        auto& fx = f.fixture;
+        auto& r = fx.registry();
+        const entt::entity near = fx.MakeUnit("near", 5, 3, false, {});
+        GiveStatus(r, fx.foe, "status.burn", 4);
+        const game::FHookContext context{.owner = fx.actor, .other = fx.foe, .amount = 5, .skillId = "skill.strike"};
+        game::BeginRunewordAction(r);
+        game::RunewordOnHit(r, context);
+        CHECK(Hp(r, near) == 50 - 6);
+        game::RunewordOnHit(r, context);
+        CHECK(Hp(r, near) == 50 - 6);
+        game::BeginRunewordAction(r);
+        game::RunewordOnHit(r, context);
+        CHECK(Hp(r, near) == 50 - 12);
+    }
+    {
+        FRunewordFixture f{"rw-once-empty", slots()};
+        auto& fx = f.fixture;
+        auto& r = fx.registry();
+        GiveStatus(r, fx.foe, "status.burn", 4);
+        game::BeginRunewordAction(r);
+        game::RunewordOnHit(r, {.owner = fx.actor, .other = fx.foe, .amount = 5, .skillId = "skill.strike"});
+        const auto* guard = r.ctx().find<game::FRunewordGuard>();
+        CHECK(guard != nullptr);
+        if (guard != nullptr) CHECK(!guard->fired);
+    }
+    {
+        FRunewordFixture f{"rw-once-resolver", slots()};
+        auto& fx = f.fixture;
+        auto& r = fx.registry();
+        const entt::entity near = fx.MakeUnit("near", 5, 3, false, {});
+        GiveStatus(r, fx.foe, "status.burn", 4);
+        const FTurnToken token = fx.StartTurn();
+        (void)fx.Tackle(token, fx.foe, "skill.strike");
+        CHECK(Hp(r, near) == 50 - 6);
+        fx.RefillSkillAp();
+        (void)fx.Tackle(token, fx.foe, "skill.strike");
+        CHECK(Hp(r, near) == 50 - 6 - 7);
+        CHECK(CountLines(Log(r).lines, "Ember Engine scorches") == 2);
+    }
+}
+
+void RetiredRuneNeverOffered() {
+    FTempRoot temp{"rw-retired"};
+    nlohmann::json runes = ReadJsonFile(std::filesystem::path{kTestFixtureRoot} / "data" / "runes.json");
+    bool marked = false;
+    for (auto& row : runes["runes"]) {
+        if (row["id"] == "rune.power") {
+            row["kind"] = "retired";
+            marked = true;
+        }
+    }
+    CHECK(marked);
+    WriteJsonFile(temp.root / "data" / "runes.json", runes);
+    const auto collect = [](FIgnitionFixture& fixture) {
+        auto& r = fixture.registry();
+        std::vector<std::string> seen;
+        for (int room = 0; room < 200; ++room) {
+            r.ctx().get<game::FDungeonRun>().room = room;
+            for (const std::string& id : game::PeekRuneCandidates(r)) seen.push_back(id);
+        }
+        return seen;
+    };
+    FIgnitionFixture a{"rw-retired-a", {}, RootsWith(temp)};
+    const auto seenA = collect(a);
+    CHECK(!seenA.empty());
+    CHECK(std::ranges::find(seenA, "rune.power") == seenA.end());
+    FIgnitionFixture b{"rw-retired-b", {}};
+    const auto seenB = collect(b);
+    CHECK(std::ranges::find(seenB, "rune.power") != seenB.end());
+}
+
+void RunewordCardLine() {
+    FRunewordFixture f{"rw-card", {}};
+    auto& r = f.fixture.registry();
+    auto& run = r.ctx().get<game::FDungeonRun>();
+    run.runes = {};
+    CHECK(game::RunewordCardLine(r, "rune.fire") == "Runeword ingredient");
+    CHECK(game::RunewordCardLine(r, "rune.range").empty());
+    run.runes = {"rune.ember"};
+    CHECK(game::RunewordCardLine(r, "rune.fire") == std::string{"Runeword: completes Ember Engine: "} + kEmberText);
+    run.runes = {"rune.duration"};
+    CHECK(game::RunewordCardLine(r, "rune.fire") == std::string{"Runeword: completes Kindled: "} + kKindledText);
+    run.runes = {"rune.ember", "rune.duration"};
+    CHECK(game::RunewordCardLine(r, "rune.fire") == std::string{"Runeword: completes Ember Engine: "} + kEmberText);
+    run.runes = {};
+    game::FRunMember member;
+    member.id = "m1";
+    member.skills = {Slot("skill.strike", {"rune.ember"})};
+    run.party = {member};
+    CHECK(game::RunewordCardLine(r, "rune.fire") == std::string{"Runeword: completes Ember Engine: "} + kEmberText);
+}
+
+void RunewordSlotAndRecipeLines() {
+    FRunewordFixture f{"rw-lines", {}};
+    auto& r = f.fixture.registry();
+    const auto& content = f.fixture.Content();
+    CHECK(game::RunewordSlotLine(content, Slot("skill.strike", {"rune.fire", "rune.ember"})) ==
+          std::string{"Runeword: Ember Engine: "} + kEmberText);
+    CHECK(game::RunewordSlotLine(content, Slot("skill.strike", {"rune.fire"})) ==
+          "Runeword 1/2: Ember Engine needs " + DisplayName(content, "rune.ember"));
+    CHECK(game::RunewordSlotLine(content, Slot("skill.strike", {"rune.range"})).empty());
+
+    auto& run = r.ctx().get<game::FDungeonRun>();
+    run.runes = {};
+    run.party.clear();
+    CHECK(game::KnownRunewords(r).empty());
+    run.runes = {"rune.shock"};
+    {
+        const auto known = game::KnownRunewords(r);
+        CHECK(known.size() == 1);
+        if (known.size() == 1) {
+            CHECK(known[0].id == "engine.shock");
+            CHECK(game::RunewordRecipeLine(known[0]) == "Arc: " + DisplayName(content, "rune.lightning") + " + " +
+                                                          DisplayName(content, "rune.shock") + ": " + kArcText);
+        }
+    }
+    run.runes = {"rune.fire"};
+    {
+        const auto known = game::KnownRunewords(r);
+        CHECK(known.size() == 2);
+        if (known.size() == 2) {
+            CHECK(known[0].id == "engine.ember");
+            CHECK(known[1].id == "engine.ember_kindled");
+        }
+    }
+    run.runes = {};
+    game::FRunMember member;
+    member.id = "m1";
+    member.skills = {Slot("skill.strike", {"rune.cold"})};
+    run.party = {member};
+    {
+        const auto known = game::KnownRunewords(r);
+        CHECK(known.size() == 1);
+        if (known.size() == 1) CHECK(known[0].id == "engine.frost");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -655,5 +1092,16 @@ int main() {
         {"BadTriggerFailsBoot", BadTriggerFailsBoot},
         {"NoBattleEventForIgnition", NoBattleEventForIgnition},
         {"IgnitionLoggedToRunLog", IgnitionLoggedToRunLog},
+        {"RunewordEffectSchema", RunewordEffectSchema},
+        {"ShipRunewordData", ShipRunewordData},
+        {"ActiveRunewordIsFirstComplete", ActiveRunewordIsFirstComplete},
+        {"EmberEngineBurnsNeighbours", EmberEngineBurnsNeighbours},
+        {"FrostLockSpreadsFreeze", FrostLockSpreadsFreeze},
+        {"ArcHitsOtherShocked", ArcHitsOtherShocked},
+        {"KindledCarriesBurn", KindledCarriesBurn},
+        {"RunewordActsOncePerSkillUse", RunewordActsOncePerSkillUse},
+        {"RetiredRuneNeverOffered", RetiredRuneNeverOffered},
+        {"RunewordCardLine", RunewordCardLine},
+        {"RunewordSlotAndRecipeLines", RunewordSlotAndRecipeLines},
     });
 }

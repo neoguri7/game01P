@@ -4,6 +4,7 @@
   "runes": [
     {
       "id": "rune.fire",
+      "kind": "catalyst",
       "display_name": "Added Fire Damage",
       "status_on_hit": "status.burn",
       "power_delta": 1,
@@ -15,6 +16,7 @@
     },
     {
       "id": "rune.cold",
+      "kind": "catalyst",
       "display_name": "Added Cold Damage",
       "status_on_hit": "status.freeze",
       "power_delta": 1,
@@ -26,6 +28,7 @@
     },
     {
       "id": "rune.lightning",
+      "kind": "catalyst",
       "display_name": "Added Lightning Damage",
       "status_on_hit": "status.paralyze",
       "power_delta": 1,
@@ -79,6 +82,7 @@
     },
     {
       "id": "rune.power",
+      "kind": "retired",
       "display_name": "Brutality",
       "power_delta": 2,
       "drop_weight": 10,
@@ -100,6 +104,7 @@
     },
     {
       "id": "rune.duration",
+      "kind": "catalyst",
       "display_name": "Persistence",
       "status_duration_delta": 1,
       "requires_any_tags": ["Duration", "Fire", "Cold", "Lightning"],
@@ -108,6 +113,7 @@
     },
     {
       "id": "rune.ember",
+      "kind": "catalyst",
       "display_name": "Burning Embers",
       "requires_all_tags": ["Fire"],
       "status_id": "status.burn",
@@ -117,6 +123,7 @@
     },
     {
       "id": "rune.frostbite",
+      "kind": "catalyst",
       "display_name": "Deep Frostbite",
       "requires_all_tags": ["Cold"],
       "status_id": "status.freeze",
@@ -126,6 +133,7 @@
     },
     {
       "id": "rune.shock",
+      "kind": "catalyst",
       "display_name": "Amplified Shock (+20%p paralysis chance)",
       "requires_all_tags": ["Lightning"],
       "status_id": "status.paralyze",
@@ -143,6 +151,7 @@
     },
     {
       "id": "rune.inferno",
+      "kind": "retired",
       "display_name": "Inferno",
       "power_delta": 2,
       "requires_all_tags": ["Fire"],
@@ -151,6 +160,7 @@
     },
     {
       "id": "rune.glacial",
+      "kind": "retired",
       "display_name": "Glacial Hammer",
       "power_delta": 2,
       "requires_all_tags": ["Cold"],

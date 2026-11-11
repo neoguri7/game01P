@@ -975,7 +975,7 @@ void UnlocksTabRendersAndBuyIsTheRule() {
 
     // Every catalog row is drawn with its player-facing name (never the raw content id).
     const std::vector<game::FMetaUnlockRow> catalog = game::MetaUnlockCatalog(registry);
-    CHECK(catalog.size() == 9);
+    CHECK(catalog.size() == 8); // WP-45: rune.inferno left the catalog (retired)
     for (const game::FMetaUnlockRow& row : catalog) {
         const std::string name = ExpectedRowName(registry, row);
         if (metaLog.find(name) == std::string::npos) {

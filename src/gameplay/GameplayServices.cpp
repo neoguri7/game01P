@@ -5,6 +5,7 @@
 #include "gameplay/ai/FAiLibrary.h"
 #include "gameplay/combat/FEffectHooks.h"
 #include "gameplay/combat/FEliteRules.h"
+#include "gameplay/combat/FRuneword.h"
 #include "gameplay/combat/FEngineIgnition.h"
 #include "gameplay/combat/FSkillApCap.h"
 #include "gameplay/data/FContentRegistry.h"
@@ -94,6 +95,7 @@ bool FGameplayServices::Initialize(entt::registry& registry) {
     RegisterEngineIgnitionListener(registry);
     // [WP-44]
     RegisterEliteRuleListener(registry);
+    RegisterRunewordListeners(registry); // [WP-45]
     // [WP-14a]
     if (!LoadEncounterContent(registry, *assets)) {
         LOG_ERROR("encounter content is unusable; boot stopped (see the encounter errors above).");

@@ -181,6 +181,7 @@ constexpr std::array<std::array<ERuneRarity, 3>, 3> kRarityFallback{{
         // R6/WP-21c: a rune with an unlocks.json row is offered only after it is bought — the single point
         // every room/boss/camp draw passes.
         if (IsUnlockGated(registry, rune.id)) continue;
+        if (rune.kind == gameplay::kRuneKindRetired) continue; // [WP-45]
         if (!RuneFitsSkills(skills, rune)) continue;
         (IsOwned(*run, rune.id) ? owned : unowned).push_back(&rune);
     }

@@ -17,6 +17,7 @@
 #include "ecs/components/FStats.h"
 #include "gameplay/combat/FBattleCommand.h"
 #include "gameplay/combat/FBattleEvents.h"
+#include "gameplay/combat/FRuneword.h"
 #include "gameplay/combat/FCombatApply.h"
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FCombatRules.h"
@@ -257,6 +258,7 @@ private:
                 + std::to_string(points->skill) + "/" + std::to_string(resolved->apCost) + ")");
         }
         points->skill -= resolved->apCost;
+        BeginRunewordAction(registry); // [WP-45] a new skill use re-arms the runeword guard
 
         const std::string actorName = UnitDisplayName(registry, actor);
         const gameplay::FSkillContent* skillRow = content.skills.find(slot->skillId);

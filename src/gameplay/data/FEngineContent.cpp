@@ -13,6 +13,12 @@ FEngineContent decodeEngine(const FContentRow& row) {
         engine.minMagnitude = trigger->integer(kEngineTriggerFieldMinMagnitude, 0);
     }
     engine.log = row.text(kEngineFieldLog);
+    engine.text = row.text(kEngineFieldText);
+    if (const FContentRow* effect = row.object(kEngineFieldEffect)) {
+        engine.effectKind = effect->text(kEngineEffectFieldKind);
+        engine.effectPercent = effect->integer(kEngineEffectFieldPercent, 0);
+        engine.effectTurns = effect->integer(kEngineEffectFieldTurns, 0);
+    }
     return engine;
 }
 

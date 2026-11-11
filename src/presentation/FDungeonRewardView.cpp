@@ -15,6 +15,7 @@
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunFlow.h"
 #include "gameplay/dungeon/FRunPath.h"
+#include "gameplay/dungeon/FRunewordInfo.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FPassiveTreePanel.h"
@@ -140,7 +141,12 @@ bool DrawRuneOfferCard(
     ImGui::TextColored(lookColour, "%s", rune != nullptr ? rune->displayName.c_str() : runeId.c_str());
     ImGui::SameLine();
     ImGui::TextColored(lookColour, "%s", look.label);
-    if (rune != nullptr) ImGui::TextWrapped("%s", RuneEffectSummary(*rune, content).c_str());
+    if (rune != nullptr) {
+        const std::string summary = (rune->kind == gameplay::kRuneKindCatalyst ? "Catalyst. " : "") + RuneEffectSummary(*rune, content);
+        ImGui::TextWrapped("%s", summary.c_str());
+    }
+    // [WP-45] which runeword this rune starts or completes
+    if (const std::string word = RunewordCardLine(registry, runeId); !word.empty()) ImGui::TextWrapped("%s", word.c_str());
     // WP-27: TextWrapped, not TextDisabled — a long "Fits:" line must fold instead of being clipped.
     // WP-40: the inline text is capped; the full before/after numbers are in the hover tooltip.
     const auto previews = rune != nullptr ? RuneFitPreviews(registry, runeId) : std::vector<FRuneFitPreview>{};

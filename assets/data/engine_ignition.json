@@ -4,31 +4,39 @@
   "engines": [
     {
       "id": "engine.ember",
-      "name": "Ember ignition",
+      "name": "Ember Engine",
       "requires_runes": ["rune.fire", "rune.ember"],
       "trigger": { "kind": "status_on_target", "status_id": "status.burn" },
-      "log": "Ember ignition! Fire and ember runes catch together."
+      "log": "Ember ignition! Fire and ember runes catch together.",
+      "text": "Hitting a burning enemy deals half the burn's remaining damage to every enemy next to it",
+      "effect": { "kind": "detonate", "percent": 50 }
     },
     {
       "id": "engine.frost",
-      "name": "Frost ignition",
+      "name": "Frost Lock",
       "requires_runes": ["rune.cold", "rune.frostbite"],
       "trigger": { "kind": "status_on_target", "status_id": "status.freeze" },
-      "log": "Frost ignition! Cold and frostbite runes lock together."
+      "log": "Frost ignition! Cold and frostbite runes lock together.",
+      "text": "Hitting a frozen enemy freezes one enemy next to it for 1 turn",
+      "effect": { "kind": "spread", "turns": 1 }
     },
     {
       "id": "engine.shock",
-      "name": "Shock ignition",
+      "name": "Arc",
       "requires_runes": ["rune.lightning", "rune.shock"],
       "trigger": { "kind": "status_on_target", "status_id": "status.paralyze" },
-      "log": "Shock ignition! Lightning and shock runes arc together."
+      "log": "Shock ignition! Lightning and shock runes arc together.",
+      "text": "Hitting a shocked enemy deals half that hit to every other shocked enemy",
+      "effect": { "kind": "arc", "percent": 50 }
     },
     {
       "id": "engine.ember_kindled",
-      "name": "Kindled ignition",
+      "name": "Kindled",
       "requires_runes": ["rune.fire", "rune.duration"],
       "trigger": { "kind": "status_on_target", "status_id": "status.burn" },
-      "log": "Kindled ignition! Fire and persistence runes keep the burn alive."
+      "log": "Kindled ignition! Fire and persistence runes keep the burn alive.",
+      "text": "Killing a burning enemy moves its burn to the nearest enemy that is not burning",
+      "effect": { "kind": "carry" }
     }
   ]
 }

@@ -48,6 +48,7 @@ FRuneContent decodeRune(const FContentRow& row) {
     rune.rarityName = row.text(kRuneFieldRarity);
     if (rune.rarityName.empty()) rune.rarityName = "common";
     rune.rarity = ParseRuneRarity(rune.rarityName).value_or(ERuneRarity::Common);
+    rune.kind = row.text(kRuneFieldKind);
     return rune;
 }
 

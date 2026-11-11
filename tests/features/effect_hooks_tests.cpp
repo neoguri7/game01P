@@ -584,7 +584,8 @@ void HealDeadTargetIsNoOp() {
     const int fired = game::FireHooks(
         registry, EHookEvent::OnKill,
         game::FHookContext{.owner = attacker, .other = victim, .skillId = "skill.strike"});
-    CHECK(fired == 1); // the hook fired; the heal was the no-op
+    // WP-45: FireHooks counts every registered code listener; WP-45 registers one on OnKill, so 1 hook + 1 listener.
+    CHECK(fired == 2); // the hook fired; the heal was the no-op
     CHECK(registry.get<game::FHealth>(victim).current == 0);
     CHECK(!LogHasLine(Log(registry), "heals"));
 }

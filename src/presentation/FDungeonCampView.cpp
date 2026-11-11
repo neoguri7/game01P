@@ -12,6 +12,7 @@
 #include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FRunewordInfo.h"
 #include "presentation/FCampLoadoutHost.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
@@ -140,6 +141,11 @@ void DrawCampMemberSection(entt::registry& registry, FDungeonRun& run, std::size
             const auto* skill = content != nullptr ? content->skills.find(slot.skillId) : nullptr;
             ImGui::Text("%s", ContentDisplayName(skill, slot.skillId).c_str());
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", slot.skillId.c_str());
+            // [WP-45] the runeword this slot holds, or how close it is
+            if (content != nullptr) {
+                const std::string word = RunewordSlotLine(*content, slot);
+                if (!word.empty()) ImGui::TextDisabled("%s", word.c_str());
+            }
             for (std::size_t runeIndex = 0; runeIndex < slot.runeIds.size(); ++runeIndex) {
                 const auto* fitted = content != nullptr ? content->runes.find(slot.runeIds[runeIndex]) : nullptr;
                 const auto label = ContentDisplayName(fitted, slot.runeIds[runeIndex]) + "  [remove]";
@@ -295,6 +301,14 @@ void RenderDungeonCampView(entt::registry& registry) {
             }
             ImGui::EndDisabled();
             if (respecProblem) ImGui::TextDisabled("%s", respecProblem->c_str());
+        }
+
+        // [WP-45] every runeword the run owns a rune of
+        ImGui::SeparatorText("RUNEWORDS");
+        {
+            const auto known = KnownRunewords(registry);
+            for (const FRunewordEntry& entry : known) ImGui::TextWrapped("%s", RunewordRecipeLine(entry).c_str());
+            if (known.empty()) ImGui::TextDisabled("None found yet. Rune cards mark runeword ingredients.");
         }
 
         ImGui::SeparatorText("LOADOUT (free)");

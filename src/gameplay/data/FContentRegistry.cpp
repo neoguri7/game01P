@@ -129,6 +129,10 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
             LOG_ERROR("content: rune '{}' has unknown rarity '{}'.", rune.id, rune.rarityName);
             return std::nullopt;
         }
+        if (!rune.kind.empty() && rune.kind != kRuneKindCatalyst && rune.kind != kRuneKindRetired) {
+            LOG_ERROR("content: rune '{}' has unknown kind '{}'.", rune.id, rune.kind);
+            return std::nullopt;
+        }
     }
     for (const FStatusContent& status : registry.statuses.rows) {
         if (!isKnownStatusKind(status.kind)) {
@@ -250,6 +254,29 @@ std::optional<FContentRegistry> FContentRegistry::load(const FAssetManager& asse
         if (engine.log.empty()) {
             LOG_ERROR("content: engine '{}' has an empty log.", engine.id);
             return std::nullopt;
+        }
+        if (!engine.effectKind.empty()) {
+            const bool percentKind = engine.effectKind == kEngineEffectDetonate || engine.effectKind == kEngineEffectArc;
+            if (!percentKind && engine.effectKind != kEngineEffectSpread && engine.effectKind != kEngineEffectCarry) {
+                LOG_ERROR("content: engine '{}' has unknown effect kind '{}'.", engine.id, engine.effectKind);
+                return std::nullopt;
+            }
+            if (engine.text.empty()) {
+                LOG_ERROR("content: engine '{}' has an effect but no text.", engine.id);
+                return std::nullopt;
+            }
+            if (engine.requiresRunes.size() < 2) {
+                LOG_ERROR("content: engine '{}' has an effect but fewer than two runes.", engine.id);
+                return std::nullopt;
+            }
+            if (percentKind && (engine.effectPercent < 1 || engine.effectPercent > 1000)) {
+                LOG_ERROR("content: engine '{}' effect percent {} is outside 1..1000.", engine.id, engine.effectPercent);
+                return std::nullopt;
+            }
+            if (engine.effectKind == kEngineEffectSpread && (engine.effectTurns < 1 || engine.effectTurns > 10)) {
+                LOG_ERROR("content: engine '{}' effect turns {} is outside 1..10.", engine.id, engine.effectTurns);
+                return std::nullopt;
+            }
         }
     }
 
