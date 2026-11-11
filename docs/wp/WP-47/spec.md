@@ -90,13 +90,13 @@ Use the theme ids exactly as `dungeon.json` → `themes[].id` spells them. `enem
 ```
 Each gets a `_comment` in the file's style. `TurnIs every 3 offset 2` is true on the unit's 3rd, 6th, 9th… turn. In action phase 1 every boss also plays by `fragment.fight`, which picks whichever skill of its loadout is worth the most per AP; the phase skill is in that pool, so it can appear in phase 1 when it scores best. The phase rule forces it in phase 2. The Hierophant's phase skill is `skill.imp_firebomb` (magical, area) because its damage follows magic attack; `skill.storm` is physical and would do minimum damage from this unit.
 
-`assets/data/battle_anim.json`: under `units`, add a row for each of the three new units that copies the `enemy.guardian` row (same clips and impact frame).
+`assets/data/battle_anim.json` is not changed (amendment after the implementer's `BLOCKED:` report): its `units` keys must all be known units, and fixture-based tests load the shipped file against the fixture's units, so rows for the new units break `settings_tests`. Units without a row already ship (`enemy.chanter`, `enemy.guardian_heart`); the new bosses use the same fallback until the art task.
 
 No combat modifier is added; `combat-math.md` is unaffected.
 
 ## 5. File map
 Modify:
-- `assets/data/units.json`, `assets/data/bosses.json`, `assets/data/ai.json`, `assets/data/battle_anim.json` — §4.
+- `assets/data/units.json`, `assets/data/bosses.json`, `assets/data/ai.json` — §4.
 - `tests/features/boss_goals_tests.cpp` — §7.
 
 No source file changes: the boss catalog, phases, parts gate, immunities, AI node types and the boss feed lines exist and are data-driven.
