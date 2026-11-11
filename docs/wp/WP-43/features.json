@@ -1,0 +1,123 @@
+{
+  "wp": "WP-43",
+  "files": [
+    "assets/data/dungeon.json",
+    "tests/fixtures/assets/data/dungeon.json",
+    "src/gameplay/dungeon/FDungeonCamp.h",
+    "src/gameplay/dungeon/FDungeonCamp.cpp",
+    "src/gameplay/dungeon/FDungeonRun.h",
+    "src/gameplay/dungeon/FDungeonRun.cpp",
+    "src/gameplay/dungeon/FRunFlow.cpp",
+    "src/presentation/FDungeonCampView.cpp",
+    "src/dev/FRunAutopilot.h",
+    "src/dev/FRunAutopilot.cpp",
+    "tests/features/camp_tests.cpp",
+    "tests/features/tuning_tests.cpp",
+    "tests/features/headless_tools_tests.cpp",
+    "tests/features/dungeon_sequence_tests.cpp",
+    "tests/DungeonTests.cpp"
+  ],
+  "allowTimeoutChange": false,
+  "allowCheckDrop": [
+    "tests/features/camp_tests.cpp",
+    "tests/features/tuning_tests.cpp"
+  ],
+  "features": [
+    {
+      "id": "F1",
+      "behavior": "Ship data: room_heal 0, camp_auto_heal 0, ko_recover_fraction 0.10, camp_heal_percent 30, camp_heal_cost absent",
+      "test": "camp_tests::ShipRecoveryValues",
+      "passes": false
+    },
+    {
+      "id": "F2",
+      "behavior": "Rest heals each member maxHp*percent/100, free, sentinel skipped",
+      "test": "camp_tests::RestHealsPercentFree",
+      "passes": false
+    },
+    {
+      "id": "F3",
+      "behavior": "A second rest at the same camp is refused",
+      "test": "camp_tests::RestOncePerCamp",
+      "passes": false
+    },
+    {
+      "id": "F4",
+      "behavior": "After a rest every stat upgrade is refused",
+      "test": "camp_tests::RestClosesStatUpgrades",
+      "passes": false
+    },
+    {
+      "id": "F5",
+      "behavior": "After a stat upgrade rest is refused, further upgrades stay open",
+      "test": "camp_tests::UpgradeClosesRest",
+      "passes": false
+    },
+    {
+      "id": "F6",
+      "behavior": "Rune offer and respec validate the same after either choice",
+      "test": "camp_tests::ServicesStayOpenAfterChoice",
+      "passes": false
+    },
+    {
+      "id": "F7",
+      "behavior": "The choice reads as none at another depth or for a stored value above 2",
+      "test": "camp_tests::ChoiceResetsAtNextCamp",
+      "passes": false
+    },
+    {
+      "id": "F8",
+      "behavior": "The choice survives save and continue, and a rest is still refused",
+      "test": "camp_tests::CampChoiceRoundTrip",
+      "passes": false
+    },
+    {
+      "id": "F9",
+      "behavior": "The rest preview equals the party HP after an actual rest",
+      "test": "camp_tests::RestPreviewMatchesOutcome",
+      "passes": false
+    },
+    {
+      "id": "F10",
+      "behavior": "A rest logs one CampSpent event: id rest, amount 0, member -1",
+      "test": "camp_tests::RestLogged",
+      "passes": false
+    },
+    {
+      "id": "F11",
+      "behavior": "The camp modal shows the Rest button with preview, the give-up line and the status lines; no paid heal button",
+      "test": "camp_tests::CampViewShowsChoice",
+      "passes": false
+    },
+    {
+      "id": "F12a",
+      "behavior": "A hurt member adds no service to the purchasable metric",
+      "test": "tuning_tests::CampPurchasableCountsOnlyLiveServices",
+      "passes": false
+    },
+    {
+      "id": "F12b",
+      "behavior": "The purchasable metric counts no stat upgrade after a rest",
+      "test": "tuning_tests::CampPurchasableDropsUpgradesAfterRest",
+      "passes": false
+    },
+    {
+      "id": "F13a",
+      "behavior": "The autopilot policy parses rest=<P>, 0..100, default 0",
+      "test": "headless_tools_tests::RestTokenParses",
+      "passes": false
+    },
+    {
+      "id": "F13b",
+      "behavior": "AutopilotShouldRest is true only below the threshold when rest validates",
+      "test": "headless_tools_tests::AutopilotRestsBelowThreshold",
+      "passes": false
+    },
+    {
+      "id": "F13c",
+      "behavior": "At camp the autopilot rests and buys no stat upgrade when AutopilotShouldRest is true; otherwise it buys upgrades",
+      "test": "headless_tools_tests::AutopilotCampRestSkipsUpgrades",
+      "passes": false
+    }
+  ]
+}
