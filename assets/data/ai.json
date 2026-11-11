@@ -59,6 +59,54 @@
           {"type": "UseSkill", "skills": ["skill.cleave"]}
         ]
       }
+    },
+    {
+      "id": "fragment.cinder_phase",
+      "_comment": "Cinder Warden phase rule: once the action phase reaches 2 (Wildfire) it closes in and drops its burning field every turn.",
+      "node": {
+        "type": "Sequence",
+        "children": [
+          {"type": "BossPhaseAtLeast", "phase": 2},
+          {"type": "Succeeder", "children": [{"type": "Engage", "skills": ["skill.flame_field"]}]},
+          {"type": "UseSkill", "skills": ["skill.flame_field"]}
+        ]
+      }
+    },
+    {
+      "id": "fragment.cinder_cycle",
+      "_comment": "Cinder Warden cycle: on its 3rd, 6th, 9th... turn it drops its burning field even in phase 1 (TurnIs every 3 offset 2 is true on the unit's 3rd turn).",
+      "node": {
+        "type": "Sequence",
+        "children": [
+          {"type": "TurnIs", "every": 3, "offset": 2},
+          {"type": "Succeeder", "children": [{"type": "Engage", "skills": ["skill.flame_field"]}]},
+          {"type": "UseSkill", "skills": ["skill.flame_field"]}
+        ]
+      }
+    },
+    {
+      "id": "fragment.chain_phase",
+      "_comment": "Chain Warden phase rule: once the action phase reaches 2 (Unchained) it commits to charging through the line.",
+      "node": {
+        "type": "Sequence",
+        "children": [
+          {"type": "BossPhaseAtLeast", "phase": 2},
+          {"type": "Succeeder", "children": [{"type": "Engage", "skills": ["skill.charge"]}]},
+          {"type": "UseSkill", "skills": ["skill.charge"]}
+        ]
+      }
+    },
+    {
+      "id": "fragment.hierophant_phase",
+      "_comment": "Ash Hierophant phase rule: once the action phase reaches 2 (the chanters are dead) it commits to raining fire over an area (imp_firebomb: magical, follows its magic attack).",
+      "node": {
+        "type": "Sequence",
+        "children": [
+          {"type": "BossPhaseAtLeast", "phase": 2},
+          {"type": "Succeeder", "children": [{"type": "Engage", "skills": ["skill.imp_firebomb"]}]},
+          {"type": "UseSkill", "skills": ["skill.imp_firebomb"]}
+        ]
+      }
     }
   ],
   "profiles": [
@@ -94,6 +142,46 @@
         "children": [
           {"type": "UseSkill", "role": "any"},
           {"type": "Wait"}
+        ]
+      }
+    },
+    {
+      "id": "ai.boss_cinder",
+      "_comment": "Cinder Warden: burning field every third turn, every turn in phase 2, else the default fight.",
+      "intent_mode": "hybrid",
+      "tree": {
+        "type": "ActiveSelector",
+        "children": [
+          {"type": "Ref", "id": "fragment.cinder_phase"},
+          {"type": "Ref", "id": "fragment.cinder_cycle"},
+          {"type": "Ref", "id": "fragment.fight"},
+          {"type": "Ref", "id": "fragment.tend_allies"}
+        ]
+      }
+    },
+    {
+      "id": "ai.boss_chain",
+      "_comment": "Chain Warden: the default fight (hook and shackle score by value) plus a phase-2 charge.",
+      "intent_mode": "hybrid",
+      "tree": {
+        "type": "ActiveSelector",
+        "children": [
+          {"type": "Ref", "id": "fragment.chain_phase"},
+          {"type": "Ref", "id": "fragment.fight"},
+          {"type": "Ref", "id": "fragment.tend_allies"}
+        ]
+      }
+    },
+    {
+      "id": "ai.boss_hierophant",
+      "_comment": "Ash Hierophant: the default fight while its chanters live, a phase-2 fire rain after.",
+      "intent_mode": "hybrid",
+      "tree": {
+        "type": "ActiveSelector",
+        "children": [
+          {"type": "Ref", "id": "fragment.hierophant_phase"},
+          {"type": "Ref", "id": "fragment.fight"},
+          {"type": "Ref", "id": "fragment.tend_allies"}
         ]
       }
     }

@@ -300,9 +300,10 @@ struct FBattle {
 
     /// `bosses` = the catalog to author into the temp root (nullptr = no bosses.json: every slot falls
     /// back). `bossSlot` == "" fields a non-boss battle (depth 1 room 0).
-    FBattle(const char* stem, const json* bosses, std::string_view bossSlot, std::uint32_t seed = 4242) {
+    FBattle(const char* stem, const json* bosses, std::string_view bossSlot, std::uint32_t seed = 4242,
+            bool copyFixture = true) {
         assets = std::make_unique<FTempAssets>(stem);
-        assets->CopyGameplayData();
+        if (copyFixture) assets->CopyGameplayData();
         if (bosses != nullptr) assets->Write("bosses.json", *bosses);
         checkpoint = UniquePath(stem);
         game::FAssetManager::Initialize(registry, {assets->root.string(), kShipAssetRoot});
@@ -2127,6 +2128,189 @@ void BossPartsAutoCompleteBudget() {
 
 }  // namespace
 
+// ------------------------------------------------------------------------------------------------
+// WP-47: the shipped bosses
+// ------------------------------------------------------------------------------------------------
+
+/// A catalog document that maps one shipped boss row to the first theme's "mid" slot, for FBattle with
+/// copyFixture = false (the rest of the data falls through to the shipped root).
+json ShippedBossAsMid(const std::string& bossId) {
+    const auto dungeon = ReadJsonFile("assets/data/dungeon.json");
+    const auto catalog = ReadJsonFile("assets/data/bosses.json");
+    json row;
+    for (const auto& boss : catalog.at("bosses")) {
+        if (boss.at("id").get<std::string>() == bossId) row = boss;
+    }
+    CHECK(!row.is_null());
+    json document;
+    document["schema_version"] = 1;
+    document["map"] = json::array(
+        {json{{"theme", dungeon.at("themes").front().at("id")}, {"slot", "mid"}, {"boss", bossId}}});
+    document["bosses"] = json::array({row});
+    return document;
+}
+
+entt::entity FirstBody(entt::registry& registry) {
+    for (const auto entity : registry.view<game::FBossGoals>()) return entity;
+    return entt::null;
+}
+
+std::size_t LivingParts(entt::registry& registry) {
+    std::size_t count = 0;
+    for (const auto entity : registry.view<game::FBossPart>()) {
+        if (!registry.all_of<game::FDead>(entity)) ++count;
+    }
+    return count;
+}
+
+void ShipBossesCoverEverySlot() {
+    const auto dungeon = ReadJsonFile("assets/data/dungeon.json");
+    const auto catalog = ReadJsonFile("assets/data/bosses.json");
+    const auto units = ReadJsonFile("assets/data/units.json");
+    const auto ai = ReadJsonFile("assets/data/ai.json");
+
+    std::vector<std::string> unitIds;
+    for (const auto& unit : units.at("units")) unitIds.push_back(unit.at("id").get<std::string>());
+    std::vector<std::string> profileIds;
+    for (const auto& profile : ai.at("profiles")) profileIds.push_back(profile.at("id").get<std::string>());
+    const auto has = [](const std::vector<std::string>& ids, const std::string& id) {
+        return std::find(ids.begin(), ids.end(), id) != ids.end();
+    };
+
+    int slots = 0;
+    for (const auto& theme : dungeon.at("themes")) {
+        const auto themeId = theme.at("id").get<std::string>();
+        for (const auto& dungeonRow : theme.at("dungeons")) {
+            for (const auto& room : dungeonRow.at("rooms")) {
+                if (!room.contains("boss")) continue;
+                const auto slot = room.at("boss").get<std::string>();
+                if (slot != "mid" && slot != "final") continue;
+                ++slots;
+                int matches = 0;
+                for (const auto& row : catalog.at("map")) {
+                    if (row.at("theme").get<std::string>() == themeId && row.at("slot").get<std::string>() == slot) {
+                        ++matches;
+                    }
+                }
+                CHECK(matches == 1);
+            }
+        }
+    }
+    CHECK(slots == 4);
+    CHECK(catalog.at("map").size() == 4);
+    CHECK(catalog.at("bosses").size() == 4);
+
+    for (const auto& row : catalog.at("map")) {
+        bool found = false;
+        for (const auto& boss : catalog.at("bosses")) found = found || boss.at("id") == row.at("boss");
+        CHECK(found);
+    }
+    for (const auto& boss : catalog.at("bosses")) {
+        const auto unitId = boss.at("unit").get<std::string>();
+        CHECK(has(unitIds, unitId));
+        if (boss.contains("parts")) {
+            for (const auto& part : boss.at("parts")) CHECK(has(unitIds, part.at("unit").get<std::string>()));
+        }
+        for (const auto& unit : units.at("units")) {
+            if (unit.at("id").get<std::string>() == unitId) CHECK(has(profileIds, unit.at("ai").get<std::string>()));
+        }
+    }
+}
+
+void NewBossesBuildWithGoals() {
+    const std::array<std::string, 3> ids{"boss.cinder_warden", "boss.chain_warden", "boss.ash_hierophant"};
+    for (const auto& id : ids) {
+        const auto document = ShippedBossAsMid(id);
+        FBattle battle("boss-goals-new-build", &document, "mid", 4242, false);
+        auto& registry = battle.registry;
+        const auto body = FirstBody(registry);
+        CHECK(body != entt::null);
+        if (body == entt::null) continue;
+        const auto& goals = registry.get<game::FBossGoals>(body);
+        const bool hierophant = id == "boss.ash_hierophant";
+        CHECK(goals.bossId == id);
+        CHECK(goals.phases.size() == 2);
+        if (goals.phases.size() != 2) continue;
+        CHECK(goals.phases[0].hpAbove == 50);
+        CHECK(goals.phases[1].hpAbove == 0);
+        CHECK(goals.phases[0].partsGate == hierophant);
+        CHECK(LivingParts(registry) == (hierophant ? 3u : 0u));
+        const auto& immune = registry.get<game::FActiveStatuses>(body).immune;
+        if (hierophant) {
+            CHECK(std::find(immune.begin(), immune.end(), "status.debuff") != immune.end());
+        } else {
+            CHECK(immune.empty());
+        }
+    }
+}
+
+void NewBossPhaseSkills() {
+    const std::array<std::pair<std::string, std::string>, 3> rows{{
+        {"boss.cinder_warden", "skill.flame_field"},
+        {"boss.chain_warden", "skill.charge"},
+        {"boss.ash_hierophant", "skill.imp_firebomb"},
+    }};
+    for (const auto& [id, phaseSkill] : rows) {
+        const auto document = ShippedBossAsMid(id);
+        FBattle battle("boss-goals-new-skill", &document, "mid", 4242, false);
+        auto& registry = battle.registry;
+        const auto body = FirstBody(registry);
+        CHECK(body != entt::null);
+        if (body == entt::null) continue;
+
+        std::vector<entt::entity> others;
+        for (const auto entity : registry.view<game::FHealth>()) {
+            if (entity == body || registry.all_of<game::FPartyMember>(entity)) continue;
+            others.push_back(entity);
+        }
+        for (const auto entity : others) (void)game::ApplyDamageToUnit(registry, entity, 100000);
+        entt::entity hero = entt::null;
+        for (const auto entity : registry.view<game::FPartyMember, game::FGridPosition>()) {
+            hero = entity;
+            break;
+        }
+        CHECK(hero != entt::null);
+        const auto free = FreeCellNear(registry, registry.get<game::FGridPosition>(body), 1);
+        CHECK(free.has_value());
+        if (hero == entt::null || !free) continue;
+        registry.get<game::FGridPosition>(hero) = *free;
+
+        auto& goals = registry.get<game::FBossGoals>(body);
+        registry.get<game::FActiveStatuses>(body).effects.clear();
+        auto& points = registry.get<game::FActionPoints>(body);
+        points.move = 0;
+        points.skill = points.skillMax;
+
+        goals.behaviorPhase = 1;
+        CHECK(SkillOf(Decide(registry, body, 2, true)) == phaseSkill);
+        if (id == "boss.chain_warden") {
+            goals.behaviorPhase = 0;
+            points.skill = points.skillMax;
+            CHECK(SkillOf(Decide(registry, body, 1, true)) != phaseSkill);
+        }
+    }
+}
+
+void HierophantGateHoldsWhileChantersLive() {
+    const auto document = ShippedBossAsMid("boss.ash_hierophant");
+    FBattle battle("boss-goals-hierophant-gate", &document, "mid", 4242, false);
+    auto& registry = battle.registry;
+    const auto body = FirstBody(registry);
+    CHECK(body != entt::null);
+    if (body == entt::null) return;
+    std::vector<entt::entity> parts;
+    for (const auto entity : registry.view<game::FBossPart>()) parts.push_back(entity);
+    CHECK(parts.size() == 3);
+
+    const int maxHp = registry.get<game::FHealth>(body).max;
+    (void)game::ApplyDamageToUnit(registry, body, 100000);
+    CHECK(registry.get<game::FHealth>(body).current == game::BossPhaseFloor(maxHp, 50));
+    CHECK(!registry.all_of<game::FDead>(body));
+
+    for (const auto part : parts) (void)game::ApplyDamageToUnit(registry, part, 100000);
+    CHECK(game::ApplyDamageToUnit(registry, body, 100000));
+}
+
 int main() {
     // Per-case progress lines flush before a crash/abort (an entt assertion kills the process, so the
     // buffered runner output would otherwise be lost and the failing case unknown).
@@ -2182,6 +2366,10 @@ int main() {
         {"CommittedIntentSurvivesTransition", CommittedIntentSurvivesTransition},
         {"PhaseBehaviorTakesEffectNextRound", PhaseBehaviorTakesEffectNextRound},
         {"PhaseGuardSelectsSkill", PhaseGuardSelectsSkill},
+        {"ShipBossesCoverEverySlot", ShipBossesCoverEverySlot},
+        {"NewBossesBuildWithGoals", NewBossesBuildWithGoals},
+        {"NewBossPhaseSkills", NewBossPhaseSkills},
+        {"HierophantGateHoldsWhileChantersLive", HierophantGateHoldsWhileChantersLive},
         {"AiValuationGateAware", AiValuationGateAware},
         {"AutoplayKillsPartsFirst", AutoplayKillsPartsFirst},
         {"BossPartsAutoCompleteBudget", BossPartsAutoCompleteBudget},

@@ -760,6 +760,9 @@ void UnlockCatalogValid() {
             // must place it at index >= 4 (FBattleSetup.cpp kDefaultLoadoutSlots = 4).
             bool authored = false;
             for (const auto& unit : content.units.rows) {
+                // WP-47: the index rule protects the party's default loadout; enemy rows (bosses) may use
+                // unlockable skills in any slot.
+                if (unit.id.starts_with("enemy.")) continue;
                 const auto found = std::ranges::find(unit.skillIds, id);
                 if (found == unit.skillIds.end()) continue;
                 authored = true;

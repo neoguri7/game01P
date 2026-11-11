@@ -1,8 +1,11 @@
 {
-  "_comment": "WP-15 multi-stage boss goals (schema_version 1). Data says WHAT (phases, gate, parts); the code interprets HOW (FBossGoals.h) - no string condition DSL. Only the Ember Crypt mid slot is mapped for now; every other boss slot is unmapped and keeps the single-phase fallback (generation.boss_unit). A gated phase means: while any part lives the body's HP cannot drop below that phase's hp_above threshold (the Bone Hydra rule).",
+  "_comment": "WP-15 multi-stage boss goals (schema_version 1). Data says WHAT (phases, gate, parts); the code interprets HOW (FBossGoals.h) - no string condition DSL. WP-47 maps all four boss slots; an unmapped slot would still keep the single-phase fallback (generation.boss_unit). A gated phase means: while any part lives the body's HP cannot drop below that phase's hp_above threshold (the Bone Hydra rule).",
   "schema_version": 1,
   "map": [
-    { "theme": "theme.ember_crypt", "slot": "mid", "boss": "boss.stone_guardian" }
+    { "theme": "theme.ember_crypt", "slot": "mid", "boss": "boss.stone_guardian" },
+    { "theme": "theme.ember_crypt", "slot": "final", "boss": "boss.cinder_warden" },
+    { "theme": "theme.ashen_reach", "slot": "mid", "boss": "boss.chain_warden" },
+    { "theme": "theme.ashen_reach", "slot": "final", "boss": "boss.ash_hierophant" }
   ],
   "bosses": [
     {
@@ -23,6 +26,36 @@
       ],
       "parts": [
         { "unit": "enemy.guardian_heart", "count": 3, "name": "Guardian heart" }
+      ]
+    },
+    {
+      "id": "boss.cinder_warden",
+      "name": "Cinder Warden",
+      "unit": "enemy.cinder_warden",
+      "phases": [
+        { "hp_above": 50, "notes": "Kindling" },
+        { "hp_above": 0, "body_immunities": ["status.burn", "status.freeze"], "notes": "Wildfire" }
+      ]
+    },
+    {
+      "id": "boss.chain_warden",
+      "name": "Chain Warden",
+      "unit": "enemy.chain_warden",
+      "phases": [
+        { "hp_above": 50, "notes": "Hunting" },
+        { "hp_above": 0, "body_immunities": ["status.locked_move", "status.paralyze"], "notes": "Unchained" }
+      ]
+    },
+    {
+      "id": "boss.ash_hierophant",
+      "name": "Ash Hierophant",
+      "unit": "enemy.ash_hierophant",
+      "phases": [
+        { "hp_above": 50, "gate": "parts", "body_immunities": ["status.debuff"], "notes": "Chanted ward" },
+        { "hp_above": 0, "notes": "Ward broken" }
+      ],
+      "parts": [
+        { "unit": "enemy.chanter", "count": 3, "name": "Ash chanter" }
       ]
     }
   ]
