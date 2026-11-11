@@ -530,8 +530,7 @@ void BalanceDrivenChoiceUi() {
     const int chestLoss0 = game::ChestHpLossFor(registry, run.party[0]);
     CHECK(chestLoss0 > 0);  // 만피 파티도 상자 대가는 실 HP로 지불한다(사전 표시 = 실제 손실)
     const auto session = game::BuildCampSession(registry);
-    const std::string healLabel = "Heal party  /  " + std::to_string(session.paidHealCost) +
-        " materials  /  +" + std::to_string(session.paidHealPercent) + "% max HP each";
+    const std::string restLabel = "Rest  /  free  /  +" + std::to_string(session.restHealPercent) + "% max HP each";
     const std::string respecLabel =
         "Reallocate passive nodes  /  " + std::to_string(session.respecCost) + " materials";
     std::string offerLabel = "Buy rune offer  /  " + std::to_string(session.runeOfferCost) + " materials";
@@ -545,7 +544,7 @@ void BalanceDrivenChoiceUi() {
     CHECK(log.find("HP cost: " + game::MemberName(run.party[0]) + " " + std::to_string(chestLoss0)) !=
           std::string::npos);
     CHECK(log.find("Attack +1  (5 materials, 0/6)") != std::string::npos);
-    CHECK(log.find(healLabel) != std::string::npos);
+    CHECK(log.find(restLabel) != std::string::npos);
     CHECK(log.find(respecLabel) != std::string::npos);
     CHECK(log.find(offerLabel) != std::string::npos);
     run.phase = game::EDungeonPhase::Reward;

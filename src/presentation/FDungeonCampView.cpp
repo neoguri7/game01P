@@ -220,14 +220,43 @@ void RenderDungeonCampView(entt::registry& registry) {
         }
         const FCampSession session = BuildCampSession(registry);
         const auto& recovery = DungeonRecovery(registry);
-        ImGui::TextWrapped(
-            "Healed up to %d HP on the way in (free, no choice). Paid services cost materials; there is no "
-            "action limit — the material budget is the constraint.",
-            recovery.campAutoHeal);
+        if (recovery.campAutoHeal > 0) ImGui::TextWrapped("Healed up to %d HP on the way in.", recovery.campAutoHeal);
 
         auto* rewards = registry.ctx().find<FRewards>();
         const auto* content = registry.ctx().find<gameplay::FContentRegistry>();
         const bool offerOpen = rewards != nullptr && rewards->offer.active;
+
+        ImGui::SeparatorText("REST OR REINFORCE");
+        switch (session.choice) {
+        case ECampChoice::None: {
+            ImGui::TextWrapped(
+                "Take one at this camp: rest, or reinforce stats. Rune offers, node reallocation and the loadout "
+                "stay open either way.");
+            const auto restProblem = ValidateDungeonCampRest(registry);
+            const FCampRestPreview preview = DungeonCampRestPreview(registry);
+            const std::string restLabel = "Rest  /  free  /  +" + std::to_string(session.restHealPercent) +
+                "% max HP each  /  party HP " + std::to_string(preview.partyHp) + " -> " +
+                std::to_string(preview.partyHpAfter) + " of " + std::to_string(preview.partyHpMax);
+            ImGui::BeginDisabled(restProblem.has_value());
+            if (ui::Button(restLabel.c_str(), {-1, 42})) {
+                if (const auto error = RestAtDungeonCamp(registry)) {
+                    run.message = "Cannot rest: " + *error;
+                } else {
+                    run.message = "The party rests.";
+                }
+            }
+            ImGui::EndDisabled();
+            if (restProblem) ImGui::TextDisabled("%s", restProblem->c_str());
+            ImGui::TextDisabled("Reinforce: buy any stat upgrade below. The first purchase gives up Rest at this camp.");
+            break;
+        }
+        case ECampChoice::Rest:
+            ImGui::TextDisabled("Rested at this camp. Stat upgrades are closed until the next camp.");
+            break;
+        case ECampChoice::Reinforce:
+            ImGui::TextDisabled("Reinforcing at this camp. Rest is closed until the next camp.");
+            break;
+        }
 
         ImGui::SeparatorText("CAMP SERVICES");
         if (offerOpen) {
@@ -251,21 +280,6 @@ void RenderDungeonCampView(entt::registry& registry) {
             }
             ImGui::EndDisabled();
             if (offerProblem) ImGui::TextDisabled("%s", offerProblem->c_str());
-        }
-        {
-            const auto healProblem = ValidateDungeonCampHeal(registry);
-            const std::string healLabel = "Heal party  /  " + std::to_string(session.paidHealCost) +
-                " materials  /  +" + std::to_string(session.paidHealPercent) + "% max HP each";
-            ImGui::BeginDisabled(healProblem.has_value());
-            if (ui::Button(healLabel.c_str(), {-1, 42})) {
-                if (const auto error = PayDungeonCampHeal(registry)) {
-                    run.message = "Cannot heal: " + *error;
-                } else {
-                    run.message = "The party is healed.";
-                }
-            }
-            ImGui::EndDisabled();
-            if (healProblem) ImGui::TextDisabled("%s", healProblem->c_str());
         }
         {
             const auto respecProblem = ValidateDungeonRespec(registry);

@@ -25,6 +25,9 @@ struct FCampTables {
     int respecCost{0};                      // flat price of the node reallocation (camp.respec_cost)
 };
 
+/// The camp's one exclusive choice (WP-43). Stored as an integer in FCampProgress.
+enum class ECampChoice : std::uint8_t { None = 0, Rest = 1, Reinforce = 2 };
+
 /// The run-cumulative camp counters. Module state: it is saved in `run.ext.camp` and never in the core run
 /// keys (WP-07 contract). A new run installs zeros; Continue unpacks the saved values before the run is
 /// installed, so the serializer never reads FDungeonRun.
@@ -33,14 +36,22 @@ struct FCampProgress {
     std::uint32_t runeDrawsTotal{0};     // rune-offer curve index — +1 on every successful camp purchase
     std::uint32_t campDepth{0};          // the depth runeDrawsThisCamp is valid for
     std::uint32_t runeDrawsThisCamp{0};  // valid only while campDepth == run.depth (derived reset)
+    std::uint32_t choiceDepth{0};        // the depth `choice` is valid for
+    std::uint32_t choice{0};             // ECampChoice; valid only while choiceDepth == run.depth
 };
+
+/// None when runDepth < 0, progress.choiceDepth != runDepth, or progress.choice > 2; else the stored choice.
+[[nodiscard]] ECampChoice CampChoiceThisCamp(const FCampProgress& progress, int runDepth);
+/// Writes choice and choiceDepth = runDepth. Does not touch campDepth / runeDrawsThisCamp.
+/// runDepth < 0 writes nothing (callers pass run.depth, which is never negative).
+void SetCampChoice(FCampProgress& progress, int runDepth, ECampChoice choice);
 
 /// The camp shop as the view sees it: the prices at the current progress. `BuildCampSession` derives it
 /// from the loaded tables + the saved counters — nothing here is stored beyond the counters themselves.
 struct FCampSession {
     int upgradeCost{0};          // next reinforcement purchase price
-    int paidHealCost{0};         // recovery.camp_heal_cost
-    int paidHealPercent{0};      // recovery.camp_heal_percent of each member's run max HP
+    int restHealPercent{0};      // recovery.camp_heal_percent of each member's run max HP (the free rest)
+    ECampChoice choice{ECampChoice::None};  // this camp's choice (WP-43)
     int respecCost{0};           // camp.respec_cost
     int runeOfferCost{0};        // next camp rune-offer price, after the first-offer discount
     bool runeOfferDiscounted{false};  // true when runeOfferCost carries the special discount
@@ -72,13 +83,12 @@ struct FCampSession {
 /// The camp shop snapshot for the view (prices + the open offer's cap state).
 [[nodiscard]] FCampSession BuildCampSession(const entt::registry& registry);
 
-/// The reference basket (the five services) at the current progress, in the WP-10 order: the next two
-/// reinforcement prices, paid heal, respec, the next rune offer. `basket` = their sum, `cheapestTwo` = the
+/// The reference basket (the four priced services) at the current progress, in the WP-10 order: the next two
+/// reinforcement prices, respec, the next rune offer. `basket` = their sum, `cheapestTwo` = the
 /// sum of the two smallest — the budget invariant is `basket > held >= cheapestTwo`.
 struct FCampPrices {
     int upgrade{0};
     int nextUpgrade{0};
-    int heal{0};
     int respec{0};
     int offer{0};
 };
@@ -90,7 +100,7 @@ struct FCampPrices {
 /// the party can actually buy now (affordability deliberately ignored: the `Validate*` functions run with
 /// the run's materials temporarily raised, so a poor party still counts what it could buy). Fewer than two
 /// purchasable services: the sum of what exists; none: 0. `purchasableCount` (optional) receives the
-/// number of purchasable services.
+/// number of purchasable services. After a rest the two stat-upgrade entries are dropped (WP-43).
 [[nodiscard]] int CampCheapestTwoPurchasable(entt::registry& registry, int* purchasableCount = nullptr);
 
 /// Camp entry report (WP-10 E1b, M1 denominator via WP-28): one LOG_INFO line with hoard_ratio = materials
@@ -98,7 +108,7 @@ struct FCampPrices {
 void LogCampEntryReport(entt::registry& registry);
 
 /// The `camp` save section (id "camp", version 1): upgrades_total / rune_draws_total / camp_depth /
-/// rune_draws_this_camp. Registered once through the composition root; no static self-registration.
+/// rune_draws_this_camp / choice_depth / choice. Registered once through the composition root; no static self-registration.
 [[nodiscard]] FSaveSectionSerializer CampSaveSection();
 
 /// Can the run buy one more camp rune offer? Returns the reason it cannot, or nullopt.

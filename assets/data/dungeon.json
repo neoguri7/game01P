@@ -5,7 +5,7 @@
   "balance": {
     "move_range": 2,
     "trap_damage": 8,
-    "room_heal": 4,
+    "room_heal": 0,
     "event_heal": 35,
     "event_materials": 3,
     "room_materials": 2,
@@ -32,10 +32,9 @@
     "respec_cost": 5
   },
   "recovery": {
-    "ko_recover_fraction": 0.25,
-    "camp_auto_heal": 22,
-    "camp_heal_cost": 3,
-    "camp_heal_percent": 25,
+    "ko_recover_fraction": 0.10,
+    "camp_auto_heal": 0,
+    "camp_heal_percent": 30,
     "event_chest_hp_cost_fraction": 0.10,
     "free_heal_cap_fraction": 0.6
   },

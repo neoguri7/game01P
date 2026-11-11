@@ -144,7 +144,7 @@ std::expected<FRunResult, std::string> ContinueReward(entt::registry& registry) 
     checkpoint.cleared = std::max(checkpoint.cleared, std::min(run->cleared, 999));
     (void)SaveCheckpoint(registry);
     RestoreParty(registry, DungeonRecovery(registry).campAutoHeal);
-    run->message = "Dungeon cleared. Checkpoint reached. Rest, fit runes, reinforce stats, then descend.";
+    run->message = "Dungeon cleared. Checkpoint reached. Rest or reinforce stats, fit runes, then descend.";
     // WP-10: the entry report (hoard_ratio = materials / cheapest-two) — a tuning metric, not a gate.
     LogCampEntryReport(registry);
     // The checkpoint/cleared update is complete; the event is appended before the save.

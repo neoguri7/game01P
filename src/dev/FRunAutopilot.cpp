@@ -218,6 +218,14 @@ int ResolveOpenOffers(entt::registry& registry, const FAutopilotPolicy& policy, 
 
 } // namespace
 
+bool AutopilotShouldRest(const entt::registry& registry, const FAutopilotPolicy& policy) {
+    if (policy.campRestBelow <= 0) return false;
+    if (ValidateDungeonCampRest(registry).has_value()) return false;
+    const FCampRestPreview preview = DungeonCampRestPreview(registry);
+    if (preview.partyHpMax <= 0) return false;
+    return preview.partyHp * 100 / preview.partyHpMax < policy.campRestBelow;
+}
+
 std::expected<FAutopilotPolicy, std::string> ParseAutopilotPolicy(std::string_view text) {
     const std::string_view trimmed = Trim(text);
     if (trimmed.empty()) return std::unexpected(std::string("empty autopilot policy"));
@@ -233,6 +241,7 @@ std::expected<FAutopilotPolicy, std::string> ParseAutopilotPolicy(std::string_vi
     bool sawCamp = false;
     bool sawContinue = false;
     bool sawEquip = false;
+    bool sawRest = false;
 
     std::size_t pos = 0;
     while (pos <= trimmed.size()) {
@@ -298,6 +307,12 @@ std::expected<FAutopilotPolicy, std::string> ParseAutopilotPolicy(std::string_vi
             else if (value == "off") policy.equip = EAutopilotEquip::Off;
             else if (value == "engine") policy.equip = EAutopilotEquip::Engine;
             else return std::unexpected(BadValue("bad equip value", value));
+        } else if (key == "rest") {
+            if (sawRest) return std::unexpected(std::string("duplicate token 'rest'"));
+            sawRest = true;
+            const auto percent = ParseCount(value, 100);
+            if (!percent) return std::unexpected(BadValue("bad rest value", value));
+            policy.campRestBelow = *percent;
         } else {
             return std::unexpected(BadValue("unknown token", token));
         }
@@ -464,11 +479,21 @@ EAutopilotStatus FRunAutopilot::tick(entt::registry& registry, std::string_view 
             (void)ConsolidateEnginesAtCamp(registry);
         }
 
+        // WP-43: the camp is one choice. A party below the `rest=` threshold rests and buys no stat upgrade.
+        const bool rested = AutopilotShouldRest(registry, policy_);
+        if (rested) {
+            if (const auto error = RestAtDungeonCamp(registry)) {
+                LOG_WARN("[autopilot] camp rest failed: {}", *error);
+            } else {
+                LOG_INFO("[autopilot] camp rest materials={}", run->materials);
+            }
+        }
+
         // Reinforcements: member 0 only (the camp view's candidates[0] for the first expanded member, M-FUN
         // Step-Camp). Each of the U purchases takes the lowest upgrade index member 0 accepts; no legal
         // upgrade — or an empty party — stops the buying.
         if (const auto* growth = registry.ctx().find<FDungeonGrowth>();
-            growth != nullptr && !run->party.empty()) {
+            !rested && growth != nullptr && !run->party.empty()) {
             for (int bought = 0; bought < policy_.campUpgrades; ++bought) {
                 bool purchased = false;
                 for (std::size_t upgradeIndex = 0; upgradeIndex < growth->statUpgrades.size(); ++upgradeIndex) {

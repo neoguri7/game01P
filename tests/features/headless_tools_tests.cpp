@@ -60,6 +60,7 @@
 #include "gameplay/GameplayServices.h"
 #include "gameplay/combat/FEngineIgnition.h"
 #include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonSave.h"
 #include "gameplay/dungeon/FEventContent.h"
@@ -1161,6 +1162,75 @@ void CampConsolidationMovesSplitPair() {
     }
 }
 
+/// WP-43 F13a: the `rest=<P>` token parses 0..100, defaults to 0, rejects bad values and duplicates.
+void RestTokenParses() {
+    const auto parsed = game::dev::ParseAutopilotPolicy("rest=60");
+    CHECK(parsed.has_value());
+    if (parsed) CHECK(parsed->campRestBelow == 60);
+    const auto fallback = game::dev::ParseAutopilotPolicy(game::dev::kDefaultAutopilotPolicy);
+    CHECK(fallback.has_value());
+    if (fallback) CHECK(fallback->campRestBelow == 0);
+    for (const char* bad : {"rest=101", "rest=x", "rest=", "rest=10,rest=20"}) {
+        CHECK(!game::dev::ParseAutopilotPolicy(bad).has_value());
+    }
+}
+
+/// WP-43 F13b: rest only below the threshold, only when the rest validates.
+void AutopilotRestsBelowThreshold() {
+    FHeadlessRunHarness harness{469u, "autopilot-rest-threshold"};
+    SetupConstructedRun(harness, game::EDungeonPhase::Camp);
+    auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+    const auto policy = game::dev::ParseAutopilotPolicy("rest=50");
+    CHECK(policy.has_value());
+    if (!policy) return;
+    const auto zero = game::dev::ParseAutopilotPolicy("rest=0");
+    CHECK(zero.has_value());
+    if (!zero) return;
+    for (auto& member : run.party) member.health = game::DungeonMemberMaxHealth(harness.registry, member);
+    CHECK(!game::dev::AutopilotShouldRest(harness.registry, *policy));
+    for (auto& member : run.party) member.health = 1;
+    CHECK(game::dev::AutopilotShouldRest(harness.registry, *policy));
+    CHECK(!game::dev::AutopilotShouldRest(harness.registry, *zero));
+    CHECK(!game::RestAtDungeonCamp(harness.registry).has_value());
+    CHECK(!game::dev::AutopilotShouldRest(harness.registry, *policy));
+}
+
+/// WP-43 F13c: at camp the autopilot rests and buys no stat upgrade; without the token it reinforces.
+void AutopilotCampRestSkipsUpgrades() {
+    {
+        FHeadlessRunHarness harness{469u, "autopilot-camp-rest"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Camp);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.materials = 1000;
+        for (auto& member : run.party) member.health = 1;
+        const auto policy = game::dev::ParseAutopilotPolicy("camp=+2,rest=100");
+        CHECK(policy.has_value());
+        if (!policy) return;
+        const auto upgradesBefore = harness.registry.ctx().get<game::FCampProgress>().upgradesTotal;
+        game::dev::FRunAutopilot pilot{*policy};
+        CHECK(pilot.tick(harness.registry, std::string(game::kRunModalCamp)) == EAutopilotStatus::Finished);
+        const auto& progress = harness.registry.ctx().get<game::FCampProgress>();
+        CHECK(game::CampChoiceThisCamp(progress, run.depth) == game::ECampChoice::Rest);
+        CHECK(progress.upgradesTotal == upgradesBefore);
+    }
+    {
+        FHeadlessRunHarness harness{469u, "autopilot-camp-reinforce"};
+        SetupConstructedRun(harness, game::EDungeonPhase::Camp);
+        auto& run = harness.registry.ctx().get<game::FDungeonRun>();
+        run.materials = 1000;
+        for (auto& member : run.party) member.health = 1;
+        const auto policy = game::dev::ParseAutopilotPolicy("camp=+2");
+        CHECK(policy.has_value());
+        if (!policy) return;
+        const auto upgradesBefore = harness.registry.ctx().get<game::FCampProgress>().upgradesTotal;
+        game::dev::FRunAutopilot pilot{*policy};
+        (void)pilot.tick(harness.registry, std::string(game::kRunModalCamp));
+        const auto& progress = harness.registry.ctx().get<game::FCampProgress>();
+        CHECK(game::CampChoiceThisCamp(progress, run.depth) == game::ECampChoice::Reinforce);
+        CHECK(progress.upgradesTotal >= upgradesBefore + 1);
+    }
+}
+
 /// Test 6: consolidation refuses a move whose removal breaks a co-fitted rune (fire supplies inferno's
 /// Fire tag, and Strike is full): zero moves, byte-identical loadout, `camp move none engine=engine.ember`.
 void CampConsolidationRefusesBrokenRemoval() {
@@ -1574,6 +1644,9 @@ int main() {
         {"EnginePolicyStartsOnHostOnly", EnginePolicyStartsOnHostOnly},
         {"EnginePolicyFallbackKeepsReservation", EnginePolicyFallbackKeepsReservation},
         {"CampConsolidationMovesSplitPair", CampConsolidationMovesSplitPair},
+        {"RestTokenParses", RestTokenParses},
+        {"AutopilotRestsBelowThreshold", AutopilotRestsBelowThreshold},
+        {"AutopilotCampRestSkipsUpgrades", AutopilotCampRestSkipsUpgrades},
         {"CampConsolidationRefusesBrokenRemoval", CampConsolidationRefusesBrokenRemoval},
         {"RewardEnginePicksCompletingCard", RewardEnginePicksCompletingCard},
         {"ClassifyEnginesReasons", ClassifyEnginesReasons},

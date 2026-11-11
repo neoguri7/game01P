@@ -387,9 +387,9 @@ struct FCampBoot {
 }
 
 /// CampPurchasableCountsOnlyLiveServices: the denominator counts exactly the services whose Validate*
-/// accepts them — respec appears with a node allocated, the paid heal with a wounded member, the offer
-/// disappears at the camp cap and with a pool below min_legal_candidates. The counts move by exactly one
-/// per service; the price order keeps the two-cheapest sum unchanged in this state.
+/// accepts them — respec appears with a node allocated, the offer disappears at the camp cap and with a
+/// pool below min_legal_candidates, and a hurt member adds no service (the rest is not a priced service).
+/// The counts move by exactly one per service; the price order keeps the two-cheapest sum unchanged here.
 void CampPurchasableCountsOnlyLiveServices() {
     FCampBoot boot("camp-live-services");
     auto& run = boot.run();
@@ -397,8 +397,7 @@ void CampPurchasableCountsOnlyLiveServices() {
 
     int before = 0;
     const int beforeTwo = game::CampCheapestTwoPurchasable(boot.registry, &before);
-    // Fresh party: two reinforcement entries + the camp rune offer; the heal has nothing to restore
-    // (every member is the full-health sentinel) and no node is allocated for a respec.
+    // Fresh party: two reinforcement entries + the camp rune offer; no node is allocated for a respec.
     CHECK(before == 3);
     CHECK(beforeTwo > 0);
 
@@ -410,9 +409,9 @@ void CampPurchasableCountsOnlyLiveServices() {
     CHECK(respecTwo == beforeTwo); // respec's flat price sits above the two reinforcement steps
 
     warrior.health = 1;
-    int withHeal = 0;
-    (void)game::CampCheapestTwoPurchasable(boot.registry, &withHeal);
-    CHECK(withHeal == withRespec + 1);
+    int withHurt = 0;
+    (void)game::CampCheapestTwoPurchasable(boot.registry, &withHurt);
+    CHECK(withHurt == withRespec);  // a hurt member adds no service
 
     const int cap = boot.registry.ctx().get<game::FCampTables>().runeOfferCampCap;
     CHECK(cap >= 1);
@@ -420,13 +419,28 @@ void CampPurchasableCountsOnlyLiveServices() {
     boot.progress().runeDrawsThisCamp = static_cast<std::uint32_t>(cap);
     int capped = 0;
     (void)game::CampCheapestTwoPurchasable(boot.registry, &capped);
-    CHECK(capped == withHeal - 1); // used-up camp offers are not part of a minimal visit
+    CHECK(capped == withRespec - 1); // used-up camp offers are not part of a minimal visit
 
     boot.progress().runeDrawsThisCamp = 0;
     boot.rewards().tables.minLegalCandidates = 9999; // the peek gate: no legal pool, no offer
     int emptyPool = 0;
     (void)game::CampCheapestTwoPurchasable(boot.registry, &emptyPool);
-    CHECK(emptyPool == withHeal - 1);
+    CHECK(emptyPool == withRespec - 1);
+}
+
+/// CampPurchasableDropsUpgradesAfterRest (WP-43): once the party rested, stat upgrades are closed, so the
+/// two reinforcement entries leave the count.
+void CampPurchasableDropsUpgradesAfterRest() {
+    FCampBoot boot("camp-after-rest");
+    auto& run = boot.run();
+    run.phase = game::EDungeonPhase::Camp;
+    Member(run, "party.warrior").health = 1;
+    int before = 0;
+    (void)game::CampCheapestTwoPurchasable(boot.registry, &before);
+    CHECK(!game::RestAtDungeonCamp(boot.registry).has_value());
+    int after = 0;
+    (void)game::CampCheapestTwoPurchasable(boot.registry, &after);
+    CHECK(after == before - 2);
 }
 
 /// CampPurchasableIgnoresAffordability: the metric answers "what could be bought", never "what the purse
@@ -437,7 +451,7 @@ void CampPurchasableIgnoresAffordability() {
     auto& run = boot.run();
     run.phase = game::EDungeonPhase::Camp;
     Member(run, "party.warrior").allocatedNodes = {"node.might"};
-    run.party[0].health = 1; // heal + respec live, so all five entries can appear
+    run.party[0].health = 1; // a hurt member adds no service; respec live, so all four entries can appear
 
     run.materials = 0;
     int poor = 0;
@@ -449,7 +463,7 @@ void CampPurchasableIgnoresAffordability() {
     const int richTwo = game::CampCheapestTwoPurchasable(boot.registry, &rich);
 
     CHECK(poor == rich);
-    CHECK(poor == 5); // upgrade, next upgrade, heal, respec, offer
+    CHECK(poor == 4); // upgrade, next upgrade, respec, offer
     CHECK(poorTwo == richTwo);
 }
 
@@ -577,6 +591,7 @@ int main() {
         {"DebuffValueIsPositiveOnEnemies", DebuffValueIsPositiveOnEnemies},
         {"CampPurchasableCountsOnlyLiveServices", CampPurchasableCountsOnlyLiveServices},
         {"CampPurchasableIgnoresAffordability", CampPurchasableIgnoresAffordability},
+        {"CampPurchasableDropsUpgradesAfterRest", CampPurchasableDropsUpgradesAfterRest},
         {"CampEntryReportAddsPurchasableCount", CampEntryReportAddsPurchasableCount},
         {"RunSeedParsesStrictDecimal", RunSeedParsesStrictDecimal},
         {"RunSeedSequencesAcrossAttempts", RunSeedSequencesAcrossAttempts},

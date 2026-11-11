@@ -545,14 +545,13 @@ bool InitializeDungeon(entt::registry& registry, std::string checkpointPath, std
         FDungeonRecovery recovery;
         recovery.koRecoverFraction = data.at("recovery").at("ko_recover_fraction").get<double>();
         recovery.campAutoHeal = data.at("recovery").at("camp_auto_heal").get<int>();
-        recovery.campHealCost = data.at("recovery").at("camp_heal_cost").get<int>();
         recovery.campHealPercent = data.at("recovery").at("camp_heal_percent").get<int>();
         recovery.eventChestHpCostFraction = data.at("recovery").at("event_chest_hp_cost_fraction").get<double>();
         recovery.freeHealCapFraction = data.at("recovery").at("free_heal_cap_fraction").get<double>();
         if (!(recovery.koRecoverFraction >= 0.0 && recovery.koRecoverFraction <= 1.0) ||
             !(recovery.eventChestHpCostFraction >= 0.0 && recovery.eventChestHpCostFraction <= 1.0) ||
             !(recovery.freeHealCapFraction >= 0.0 && recovery.freeHealCapFraction <= 1.0) ||
-            recovery.campAutoHeal < 0 || recovery.campHealCost < 0 || recovery.campHealPercent < 0 ||
+            recovery.campAutoHeal < 0 || recovery.campHealPercent < 0 ||
             recovery.campHealPercent > 100) {
             LOG_ERROR("Dungeon recovery block is invalid (fractions 0..1, heal percent 0..100).");
             return false;
@@ -1010,6 +1009,9 @@ std::optional<std::string> ValidateDungeonStatUpgrade(
     const auto* progress = registry.ctx().find<FCampProgress>();
     if (camp == nullptr || progress == nullptr) return "Camp content is unavailable.";
     if (run->phase != EDungeonPhase::Camp) return "Stats can be reinforced at camp only.";
+    if (CampChoiceThisCamp(*progress, run->depth) == ECampChoice::Rest) {
+        return "The party rested at this camp; stat upgrades are closed until the next camp.";
+    }
     if (memberIndex >= run->party.size()) return "Unknown party member.";
     if (upgradeIndex >= growth->statUpgrades.size()) return "Unknown stat upgrade.";
     const FStatUpgrade& upgrade = growth->statUpgrades[upgradeIndex];
@@ -1041,6 +1043,7 @@ std::optional<std::string> UpgradeDungeonStat(
     // The curve index is a stored counter, not a derivation from bonus*/amount: reward/event effects may
     // move those fields and a derived index would silently drift (WP-10 §1).
     progress.upgradesTotal += 1;
+    SetCampChoice(progress, run.depth, ECampChoice::Reinforce);  // WP-43: the first purchase closes Rest
     // WP-19a: one line per purchase. The id is the contract name `upgrade.<stat>`; the member index rides
     // along (0..3, -1 = party-wide/unknown).
     AppendRunEvent(
@@ -1049,44 +1052,66 @@ std::optional<std::string> UpgradeDungeonStat(
     return std::nullopt;
 }
 
-std::optional<std::string> ValidateDungeonCampHeal(const entt::registry& registry) {
+/// The single place the per-member rest amount is computed.
+static int CampRestAmount(const entt::registry& registry, int maxHealth) {
+    return maxHealth * DungeonRecovery(registry).campHealPercent / 100;  // the data rule, no code floor
+}
+
+FCampRestPreview DungeonCampRestPreview(const entt::registry& registry) {
+    FCampRestPreview preview;
+    const auto* run = registry.ctx().find<FDungeonRun>();
+    if (run == nullptr) return preview;
+    for (const auto& member : run->party) {
+        const int maxHealth = DungeonMemberMaxHealth(registry, member);
+        if (maxHealth <= 0) continue;  // unknown maximum: left out of all three sums
+        const int effective = DungeonEffectiveHealth(registry, member);
+        preview.partyHp += effective;
+        preview.partyHpMax += maxHealth;
+        preview.partyHpAfter += std::min(effective + CampRestAmount(registry, maxHealth), maxHealth);
+    }
+    return preview;
+}
+
+std::optional<std::string> ValidateDungeonCampRest(const entt::registry& registry) {
     const auto* run = registry.ctx().find<FDungeonRun>();
     if (run == nullptr) return "Run state is unavailable.";
-    if (run->phase != EDungeonPhase::Camp) return "The party can be healed at camp only.";
-    const auto& recovery = DungeonRecovery(registry);
-    if (run->materials < recovery.campHealCost) return "Not enough reinforcement materials.";
+    if (run->phase != EDungeonPhase::Camp) return "The party can rest at camp only.";
+    const auto* progress = registry.ctx().find<FCampProgress>();
+    if (progress == nullptr) return "Camp progress is unavailable.";
+    switch (CampChoiceThisCamp(*progress, run->depth)) {
+    case ECampChoice::Rest: return "The party already rested at this camp.";
+    case ECampChoice::Reinforce: return "Stats were reinforced at this camp; rest is closed until the next camp.";
+    case ECampChoice::None: break;
+    }
     bool anyHealable = false;
     bool anyBelowMax = false;
     for (const auto& member : run->party) {
         if (member.health < 0) continue;  // -1 = unclaimed = full: the sentinel never needs healing
         const int maxHealth = DungeonMemberMaxHealth(registry, member);
         if (maxHealth <= 0) continue;  // unknown maximum: cannot prove it needs healing (logged by the helper)
-        const int amount = maxHealth * recovery.campHealPercent / 100;
-        if (amount <= 0) continue;  // percent 0: the purchase would buy nothing
+        if (CampRestAmount(registry, maxHealth) <= 0) continue;  // percent 0: the rest would buy nothing
         anyHealable = true;
         if (member.health < maxHealth) {
             anyBelowMax = true;
             break;
         }
     }
-    if (!anyHealable) return "The camp heal would restore nothing.";
+    if (!anyHealable) return "The rest would restore nothing.";
     if (!anyBelowMax) return "The party is already at full health.";
     return std::nullopt;
 }
 
-std::optional<std::string> PayDungeonCampHeal(entt::registry& registry) {
-    if (const auto problem = ValidateDungeonCampHeal(registry)) return problem;
+std::optional<std::string> RestAtDungeonCamp(entt::registry& registry) {
+    if (const auto problem = ValidateDungeonCampRest(registry)) return problem;
     auto& run = registry.ctx().get<FDungeonRun>();
-    const auto& recovery = DungeonRecovery(registry);
     for (auto& member : run.party) {
-        if (member.health < 0) continue;  // -1 = unclaimed = already full: the sentinel skips paid healing too
+        if (member.health < 0) continue;  // -1 = unclaimed = already full: the sentinel is skipped
         const int maxHealth = DungeonMemberMaxHealth(registry, member);
         if (maxHealth <= 0) continue;  // unknown maximum: skip (logged once), never clamp to 0
-        const int amount = maxHealth * recovery.campHealPercent / 100;  // the data rule, no code floor
-        member.health = std::min(member.health + amount, maxHealth);
+        member.health = std::min(member.health + CampRestAmount(registry, maxHealth), maxHealth);
     }
-    run.materials -= recovery.campHealCost;
-    AppendRunEvent(registry, ERunEventKind::CampSpent, "heal", recovery.campHealCost, -1);
+    SetCampChoice(DungeonCampProgress(registry), run.depth, ECampChoice::Rest);
+    AppendRunEvent(registry, ERunEventKind::CampSpent, "rest", 0, -1);
     SaveDungeonRun(registry);
     return std::nullopt;
 }

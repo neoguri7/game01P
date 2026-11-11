@@ -1,5 +1,5 @@
 // WP-10: the camp as a materials-allocation decision — the shared price curves, the camp rune-offer sink
-// (WP-17 API reuse), paid heal / node respec, the recovery budget, the chest risk trade, the run HP clamp,
+// (WP-17 API reuse), the camp rest / node respec, the recovery budget, the chest risk trade, the run HP clamp,
 // and the `run.ext.camp` save section. Every expectation is computed from the loaded data/rules: the WP-10
 // table numbers are playtest variables, so the tests assert structure, never constants.
 
@@ -236,13 +236,11 @@ int DungeonIncome(FBoot& boot) {
            game::DungeonBalance(boot.registry, "event_materials");
 }
 
-/// The five reference prices at an arbitrary curve state (production step functions on loaded data).
-game::FCampPrices PricesAt(const game::FCampTables& tables, const game::FDungeonRecovery& recovery,
-                           int upgrades, int draws) {
+/// The four reference prices at an arbitrary curve state (production step functions on loaded data).
+game::FCampPrices PricesAt(const game::FCampTables& tables, int upgrades, int draws) {
     game::FCampPrices prices;
     prices.upgrade = game::UpgradeStepCost(tables, static_cast<std::uint32_t>(upgrades));
     prices.nextUpgrade = game::UpgradeStepCost(tables, static_cast<std::uint32_t>(upgrades + 1));
-    prices.heal = recovery.campHealCost;
     prices.respec = tables.respecCost;
     prices.offer = game::RuneDrawStepCost(tables, static_cast<std::uint32_t>(draws));
     return prices;
@@ -260,16 +258,13 @@ struct FReferenceCamp {
 /// Simulates the WP-10 §2 reference path (every event room takes the cache): the price of the whole
 /// basket, the two cheapest services and the simulated purchases at each camp. The purchase *choices* are
 /// scenario inputs; the asserted facts are the invariants computed through the production price rules.
-std::vector<FReferenceCamp> ReferenceCampWalk(const game::FCampTables& tables,
-                                              const game::FDungeonRecovery& recovery, int income, int camps) {
+std::vector<FReferenceCamp> ReferenceCampWalk(const game::FCampTables& tables, int income, int camps) {
     struct FBuys {
         int upgrades;
         int draws;
-        bool heal;
     };
     static constexpr FBuys kPath[] = {
-        {2, 0, true}, {1, 0, true}, {1, 0, false}, {1, 1, false},
-        {1, 0, false}, {0, 1, true}, {0, 1, false}, {1, 0, false},
+        {2, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 0}, {0, 1}, {0, 1}, {1, 0},
     };
     std::vector<FReferenceCamp> walk;
     int upgrades = 0;
@@ -278,7 +273,7 @@ std::vector<FReferenceCamp> ReferenceCampWalk(const game::FCampTables& tables,
     const int campsToWalk = std::min(camps, static_cast<int>(std::size(kPath)));
     for (int camp = 0; camp < campsToWalk; ++camp) {
         held += income;
-        const game::FCampPrices prices = PricesAt(tables, recovery, upgrades, draws);
+        const game::FCampPrices prices = PricesAt(tables, upgrades, draws);
         FReferenceCamp entry;
         entry.held = held;
         entry.upgrades = upgrades;
@@ -289,7 +284,6 @@ std::vector<FReferenceCamp> ReferenceCampWalk(const game::FCampTables& tables,
         for (int step = 0; step < kPath[camp].upgrades; ++step) {
             spent += game::UpgradeStepCost(tables, static_cast<std::uint32_t>(upgrades + step));
         }
-        if (kPath[camp].heal) spent += recovery.campHealCost;
         for (int step = 0; step < kPath[camp].draws; ++step) {
             spent += game::RuneDrawStepCost(tables, static_cast<std::uint32_t>(draws + step));
         }
@@ -382,8 +376,7 @@ std::vector<std::string> RenderModalLogs(entt::registry& registry, const std::ve
 void BudgetFromRules() {
     FBoot boot(UniquePath("camp-budget-rules"));
     const game::FCampTables& tables = boot.tables();
-    const game::FDungeonRecovery& recovery = game::DungeonRecovery(boot.registry);
-    const auto walk = ReferenceCampWalk(tables, recovery, DungeonIncome(boot), 8);
+    const auto walk = ReferenceCampWalk(tables, DungeonIncome(boot), 8);
     CHECK(walk.size() == 8u);
     for (std::size_t camp = 0; camp < walk.size(); ++camp) {
         const FReferenceCamp& state = walk[camp];
@@ -400,8 +393,7 @@ void CampBudgetForcesAllocation() {
     FBoot boot(UniquePath("camp-budget-allocation"));
     StartFresh(boot);
     const game::FCampTables& tables = boot.tables();
-    const game::FDungeonRecovery& recovery = game::DungeonRecovery(boot.registry);
-    const auto walk = ReferenceCampWalk(tables, recovery, DungeonIncome(boot), 4);
+    const auto walk = ReferenceCampWalk(tables, DungeonIncome(boot), 4);
     CHECK(walk.size() == 4u);
     const FReferenceCamp& camp4 = walk[3];
 
@@ -422,27 +414,26 @@ void CampBudgetForcesAllocation() {
     CHECK(camp4.basket > run.materials);           // buying everything at once is impossible
     CHECK(run.materials >= camp4.cheapestTwo);     // the two cheapest stay reachable
 
-    // And the two cheapest services really are buyable at this state (heal + the camp rune offer here).
+    // And the two cheapest services really are buyable at this state (respec + the camp rune offer here).
     const game::FCampSession session = game::BuildCampSession(boot.registry);
     const int before = run.materials;
-    CHECK(!game::PayDungeonCampHeal(boot.registry).has_value());
+    CHECK(!game::RespecDungeonNodes(boot.registry).has_value());
     CHECK(!game::PurchaseCampRuneOffer(boot.registry).has_value());
-    CHECK(run.materials == before - session.paidHealCost - session.runeOfferCost);
+    CHECK(run.materials == before - session.respecCost - session.runeOfferCost);
     CHECK(run.materials >= 0);
     CHECK(game::CampBasketTotal(prices) > run.materials);  // the whole basket is still out of reach
-    std::cout << "  camp 4: held " << before << " (heal " << session.paidHealCost << " + offer "
+    std::cout << "  camp 4: held " << before << " (respec " << session.respecCost << " + offer "
               << session.runeOfferCost << ") left " << run.materials << '\n';
 }
 
 void ShrinePathTradesBuyingPower() {
     FBoot boot(UniquePath("camp-shrine-trade"));
     const game::FCampTables& tables = boot.tables();
-    const game::FDungeonRecovery& recovery = game::DungeonRecovery(boot.registry);
     const int boxIncome = DungeonIncome(boot);
     const int shrineIncome =
         game::DungeonBalance(boot.registry, "room_materials") * kBattlesPerDungeon;  // the shrine heals
     CHECK(shrineIncome < boxIncome);  // structural: the cache pays, the shrine heals
-    const game::FCampPrices prices = PricesAt(tables, recovery, 6, 1);  // the WP-10 §2 C6 state
+    const game::FCampPrices prices = PricesAt(tables, 6, 1);  // the WP-10 §2 C6 state
     const int cheapestTwo = game::CampCheapestTwo(prices);
     std::cout << "  shrine income " << shrineIncome << " vs cheapest two at C6 " << cheapestTwo
               << " (deficit " << cheapestTwo - shrineIncome << ")\n";
@@ -531,11 +522,11 @@ void MemberSentinelSkipsHeal() {
     CHECK(run.party[0].health == -1);  // the room heal never materialises the sentinel
     CHECK(run.party[1].health == std::min(10 + roomHeal, game::DungeonMemberMaxHealth(boot.registry, run.party[1])));
 
-    // The paid camp heal skips it too, and paying is the only way to heal outside the free entries.
+    // The camp rest skips it too (the sentinel is never materialised).
     run.phase = game::EDungeonPhase::Camp;
     run.materials = 100;
     run.party[2].health = 1;
-    CHECK(!game::PayDungeonCampHeal(boot.registry).has_value());
+    CHECK(!game::RestAtDungeonCamp(boot.registry).has_value());
     CHECK(run.party[0].health == -1);
 }
 
@@ -550,11 +541,11 @@ void UnknownMemberIsNotClamped() {
     const int roomHeal = game::DungeonBalance(boot.registry, "room_heal");
     CHECK(game::ResolveRoomVictory(boot.registry, true).has_value());
     CHECK(run.party.back().health == 50 + roomHeal);  // the add-only heal, not a clamp toward 0
-    // The paid heal skips it too: with everyone else a full sentinel it refuses instead of charging.
+    // The rest skips it too: with everyone else a full sentinel it refuses.
     run.phase = game::EDungeonPhase::Camp;
     run.materials = 100;
     for (std::size_t index = 0; index + 1 < run.party.size(); ++index) run.party[index].health = -1;
-    CHECK(game::ValidateDungeonCampHeal(boot.registry).has_value());
+    CHECK(game::ValidateDungeonCampRest(boot.registry).has_value());
     CHECK(run.materials == 100);
 }
 
@@ -838,35 +829,7 @@ void CostCurveAndSpecial() {
     CHECK(game::RuneDrawCostOf(synthetic, empty, 1) == 0);
 }
 
-// --- camp purchases: heal, respec, the action limit --------------------------------------------
-
-void PaidHealIsOptional() {
-    FBoot boot(UniquePath("camp-paid-heal"));
-    StartFresh(boot);
-    auto& run = boot.run();
-    const game::FDungeonRecovery& recovery = game::DungeonRecovery(boot.registry);
-    run.phase = game::EDungeonPhase::Camp;
-    run.materials = 50;
-
-    // A full party is never charged: the arrival heal is the free part, healing past it is a choice.
-    for (auto& member : run.party) member.health = game::DungeonMemberMaxHealth(boot.registry, member);
-    CHECK(game::ValidateDungeonCampHeal(boot.registry).has_value());
-    CHECK(game::PayDungeonCampHeal(boot.registry).has_value());
-    CHECK(run.materials == 50);
-    // Sentinel members count as full too.
-    for (auto& member : run.party) member.health = -1;
-    CHECK(game::ValidateDungeonCampHeal(boot.registry).has_value());
-
-    run.party[1].health = 1;
-    CHECK(!game::ValidateDungeonCampHeal(boot.registry).has_value());
-    CHECK(!game::PayDungeonCampHeal(boot.registry).has_value());
-    CHECK(run.materials == 50 - recovery.campHealCost);
-    const int maxHealth = game::DungeonMemberMaxHealth(boot.registry, run.party[1]);
-    const int amount = maxHealth * recovery.campHealPercent / 100;  // the data rule, no code floor
-    CHECK(amount > 0);
-    CHECK(run.party[1].health == std::min(1 + amount, maxHealth));
-    CHECK(run.party[0].health == -1);  // the sentinel was skipped
-}
+// --- camp purchases: respec, the action limit --------------------------------------------
 
 void RespecReallocatesNodes() {
     FBoot boot(UniquePath("camp-respec"));
@@ -942,10 +905,6 @@ void CampSpentLogged() {
     CHECK(log.tail.back().amount == upgradeCost);
     CHECK(log.tail.back().member == 0);
 
-    const int healCost = game::BuildCampSession(boot.registry).paidHealCost;
-    CHECK(!game::PayDungeonCampHeal(boot.registry).has_value());
-    CHECK(log.tail.back().id == "heal" && log.tail.back().amount == healCost && log.tail.back().member == -1);
-
     const int respecCost = game::BuildCampSession(boot.registry).respecCost;
     CHECK(!game::RespecDungeonNodes(boot.registry).has_value());
     CHECK(log.tail.back().id == "respec" && log.tail.back().amount == respecCost && log.tail.back().member == -1);
@@ -955,7 +914,224 @@ void CampSpentLogged() {
     CHECK(log.tail.back().id == "rune_offer" && log.tail.back().amount == offerCost &&
           log.tail.back().member == -1);
 
-    CHECK(spentCount() == 4);  // one purchase = one line, never an aggregate
+    CHECK(spentCount() == 3);  // one purchase = one line, never an aggregate
+}
+
+// --- WP-43: camp choice — rest or reinforce -----------------------------------------------------
+
+void ShipRecoveryValues() {
+    const json data = ReadJsonFile(std::string(kShipAssetRoot) + "/data/dungeon.json");
+    CHECK(data.contains("balance"));
+    CHECK(data.contains("recovery"));
+    if (!data.contains("balance") || !data.contains("recovery")) return;
+    const json& recovery = data.at("recovery");
+    CHECK(data.at("balance").at("room_heal").get<int>() == 0);
+    CHECK(recovery.at("camp_auto_heal").get<int>() == 0);
+    CHECK(std::abs(recovery.at("ko_recover_fraction").get<double>() - 0.10) < 1e-9);
+    CHECK(recovery.at("camp_heal_percent").get<int>() == 30);
+    CHECK(!recovery.contains("camp_heal_cost"));
+}
+
+void RestHealsPercentFree() {
+    FBoot boot(UniquePath("camp-rest-heals"));
+    StartFresh(boot);
+    auto& run = boot.run();
+    const auto& recovery = game::DungeonRecovery(boot.registry);
+    run.phase = game::EDungeonPhase::Camp;
+    run.materials = 50;
+
+    for (auto& member : run.party) member.health = game::DungeonMemberMaxHealth(boot.registry, member);
+    CHECK(game::ValidateDungeonCampRest(boot.registry).has_value());
+    CHECK(game::RestAtDungeonCamp(boot.registry).has_value());
+    CHECK(run.materials == 50);
+    for (auto& member : run.party) member.health = -1;
+    CHECK(game::ValidateDungeonCampRest(boot.registry).has_value());
+    CHECK(game::RestAtDungeonCamp(boot.registry).has_value());
+    CHECK(run.materials == 50);
+
+    run.party[1].health = 1;
+    CHECK(!game::ValidateDungeonCampRest(boot.registry).has_value());
+    CHECK(!game::RestAtDungeonCamp(boot.registry).has_value());
+    CHECK(run.materials == 50);
+    const int maxHealth = game::DungeonMemberMaxHealth(boot.registry, run.party[1]);
+    CHECK(run.party[1].health == std::min(1 + maxHealth * recovery.campHealPercent / 100, maxHealth));
+    CHECK(run.party[0].health == -1);
+}
+
+void RestOncePerCamp() {
+    FBoot boot(UniquePath("camp-rest-once"));
+    StartFresh(boot);
+    auto& run = boot.run();
+    run.phase = game::EDungeonPhase::Camp;
+    for (auto& member : run.party) member.health = 1;
+    CHECK(!game::RestAtDungeonCamp(boot.registry).has_value());
+    std::vector<int> healths;
+    for (const auto& member : run.party) healths.push_back(member.health);
+    const auto second = game::RestAtDungeonCamp(boot.registry);
+    CHECK(second.has_value());
+    CHECK(second.value_or("") == "The party already rested at this camp.");
+    for (std::size_t index = 0; index < run.party.size(); ++index) CHECK(run.party[index].health == healths[index]);
+}
+
+void RestClosesStatUpgrades() {
+    FBoot boot(UniquePath("camp-rest-closes"));
+    StartFresh(boot);
+    auto& run = boot.run();
+    run.phase = game::EDungeonPhase::Camp;
+    run.materials = 1000;
+    for (auto& member : run.party) member.health = 1;
+    CHECK(!game::ValidateDungeonStatUpgrade(boot.registry, 0, 0).has_value());
+    const auto upgradesBefore = boot.progress().upgradesTotal;
+    CHECK(!game::RestAtDungeonCamp(boot.registry).has_value());
+    const std::string reason = "The party rested at this camp; stat upgrades are closed until the next camp.";
+    CHECK(game::ValidateDungeonStatUpgrade(boot.registry, 0, 0).value_or("") == reason);
+    CHECK(game::UpgradeDungeonStat(boot.registry, 0, 0).value_or("") == reason);
+    CHECK(run.materials == 1000);
+    CHECK(boot.progress().upgradesTotal == upgradesBefore);
+}
+
+void UpgradeClosesRest() {
+    FBoot boot(UniquePath("camp-upgrade-closes"));
+    StartFresh(boot);
+    auto& run = boot.run();
+    run.phase = game::EDungeonPhase::Camp;
+    run.materials = 1000;
+    for (auto& member : run.party) member.health = 1;
+    CHECK(!game::UpgradeDungeonStat(boot.registry, 0, 0).has_value());
+    CHECK(game::ValidateDungeonCampRest(boot.registry).value_or("") ==
+          "Stats were reinforced at this camp; rest is closed until the next camp.");
+    std::vector<int> healths;
+    for (const auto& member : run.party) healths.push_back(member.health);
+    CHECK(game::RestAtDungeonCamp(boot.registry).has_value());
+    for (std::size_t index = 0; index < run.party.size(); ++index) CHECK(run.party[index].health == healths[index]);
+    CHECK(!game::UpgradeDungeonStat(boot.registry, 0, 0).has_value());
+}
+
+void ServicesStayOpenAfterChoice() {
+    for (const bool rest : {true, false}) {
+        FBoot boot(UniquePath("camp-services-open"));
+        StartFresh(boot);
+        auto& run = boot.run();
+        run.phase = game::EDungeonPhase::Camp;
+        run.materials = 1000;
+        for (auto& member : run.party) member.health = 1;
+        Member(run, "party.warrior").allocatedNodes = {"node.might"};
+        CHECK(!game::ValidateCampRuneOfferPurchase(boot.registry).has_value());
+        CHECK(!game::ValidateDungeonRespec(boot.registry).has_value());
+        if (rest) {
+            CHECK(!game::RestAtDungeonCamp(boot.registry).has_value());
+        } else {
+            CHECK(!game::UpgradeDungeonStat(boot.registry, 0, 0).has_value());
+        }
+        CHECK(!game::ValidateCampRuneOfferPurchase(boot.registry).has_value());
+        CHECK(!game::ValidateDungeonRespec(boot.registry).has_value());
+    }
+}
+
+void ChoiceResetsAtNextCamp() {
+    game::FCampProgress progress;
+    progress.campDepth = 9;
+    progress.runeDrawsThisCamp = 4;
+    game::SetCampChoice(progress, 3, game::ECampChoice::Rest);
+    CHECK(game::CampChoiceThisCamp(progress, 3) == game::ECampChoice::Rest);
+    CHECK(game::CampChoiceThisCamp(progress, 4) == game::ECampChoice::None);
+    CHECK(game::CampChoiceThisCamp(progress, -1) == game::ECampChoice::None);
+    CHECK(progress.campDepth == 9u);
+    CHECK(progress.runeDrawsThisCamp == 4u);
+    progress.choice = 7;
+    CHECK(game::CampChoiceThisCamp(progress, 3) == game::ECampChoice::None);
+    progress.choice = 1;
+    game::SetCampChoice(progress, -1, game::ECampChoice::Reinforce);
+    CHECK(progress.choice == 1u);
+    CHECK(progress.choiceDepth == 3u);
+}
+
+void CampChoiceRoundTrip() {
+    FBoot boot(UniquePath("camp-choice-roundtrip"));
+    StartFresh(boot);
+    boot.run().depth = 2;
+    boot.run().cleared = 2;
+    boot.run().phase = game::EDungeonPhase::Camp;
+    for (auto& member : boot.run().party) member.health = 1;
+    CHECK(!game::RestAtDungeonCamp(boot.registry).has_value());
+    boot.registry.ctx().erase<game::FDungeonRun>();
+    CHECK(game::ContinueDungeonRun(boot.registry));
+    CHECK(game::CampChoiceThisCamp(boot.progress(), boot.run().depth) == game::ECampChoice::Rest);
+    CHECK(boot.progress().choiceDepth == 2u);
+    CHECK(game::RestAtDungeonCamp(boot.registry).has_value());
+}
+
+void RestPreviewMatchesOutcome() {
+    FBoot boot(UniquePath("camp-rest-preview"));
+    StartFresh(boot);
+    auto& run = boot.run();
+    run.phase = game::EDungeonPhase::Camp;
+    run.party[0].health = 1;
+    run.party[1].health = 10;
+    run.party[2].health = game::DungeonMemberMaxHealth(boot.registry, run.party[2]);
+    run.party[3].health = -1;
+    const auto sum = [&] {
+        int total = 0;
+        for (const auto& member : run.party) total += game::DungeonEffectiveHealth(boot.registry, member);
+        return total;
+    };
+    const game::FCampRestPreview preview = game::DungeonCampRestPreview(boot.registry);
+    CHECK(preview.partyHp == sum());
+    CHECK(preview.partyHpAfter > preview.partyHp);
+    CHECK(!game::RestAtDungeonCamp(boot.registry).has_value());
+    CHECK(sum() == preview.partyHpAfter);
+    CHECK(preview.partyHpAfter <= preview.partyHpMax);
+}
+
+void RestLogged() {
+    FBoot boot(UniquePath("camp-rest-log"));
+    StartFresh(boot);
+    auto& run = boot.run();
+    run.phase = game::EDungeonPhase::Camp;
+    for (auto& member : run.party) member.health = 1;
+    auto& log = boot.registry.ctx().get<game::FRunEventLog>();
+    const auto spentCount = [&log] {
+        return static_cast<int>(std::count_if(log.tail.begin(), log.tail.end(), [](const game::FRunEvent& event) {
+            return event.kind == game::ERunEventKind::CampSpent;
+        }));
+    };
+    CHECK(spentCount() == 0);
+    CHECK(!game::RestAtDungeonCamp(boot.registry).has_value());
+    CHECK(spentCount() == 1);
+    CHECK(log.tail.back().id == "rest");
+    CHECK(log.tail.back().amount == 0);
+    CHECK(log.tail.back().member == -1);
+}
+
+void CampViewShowsChoice() {
+    const std::vector<std::string> modal{std::string(game::RunModalIdForPhase(game::EDungeonPhase::Camp))};
+    {
+        FBoot boot(UniquePath("camp-view-choice"));
+        WalkToCamp(boot);
+        for (auto& member : boot.run().party) member.health = 1;
+        const auto before = RenderModalLogs(boot.registry, modal);
+        CHECK(before.size() == 1u);
+        if (before.size() != 1u) return;
+        CHECK(before[0].find("REST OR REINFORCE") != std::string::npos);
+        CHECK(before[0].find("Rest  /  free  /  +") != std::string::npos);
+        CHECK(before[0].find("party HP ") != std::string::npos);
+        CHECK(before[0].find("gives up Rest") != std::string::npos);
+        CHECK(before[0].find("Heal party") == std::string::npos);
+        CHECK(!game::RestAtDungeonCamp(boot.registry).has_value());
+        const auto after = RenderModalLogs(boot.registry, modal);
+        CHECK(after.size() == 1u);
+        if (after.size() == 1u) CHECK(after[0].find("Rested at this camp.") != std::string::npos);
+    }
+    {
+        FBoot boot(UniquePath("camp-view-reinforce"));
+        WalkToCamp(boot);
+        for (auto& member : boot.run().party) member.health = 1;
+        boot.run().materials = 1000;
+        CHECK(!game::UpgradeDungeonStat(boot.registry, 0, 0).has_value());
+        const auto logs = RenderModalLogs(boot.registry, modal);
+        CHECK(logs.size() == 1u);
+        if (logs.size() == 1u) CHECK(logs[0].find("Reinforcing at this camp.") != std::string::npos);
+    }
 }
 
 // --- camp entry / report ------------------------------------------------------------------------
@@ -1123,12 +1299,22 @@ int main() {
         {"RespecReallocatesNodes", RespecReallocatesNodes},
         {"CampSpentLogged", CampSpentLogged},
         {"CampAutoHealOnceOnEntry", CampAutoHealOnceOnEntry},
-        {"PaidHealIsOptional", PaidHealIsOptional},
         {"HoardRatioReported", HoardRatioReported},
         {"UnlimitedActionsByDefault", UnlimitedActionsByDefault},
         {"CostCurveAndSpecial", CostCurveAndSpecial},
         {"CampOfferRecordsNormalTable", CampOfferRecordsNormalTable},
         {"PreviewUsesSequenceWhenPresent", PreviewUsesSequenceWhenPresent},
         {"CampDataValidationRejects", CampDataValidationRejects},
+        {"ShipRecoveryValues", ShipRecoveryValues},
+        {"RestHealsPercentFree", RestHealsPercentFree},
+        {"RestOncePerCamp", RestOncePerCamp},
+        {"RestClosesStatUpgrades", RestClosesStatUpgrades},
+        {"UpgradeClosesRest", UpgradeClosesRest},
+        {"ServicesStayOpenAfterChoice", ServicesStayOpenAfterChoice},
+        {"ChoiceResetsAtNextCamp", ChoiceResetsAtNextCamp},
+        {"CampChoiceRoundTrip", CampChoiceRoundTrip},
+        {"RestPreviewMatchesOutcome", RestPreviewMatchesOutcome},
+        {"RestLogged", RestLogged},
+        {"CampViewShowsChoice", CampViewShowsChoice},
     });
 }

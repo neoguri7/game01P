@@ -27,7 +27,6 @@
   "recovery": {
     "ko_recover_fraction": 0.25,
     "camp_auto_heal": 22,
-    "camp_heal_cost": 3,
     "camp_heal_percent": 25,
     "event_chest_hp_cost_fraction": 0.10,
     "free_heal_cap_fraction": 0.6

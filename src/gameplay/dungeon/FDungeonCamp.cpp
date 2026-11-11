@@ -45,6 +45,8 @@ nlohmann::json PackCamp(entt::registry& registry) {
         {"rune_draws_total", progress->runeDrawsTotal},
         {"camp_depth", progress->campDepth},
         {"rune_draws_this_camp", progress->runeDrawsThisCamp},
+        {"choice_depth", progress->choiceDepth},
+        {"choice", progress->choice},
     };
 }
 
@@ -59,6 +61,8 @@ void UnpackCamp(entt::registry& registry, const nlohmann::json& section) {
         ReadCounter(section, "rune_draws_total", fresh.runeDrawsTotal, corrupt);
         ReadCounter(section, "camp_depth", fresh.campDepth, corrupt);
         ReadCounter(section, "rune_draws_this_camp", fresh.runeDrawsThisCamp, corrupt);
+        ReadCounter(section, "choice_depth", fresh.choiceDepth, corrupt);
+        ReadCounter(section, "choice", fresh.choice, corrupt);
     }
     if (corrupt) {
         LOG_WARN("The saved camp progress is unusable; it resets to zero (prices restart at the first step).");
@@ -141,6 +145,18 @@ int RuneDrawCostOf(const FCampTables& tables, const FCampProgress& progress, int
     return std::max(0, base - discount);
 }
 
+ECampChoice CampChoiceThisCamp(const FCampProgress& progress, int runDepth) {
+    if (runDepth < 0 || progress.choiceDepth != static_cast<std::uint32_t>(runDepth)) return ECampChoice::None;
+    if (progress.choice > static_cast<std::uint32_t>(ECampChoice::Reinforce)) return ECampChoice::None;
+    return static_cast<ECampChoice>(progress.choice);
+}
+
+void SetCampChoice(FCampProgress& progress, int runDepth, ECampChoice choice) {
+    if (runDepth < 0) return;
+    progress.choiceDepth = static_cast<std::uint32_t>(runDepth);
+    progress.choice = static_cast<std::uint32_t>(choice);
+}
+
 FCampSession BuildCampSession(const entt::registry& registry) {
     FCampSession session;
     const auto* tables = registry.ctx().find<FCampTables>();
@@ -152,8 +168,8 @@ FCampSession BuildCampSession(const entt::registry& registry) {
     const FCampProgress& state = progress != nullptr ? *progress : kNoProgress;
     const auto& recovery = DungeonRecovery(registry);
     session.upgradeCost = UpgradeCostOf(*tables, state);
-    session.paidHealCost = recovery.campHealCost;
-    session.paidHealPercent = recovery.campHealPercent;
+    session.restHealPercent = recovery.campHealPercent;
+    session.choice = CampChoiceThisCamp(state, depth);
     session.respecCost = tables->respecCost;
     session.runeOfferCost = RuneDrawCostOf(*tables, state, depth);
     session.runeOfferDiscounted = CampRuneDrawsThisCamp(state, depth) == 0 && tables->specialDiscount > 0;
@@ -173,22 +189,20 @@ FCampPrices CampPricesOf(const entt::registry& registry) {
     const auto* progress = registry.ctx().find<FCampProgress>();
     const FCampProgress& state = progress != nullptr ? *progress : kNoProgress;
     const int depth = run != nullptr ? run->depth : -1;
-    const auto& recovery = DungeonRecovery(registry);
     prices.upgrade = UpgradeCostOf(*tables, state);
     prices.nextUpgrade = UpgradeStepCost(*tables, state.upgradesTotal + 1);
-    prices.heal = recovery.campHealCost;
     prices.respec = tables->respecCost;
     prices.offer = RuneDrawStepCost(*tables, state.runeDrawsTotal);
     return prices;
 }
 
 int CampBasketTotal(const FCampPrices& prices) {
-    return prices.upgrade + prices.nextUpgrade + prices.heal + prices.respec + prices.offer;
+    return prices.upgrade + prices.nextUpgrade + prices.respec + prices.offer;
 }
 
 int CampCheapestTwo(const FCampPrices& prices) {
-    const int values[] = {prices.upgrade, prices.nextUpgrade, prices.heal, prices.respec, prices.offer};
-    int sorted[5];
+    const int values[] = {prices.upgrade, prices.nextUpgrade, prices.respec, prices.offer};
+    int sorted[4];
     std::copy(std::begin(values), std::end(values), sorted);
     std::sort(std::begin(sorted), std::end(sorted));
     return sorted[0] + sorted[1];
@@ -217,14 +231,16 @@ int CampCheapestTwoPurchasable(entt::registry& registry, int* purchasableCount) 
             }
         }
     }
-    if (purchases >= 1) costs.push_back(prices.upgrade);
-    if (purchases >= 2) costs.push_back(prices.nextUpgrade);
+    // WP-43: after a rest the stat upgrades are closed, so neither price is part of the visit.
+    if (CampChoiceThisCamp(*progress, run->depth) != ECampChoice::Rest) {
+        if (purchases >= 1) costs.push_back(prices.upgrade);
+        if (purchases >= 2) costs.push_back(prices.nextUpgrade);
+    }
 
     {
-        // Heal/respec/offer gate on affordability only through the validators, so the raised purse keeps the
+        // Respec/offer gate on affordability only through the validators, so the raised purse keeps the
         // metric about availability. (PeekRuneCandidates inside the offer validator consumes nothing.)
         const FFullyFundedRun funded{registry};
-        if (!ValidateDungeonCampHeal(registry).has_value()) costs.push_back(prices.heal);
         if (!ValidateDungeonRespec(registry).has_value()) costs.push_back(prices.respec);
         if (!ValidateCampRuneOfferPurchase(registry).has_value()) costs.push_back(prices.offer);
     }
@@ -242,7 +258,7 @@ void LogCampEntryReport(entt::registry& registry) {
     if (run == nullptr || tables == nullptr) return;
     const FCampPrices prices = CampPricesOf(registry);
     // WP-28 (M1): the denominator counts only the services that are buyable at all (respec without
-    // allocated nodes, an offer with no legal pool / used-up cap and a heal with nothing to restore are
+    // allocated nodes, an offer with no legal pool / used-up cap and, after a rest, the stat upgrades are
     // not part of a minimal camp visit); affordability is deliberately ignored — see the function.
     int purchasable = 0;
     const int cheapestTwo = CampCheapestTwoPurchasable(registry, &purchasable);

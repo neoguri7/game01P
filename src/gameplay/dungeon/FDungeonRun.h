@@ -161,11 +161,11 @@ void LeaveDungeonCamp(entt::registry& registry);
 /// 회복 예산표 (WP-10 §3 / D-18): 회복원 전부가 데이터다. 이 구조체는 로드 결과의 그릇일 뿐이고
 /// **기본값을 코드에 두지 않는다**(데이터와 코드가 이중 정본이 되는 것을 W6 비평이 기각). `recovery`
 /// 블록은 정수 0–1000 루프 밖에서 검증된다 — 실수 3종은 0 ≤ v ≤ 1, camp_heal_percent는 0–100.
+/// WP-43: the paid heal is gone; the camp rest is free and exclusive with stat upgrades.
 struct FDungeonRecovery {
     double koRecoverFraction{};         // KO/전투 후 바닥: max(1, floor(maxHp × fraction))
     int campAutoHeal{};                 // 캠프 도착 자동 회복(비선택·무료 항)
-    int campHealCost{};                 // 유료 치료 가격(물질)
-    int campHealPercent{};              // 유료 치료량 = maxHp의 % (멤버별)
+    int campHealPercent{};              // camp rest heal = % of max HP, per member
     double eventChestHpCostFraction{};  // 상자 선택의 파티 HP 비용 비율(유효 HP 기준)
     double freeHealCapFraction{};       // 무료 회복 예산 상한 = maxHp의 % (검증·테스트 기준값)
 };
@@ -209,10 +209,17 @@ int ApplyChestHpCost(entt::registry& registry);
     const entt::registry& registry, std::size_t memberIndex, std::size_t upgradeIndex);
 [[nodiscard]] std::optional<std::string> UpgradeDungeonStat(
     entt::registry& registry, std::size_t memberIndex, std::size_t upgradeIndex);
-/// WP-10: 캠프 유료 치료(recovery.camp_heal_cost → 멤버별 maxHp의 camp_heal_percent%). 센티넬(-1=만피)은
-/// 스킵. 전원이 이미 만피면 거부 — 구매는 선택이라 강제되지 않는다(PaidHealIsOptional).
-[[nodiscard]] std::optional<std::string> ValidateDungeonCampHeal(const entt::registry& registry);
-[[nodiscard]] std::optional<std::string> PayDungeonCampHeal(entt::registry& registry);
+/// Party totals for the Rest button. Members whose max HP is unknown (<= 0) are left out of all three sums.
+struct FCampRestPreview {
+    int partyHp{0};       // sum of DungeonEffectiveHealth
+    int partyHpAfter{0};  // sum of min(effective + maxHp * campHealPercent / 100, maxHp)
+    int partyHpMax{0};    // sum of DungeonMemberMaxHealth
+};
+[[nodiscard]] FCampRestPreview DungeonCampRestPreview(const entt::registry& registry);
+/// WP-43: the camp rest — free, heals each member by maxHp * camp_heal_percent / 100 (the sentinel -1 = full
+/// is skipped). Once per camp, and closed after a stat upgrade; refused when nothing would be restored.
+[[nodiscard]] std::optional<std::string> ValidateDungeonCampRest(const entt::registry& registry);
+[[nodiscard]] std::optional<std::string> RestAtDungeonCamp(entt::registry& registry);
 /// WP-10: 초기화(camp.respec_cost) — 할당된 노드 전부를 passivePoints로 되돌린다. stat 강화는 환불하지
 /// 않고 곡선 카운터(upgradesTotal)도 건드리지 않는다.
 [[nodiscard]] std::optional<std::string> ValidateDungeonRespec(const entt::registry& registry);

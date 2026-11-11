@@ -45,6 +45,8 @@ inline constexpr std::string_view kDefaultAutopilotPolicy = "reward=card0,event=
 ///                                  upgrades for party member 0 ONLY, each the first upgrade index that
 ///                                  ValidateDungeonStatUpgrade accepts (the camp view's candidates[0], M-FUN
 ///                                  Step-Camp; critic P5); "none" = nothing
+///   rest=<P>                       WP-43: at camp, rest (and buy no stat upgrade) when the party HP percent is
+///                                  below P (0..100; 0 or absent = never rest)
 ///   continue                       leave the camp (descend). Without it the autopilot stops at the camp (exit 0)
 ///   equip=auto | equip=off         WP-27: after every pick (reward or camp offer) fit the picked rune's first
 ///                                  copy in `run.runes` into the first legal socket (members in order, then skill
@@ -71,7 +73,11 @@ struct FAutopilotPolicy {
     int campUpgrades{1};
     bool campContinue{true};
     EAutopilotEquip equip{EAutopilotEquip::Off};
+    int campRestBelow{0};           // rest=<P>; 0 = never rest
 };
+/// True when policy.campRestBelow > 0, ValidateDungeonCampRest accepts, and
+/// partyHp * 100 / partyHpMax (DungeonCampRestPreview, integer division; false when partyHpMax <= 0) < campRestBelow.
+[[nodiscard]] bool AutopilotShouldRest(const entt::registry& registry, const FAutopilotPolicy& policy);
 
 [[nodiscard]] std::expected<FAutopilotPolicy, std::string> ParseAutopilotPolicy(std::string_view text);
 

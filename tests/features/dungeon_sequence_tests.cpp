@@ -1310,8 +1310,8 @@ void AutoCompleteSeesFirstBossAtDungeonThree() {
     //    only `generation.enemy_count` narrows to 1 monster per monster room — encounter composition is
     //    WP-14's subject, and the shipped 3-4 monsters put this autoplay far over the suite's time budget
     //    in a debug build. Boss rooms are unaffected: the generator always fields the boss + 2.
-    //  - gameplay content comes from the frozen fixture, so a future ship balance change cannot silently
-    //    move this test's runtime.
+    //  - gameplay content (units, skills, ...) comes from the frozen fixture; the dungeon document above is
+    //    the ship's, so its recovery numbers apply to the scripted player below.
     FTempAssets assets("sequence-autoplay");
     assets.CopyGameplayData();
     auto document = ReadJsonFile("assets/data/dungeon.json");
@@ -1380,24 +1380,28 @@ void AutoCompleteSeesFirstBossAtDungeonThree() {
             case game::EDungeonPhase::Camp: {
                 CHECK(run.cleared == run.depth);
                 if (run.cleared >= 3) break;
-                // Spend the camp on reinforcement and healing so the deeper dungeons stay survivable; the
-                // choices are scenario inputs, the asserts stay rule computations.
-                (void)game::PayDungeonCampHeal(registry);
+                // The camp is one choice (WP-43): rest when the party is hurt, else reinforce. The choice is a
+                // scenario input, the asserts stay rule computations.
+                const auto preview = game::DungeonCampRestPreview(registry);
+                const bool rested = preview.partyHp * 100 < preview.partyHpMax * 60 &&
+                                    !game::RestAtDungeonCamp(registry).has_value();
                 const auto& growth = registry.ctx().get<game::FDungeonGrowth>();
                 auto& progress = registry.ctx().get<game::FCampProgress>();
                 const auto& tables = registry.ctx().get<game::FCampTables>();
-                for (;;) {
-                    if (run.materials < game::UpgradeCostOf(tables, progress)) break;
-                    bool bought = false;
-                    for (std::size_t member = 0; member < run.party.size() && !bought; ++member) {
-                        for (std::size_t index = 0; index < growth.statUpgrades.size(); ++index) {
-                            if (!game::UpgradeDungeonStat(registry, member, index).has_value()) {
-                                bought = true;
-                                break;
+                if (!rested) {
+                    for (;;) {
+                        if (run.materials < game::UpgradeCostOf(tables, progress)) break;
+                        bool bought = false;
+                        for (std::size_t member = 0; member < run.party.size() && !bought; ++member) {
+                            for (std::size_t index = 0; index < growth.statUpgrades.size(); ++index) {
+                                if (!game::UpgradeDungeonStat(registry, member, index).has_value()) {
+                                    bought = true;
+                                    break;
+                                }
                             }
                         }
+                        if (!bought) break;
                     }
-                    if (!bought) break;
                 }
                 CHECK(game::ApplyRunIntent(registry, game::ERunIntent::LeaveCamp).has_value());
                 CHECK(run.phase == game::EDungeonPhase::Battle);
