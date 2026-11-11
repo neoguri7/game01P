@@ -1284,8 +1284,21 @@ void CampViewShowsThemeVictory() {
             CHECK(logs[0].find("has fallen. Seals: ") != std::string::npos);
             CHECK(logs[0].find("Descend deeper: ") != std::string::npos);
             CHECK(logs[0].find("Return in triumph") != std::string::npos);
-            CHECK(logs[0].find("The checkpoint stays. Seals +") != std::string::npos);
+            CHECK(logs[0].find("The checkpoint stays.") != std::string::npos);
             CHECK(logs[0].find("DUNGEON CLEARED / CAMP") == std::string::npos);
+            const auto count = [&](const std::string& needle) {
+                std::size_t found = 0;
+                for (auto at = logs[0].find(needle); at != std::string::npos; at = logs[0].find(needle, at + 1)) ++found;
+                return found;
+            };
+            CHECK(count("Descend deeper: ") == 1u);
+            CHECK(count("Return in triumph") == 1u);
+            const auto rest = logs[0].find("REST OR REINFORCE");
+            const auto runewords = logs[0].find("RUNEWORDS");
+            for (const char* needle : {"Descend deeper: ", "Return in triumph", "EXPEDITION CHOICE"}) {
+                const auto at = logs[0].find(needle);
+                CHECK(at != std::string::npos && at < rest && at < runewords);
+            }
         }
     }
     {
@@ -1296,7 +1309,9 @@ void CampViewShowsThemeVictory() {
         if (logs.size() == 1u) {
             CHECK(logs[0].find("DUNGEON CLEARED / CAMP") != std::string::npos);
             CHECK(logs[0].find("Next: ") != std::string::npos);
-            CHECK(logs[0].find("Descend to the next dungeon") != std::string::npos);
+            const auto descend = logs[0].find("Descend to the next dungeon");
+            CHECK(descend != std::string::npos && descend > logs[0].find("LOADOUT (free)"));
+            CHECK(logs[0].find("EXPEDITION CHOICE") == std::string::npos);
             CHECK(logs[0].find("Return in triumph") == std::string::npos);
         }
     }

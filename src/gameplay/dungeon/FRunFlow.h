@@ -87,14 +87,14 @@ std::expected<FRunResult, std::string> ResolveRoomVictory(entt::registry& regist
 /// The modal id a run phase opens; empty for a phase with no modal.
 [[nodiscard]] std::string RunModalIdForPhase(EDungeonPhase phase);
 
-/// The save phase id of a core phase. It returns exactly the same strings as DungeonPhaseName for the five
+/// The save phase id of a core phase. It returns exactly the same strings as DungeonPhaseName for the six
 /// core phases (SavedPhaseNamesUnchanged).
 [[nodiscard]] const char* PhaseId(EDungeonPhase phase);
 
 /// The core phase for a save id, or nullopt when the id is not a core phase.
 [[nodiscard]] std::optional<EDungeonPhase> PhaseFromId(std::string_view id);
 
-/// True for the five core phase ids. Room types are a different vocabulary — they live in
+/// True for the six core phase ids. Room types are a different vocabulary — they live in
 /// FRoomTypeRegistry.h and are never save phase ids.
 [[nodiscard]] bool IsKnownPhaseId(std::string_view id);
 

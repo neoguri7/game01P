@@ -23,8 +23,8 @@
 
 namespace game {
 
-/// The shared leave/abandon confirm. `allowLeave` offers "Save and leave" (the battle's option);
-/// `viaIntent` posts the run intent instead of setting the run's flags (the camp's host owns its phase).
+/// The shared leave/abandon confirm. `allowLeave` offers "Save and leave" (the battle and, since WP-46, the
+/// camp; the camp's posts the LeaveRun intent). `viaIntent` posts the run intent instead of setting the run's flags (the camp's host owns its phase).
 void DrawAbandonConfirm(entt::registry& registry, bool allowLeave, bool viaIntent) {
     auto& ui = registry.ctx().get<FDungeonUiState>();
     if (!ui.confirmAbandon) return;
@@ -241,6 +241,27 @@ void RenderDungeonCampView(entt::registry& registry) {
         ImGui::TextWrapped("%s", run.message.c_str());
         if (themeCleared) {
             ImGui::TextWrapped("The boss of %s has fallen. Seals: %d.", themeName.c_str(), MetaSeals(registry));
+            // WP-46b: the choice the screen exists for sits above the services, visible without scrolling.
+            const auto* choiceRewards = registry.ctx().find<FRewards>();
+            const bool choiceBlocked = choiceRewards != nullptr && choiceRewards->offer.active;
+            ImGui::SeparatorText("EXPEDITION CHOICE");
+            ImGui::BeginDisabled(choiceBlocked);
+            const std::string deeperLabel = "Descend deeper: " + next;
+            if (ui::Button(deeperLabel.c_str(), {-1, 42})) {
+                PostRunIntent(registry, ERunIntent::LeaveCamp);
+                ImGui::CloseCurrentPopup();
+            }
+            if (ui::Button("Return in triumph (ends the expedition as a success)", {-1, 42})) {
+                PostRunIntent(registry, ERunIntent::ReturnInTriumph);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndDisabled();
+            if (choiceBlocked) ImGui::TextDisabled("Pick a rune or skip the offer first.");
+            std::string explanation = "Ends the run: its runes, levels and materials end with it. The checkpoint stays.";
+            if (!MetaDisabled(registry)) explanation += " Seals +" + std::to_string(kTriumphSeals) + ".";
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("%s", explanation.c_str());
+            ImGui::PopStyleColor();
         }
         ImGui::Separator();
         const auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
@@ -357,22 +378,15 @@ void RenderDungeonCampView(entt::registry& registry) {
             }
             ImGui::PopID();
         }
-        if (offerOpen) ImGui::TextDisabled("Pick a rune or skip the offer to descend.");
-        ImGui::BeginDisabled(offerOpen);
-        const std::string descendLabel = themeCleared ? "Descend deeper: " + next : "Descend to the next dungeon";
-        if (ui::Button(descendLabel.c_str(), {-1, 42})) {
-            PostRunIntent(registry, ERunIntent::LeaveCamp);
-            ImGui::CloseCurrentPopup();
-        }
-        if (themeCleared) {
-            if (ui::Button("Return in triumph (ends the expedition as a success)", {-1, 42})) {
-                PostRunIntent(registry, ERunIntent::ReturnInTriumph);
+        if (!themeCleared) {
+            if (offerOpen) ImGui::TextDisabled("Pick a rune or skip the offer to descend.");
+            ImGui::BeginDisabled(offerOpen);
+            if (ui::Button("Descend to the next dungeon", {-1, 42})) {
+                PostRunIntent(registry, ERunIntent::LeaveCamp);
                 ImGui::CloseCurrentPopup();
             }
-            ImGui::TextDisabled("Ends the run: its runes, levels and materials end with it. The checkpoint stays. Seals +%d.",
-                                kTriumphSeals);
+            ImGui::EndDisabled();
         }
-        ImGui::EndDisabled();
         if (ui::Button("End expedition at checkpoint", {-1, 30})) {
             ui.confirmAbandon = true;
         }
