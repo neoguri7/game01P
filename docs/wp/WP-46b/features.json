@@ -1,0 +1,13 @@
+{
+  "wp": "WP-46b",
+  "files": [
+    "src/presentation/FDungeonCampView.cpp",
+    "src/gameplay/dungeon/FRunFlow.h",
+    "tests/features/camp_tests.cpp"
+  ],
+  "allowTimeoutChange": false,
+  "allowCheckDrop": [],
+  "features": [
+    {"id": "F1", "behavior": "The theme victory choice is drawn above the camp services; other camps keep the descend button at the bottom", "test": "camp_tests::CampViewShowsThemeVictory", "passes": false}
+  ]
+}
