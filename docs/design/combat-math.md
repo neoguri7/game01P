@@ -20,7 +20,7 @@
 
 Owner per stage: 1–4 TBD (filled by WPs that add modifiers); 5 = ActionResolverSystem (roll), PreviewSkill (numbers).
 
-Enemy sheet (separate from the skill pipeline): base → depth and room scale → cycle scale → elite affix (WP-41). Owner: RefreshCombatSheet block ③.
+Enemy sheet (separate from the skill pipeline): base → depth and room scale → cycle scale → elite stage (WP-44, from FEliteBattleState; replaces the WP-41 elite affix): max HP +elite.health_percent%, then the rule attack bonus (flat, added to attack and magic attack; it changes only at round start, before enemy intents are committed). Owner: RefreshCombatSheet block ③.
 
 ## 2. 피해 공식 (§5, 잠정)
 

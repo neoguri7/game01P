@@ -1,0 +1,92 @@
+{
+  "wp": "WP-44",
+  "files": [
+    "src/gameplay/combat/FEliteRules.h",
+    "src/gameplay/combat/FEliteRules.cpp",
+    "assets/data/dungeon.json",
+    "src/gameplay/dungeon/FRunSequence.h",
+    "src/gameplay/dungeon/FRunSequence.cpp",
+    "src/gameplay/dungeon/FRunPath.cpp",
+    "src/gameplay/dungeon/FDungeonRun.cpp",
+    "src/gameplay/dungeon/FRunFlow.cpp",
+    "src/gameplay/dungeon/FRewards.cpp",
+    "src/gameplay/dungeon/FRewards.h",
+    "src/gameplay/combat/FCombatSheet.cpp",
+    "src/ecs/systems/ActionResolverSystem.h",
+    "src/ecs/systems/TurnFlowSystem.h",
+    "src/gameplay/GameplayServices.cpp",
+    "src/presentation/FPathStripView.cpp",
+    "tests/features/run_path_tests.cpp",
+    "tests/features/run_log_tests.cpp"
+  ],
+  "allowTimeoutChange": false,
+  "allowCheckDrop": [],
+  "features": [
+    {
+      "id": "F1",
+      "behavior": "Elite rule rows parse with their parameters; bad rows fail the load",
+      "test": "run_path_tests::EliteBlockLoadsAndValidates",
+      "passes": false
+    },
+    {
+      "id": "F2",
+      "behavior": "Ship data holds the four rules of the spec, no reward_materials, valid status ids",
+      "test": "run_path_tests::ShipEliteRules",
+      "passes": false
+    },
+    {
+      "id": "F3",
+      "behavior": "An elite battle installs the rule state; enemy max HP is the standard value plus elite.health_percent, attack unchanged",
+      "test": "run_path_tests::EliteBattleInstallsState",
+      "passes": false
+    },
+    {
+      "id": "F4",
+      "behavior": "Spell-fed queues a bonus per party Spell use and applies it at the next round start, capped",
+      "test": "run_path_tests::SpellFedQueuesUntilNextRound",
+      "passes": false
+    },
+    {
+      "id": "F5",
+      "behavior": "Escalating adds the bonus once per round from from_round, capped",
+      "test": "run_path_tests::EscalatingFromRound",
+      "passes": false
+    },
+    {
+      "id": "F6",
+      "behavior": "Thorned costs a party melee attacker HP per enemy hit, never below 1 HP",
+      "test": "run_path_tests::ThornedHurtsMeleeAttacker",
+      "passes": false
+    },
+    {
+      "id": "F7",
+      "behavior": "Unyielding makes every enemy immune to the rule's statuses",
+      "test": "run_path_tests::UnyieldingBlocksControl",
+      "passes": false
+    },
+    {
+      "id": "F8",
+      "behavior": "The HUD line is empty without an elite state or outside the Battle phase; otherwise name, text, affected skills and bonus suffixes",
+      "test": "run_path_tests::EliteHudLine",
+      "passes": false
+    },
+    {
+      "id": "F9",
+      "behavior": "An elite win opens a strict boss-table rune offer (no rarity of weight 0, also with a dry pool) and pays no extra materials",
+      "test": "run_path_tests::EliteVictoryPaysOffer",
+      "passes": false
+    },
+    {
+      "id": "F10",
+      "behavior": "The fork panel elite detail is the HP line, the rule text, the affected skills and the uncommon-or-better reward",
+      "test": "run_path_tests::ForkPanelShowsBothOptions",
+      "passes": false
+    },
+    {
+      "id": "F11",
+      "behavior": "Round-start bonus and thorn damage write the exact feed lines",
+      "test": "run_path_tests::EliteFeedLines",
+      "passes": false
+    }
+  ]
+}
