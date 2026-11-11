@@ -1,0 +1,101 @@
+{
+  "wp": "WP-45",
+  "files": [
+    "src/gameplay/combat/FRuneword.h",
+    "src/gameplay/combat/FRuneword.cpp",
+    "src/gameplay/dungeon/FRunewordInfo.h",
+    "src/gameplay/dungeon/FRunewordInfo.cpp",
+    "assets/data/engine_ignition.json",
+    "assets/data/runes.json",
+    "assets/data/unlocks.json",
+    "src/gameplay/data/FEngineContent.h",
+    "src/gameplay/data/FEngineContent.cpp",
+    "src/gameplay/data/FRuneContent.h",
+    "src/gameplay/data/FRuneContent.cpp",
+    "src/gameplay/data/FContentRegistry.cpp",
+    "src/gameplay/dungeon/FRewards.cpp",
+    "src/gameplay/GameplayServices.cpp",
+    "src/presentation/FDungeonRewardView.cpp",
+    "src/presentation/FDungeonCampView.cpp",
+    "tests/features/engine_ignition_tests.cpp",
+    "src/ecs/systems/ActionResolverSystem.h",
+    "tests/features/hub_shop_tests.cpp",
+    "src/ecs/systems/EmberCombatHudView.cpp"
+  ],
+  "allowTimeoutChange": false,
+  "allowCheckDrop": [],
+  "features": [
+    {
+      "id": "F1",
+      "behavior": "Engine rows parse an optional effect (kind, percent, turns) and text; bad effect rows fail the boot",
+      "test": "engine_ignition_tests::RunewordEffectSchema",
+      "passes": false
+    },
+    {
+      "id": "F2",
+      "behavior": "Ship data: four runewords with effects, seven catalysts, three retired runes, no unlock row for a retired rune",
+      "test": "engine_ignition_tests::ShipRunewordData",
+      "passes": false
+    },
+    {
+      "id": "F3",
+      "behavior": "A slot's runeword is the first complete effect-bearing engine in data order",
+      "test": "engine_ignition_tests::ActiveRunewordIsFirstComplete",
+      "passes": false
+    },
+    {
+      "id": "F4",
+      "behavior": "Ember Engine: hitting a burning enemy damages every adjacent enemy by the burn's remaining damage times percent",
+      "test": "engine_ignition_tests::EmberEngineBurnsNeighbours",
+      "passes": false
+    },
+    {
+      "id": "F5",
+      "behavior": "Frost Lock: hitting a frozen enemy freezes exactly one adjacent enemy for the authored turns",
+      "test": "engine_ignition_tests::FrostLockSpreadsFreeze",
+      "passes": false
+    },
+    {
+      "id": "F6",
+      "behavior": "Arc: hitting a shocked enemy damages every other shocked enemy at any distance",
+      "test": "engine_ignition_tests::ArcHitsOtherShocked",
+      "passes": false
+    },
+    {
+      "id": "F7",
+      "behavior": "Kindled: killing a burning enemy moves its burn to the nearest enemy that is not burning",
+      "test": "engine_ignition_tests::KindledCarriesBurn",
+      "passes": false
+    },
+    {
+      "id": "F8",
+      "behavior": "A runeword acts at most once per skill use",
+      "test": "engine_ignition_tests::RunewordActsOncePerSkillUse",
+      "passes": false
+    },
+    {
+      "id": "F9",
+      "behavior": "A retired rune is never a rune offer candidate",
+      "test": "engine_ignition_tests::RetiredRuneNeverOffered",
+      "passes": false
+    },
+    {
+      "id": "F10",
+      "behavior": "The card line says completes, ingredient or nothing",
+      "test": "engine_ignition_tests::RunewordCardLine",
+      "passes": false
+    },
+    {
+      "id": "F11",
+      "behavior": "The slot line and the known-runeword list follow ownership (inventory or socketed) and slot contents",
+      "test": "engine_ignition_tests::RunewordSlotAndRecipeLines",
+      "passes": false
+    },
+    {
+      "id": "F12",
+      "behavior": "Two resolver-driven skill uses in one turn each let the runeword act once",
+      "test": "engine_ignition_tests::RunewordActsOncePerSkillUse",
+      "passes": false
+    }
+  ]
+}

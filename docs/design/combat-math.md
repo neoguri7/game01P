@@ -18,6 +18,8 @@
 
 주의: 2번 항목의 "형태·강화"는 원문에서 §5 개편 3차로 폐기된 **룬 축(속성/형태/강화)**과 같은 단어다 (§5 "폐기(개편 3차): 룬 축(속성/형태/강화)"). 이 목록은 원문 문구를 그대로 옮긴 것이며, 현재 룬 모델이 어떤 태그를 쓰는지는 원문에서 확정되지 않았다.
 
+Runeword damage (WP-45) is outside this pipeline: flat damage applied with ApplyDamageToUnit after stage 5 of the triggering hit (Arc reads that hit's final damage). It takes no defense, cannot crit and fires no hooks. Owner: FRuneword.
+
 Owner per stage: 1–4 TBD (filled by WPs that add modifiers); 5 = ActionResolverSystem (roll), PreviewSkill (numbers).
 
 Enemy sheet (separate from the skill pipeline): base → depth and room scale → cycle scale → elite stage (WP-44, from FEliteBattleState; replaces the WP-41 elite affix): max HP +elite.health_percent%, then the rule attack bonus (flat, added to attack and magic attack; it changes only at round start, before enemy intents are committed). Owner: RefreshCombatSheet block ③.
