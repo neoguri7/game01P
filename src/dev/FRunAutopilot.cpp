@@ -23,6 +23,7 @@
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunFlow.h"
 #include "gameplay/dungeon/FRunPath.h"
+#include "presentation/FPreparationView.h"
 
 namespace game::dev {
 namespace {
@@ -30,6 +31,8 @@ namespace {
 /// `states/FEmberTitleState.h` owns the title catalog id as `kEmberTitleId`; the literal is repeated here so
 /// this dev driver stays gameplay + Logger only.
 constexpr std::string_view kEmberTitleStateId = "ember.title";
+/// Same rule for the preparation screen (`states/FEmberPreparationState.h` owns `kEmberPrepareId`).
+constexpr std::string_view kEmberPrepareStateId = "ember.prepare";
 
 /// The parser ceiling for `camp=+<U>`; the camp's price curve makes more than this meaningless in one run.
 constexpr int kMaxCampUpgrades = 32;
@@ -355,6 +358,15 @@ EAutopilotStatus FRunAutopilot::tick(entt::registry& registry, std::string_view 
         request->value = EMenuRequest::Start;
         request->fresh = true;
         LOG_INFO("[autopilot] title: start fresh run");
+        act();
+        return EAutopilotStatus::Running;
+    }
+
+    if (topStateId == kEmberPrepareStateId) {
+        // The preparation screen starts the run from its default draft: the same command its Start button
+        // posts. A blocked Start keeps this decision point, so the stuck guard reports it.
+        registry.ctx().insert_or_assign<FPreparationCommand>(FPreparationCommand{EPreparationCommand::Start});
+        LOG_INFO("[autopilot] prepare: start with the default draft");
         act();
         return EAutopilotStatus::Running;
     }
