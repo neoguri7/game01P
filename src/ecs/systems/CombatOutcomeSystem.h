@@ -146,7 +146,13 @@ private:
             highest = std::max(highest, seq);
             if (result.reject != ECommandReject::None) continue;
             const auto* action = std::get_if<FActionRequest>(&result.command.action);
-            if (action != nullptr && !action->skillId.empty()) ++stats->skillsUsed[action->skillId];
+            if (action != nullptr && !action->skillId.empty()) {
+                ++stats->skillsUsed[action->skillId];
+                // WP-42: the party's own uses, per member (enemy commands stay out of the per-member map).
+                if (registry.valid(action->actor) && registry.all_of<FPartyMember, FUnitData>(action->actor)) {
+                    ++stats->skillsByMember[registry.get<FUnitData>(action->actor).definition.id][action->skillId];
+                }
+            }
         }
         stats->lastSeq = highest;
     }

@@ -42,6 +42,12 @@ EIntentMode IntentModeOf(std::string_view target, std::string_view shape) {
 
 namespace {
 
+/// WP-42: one whiff, counted under its reason so the reason counts always sum to `whiffed`.
+void CountWhiff(FIntentStats& stats, std::string_view reason) {
+    ++stats.whiffed;
+    ++stats.whiffReasons[std::string(reason)];
+}
+
 /// The mode rule (WP-11 §모드 결정) applied to a *resolved* skill. Resolved values are used on purpose — a
 /// rune can change the shape, and the intent must follow the skill the unit really carries.
 [[nodiscard]] EIntentMode ModeForSkill(const FResolvedSkill& skill) {
@@ -716,7 +722,7 @@ FIntentStep TakeCommittedIntent(
             // Already displaced or aimed at an empty tile (EvaluateIntent owns the verdict — WP-12 shows
             // the same reason): the shot does not happen and the turn ends, no move.
             if (intent.attack) {
-                ++store->stats.whiffed;
+                CountWhiff(store->stats, evaluation.reason);
             }
             intent.state = EIntentState::WrapUp;
             LOG_INFO("[intent] {}", IntentLine(name, token.actor, intent, "whiff", evaluation.reason));
@@ -735,7 +741,7 @@ FIntentStep TakeCommittedIntent(
         const entt::entity occupant = HostileOccupantOnCell(registry, token.actor, intent.aim);
         if (occupant == entt::null) {
             if (intent.attack) {
-                ++store->stats.whiffed;
+                CountWhiff(store->stats, "tile empty");
             }
             intent.state = EIntentState::WrapUp;
             LOG_INFO("[intent] {}", IntentLine(name, token.actor, intent, "whiff", "tile empty"));
@@ -761,7 +767,7 @@ FIntentStep TakeCommittedIntent(
             }
         }
         if (intent.attack) {
-            ++store->stats.whiffed;
+            CountWhiff(store->stats, evaluation.reason);
         }
         intent.state = EIntentState::WrapUp;
         LOG_INFO("[intent] {}", IntentLine(name, token.actor, intent, "whiff", evaluation.reason));
@@ -784,7 +790,7 @@ FIntentStep TakeCommittedIntent(
     }
     // Unreachable in the same frame the evaluation passed: defensive only (no world change happened).
     if (intent.attack) {
-        ++store->stats.whiffed;
+        CountWhiff(store->stats, reach.reason);
     }
     intent.state = EIntentState::WrapUp;
     LOG_INFO("[intent] {}", IntentLine(name, token.actor, intent, "whiff", reach.reason));
@@ -816,7 +822,7 @@ void AcknowledgeIntentStep(
             // Take must stay side-effect free until the submit proved it was accepted). The reason comes
             // from the take step so the line keeps the same head as its commit and whiff siblings.
             if (intent.attack) {
-                ++store->stats.whiffed;
+                CountWhiff(store->stats, step.reason.empty() ? "closing approach" : step.reason);
             }
             intent.state = EIntentState::WrapUp;
             LOG_INFO("[intent] {}", IntentLine(name, enemy, intent, "whiff",
@@ -897,7 +903,7 @@ void SettleIntentExecution(entt::registry& registry, std::uint64_t sessionId) {
     if (execution.attack && !hit) {
         // It fired, it hit nobody: the tile dodge, or a shot whose target slipped away. Same bucket as the
         // reach whiffs — the whiff rate is about attacks that failed to land.
-        ++store->stats.whiffed;
+        CountWhiff(store->stats, "hit nobody");
         LOG_INFO("[intent] {}{} whiffed (0 of {} expected dmg)", UnitDisplayName(registry, execution.enemy),
                  EntityTag(execution.enemy), execution.expectedAtExecution);
     } else {

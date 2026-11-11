@@ -1,0 +1,8 @@
+- T1 red: new C++ cases and runlog.test.mjs added; C++ cases failed for missing behavior (commit 8bb718d).
+- T2 whiff reasons: FIntent.cpp CountWhiff; build --tests intent_tests green.
+- T3 log lines: FRunFlow/FRunLog/CombatOutcomeSystem + run_flow_tests expectation; build --tests "run_log_tests|run_flow_tests" green.
+- T4 fast-forward: Engine.*, main.cpp, FFramePlan.h; build --tests headless_tools_tests green.
+- T5 report library and CLIs: runlog.mjs, runlog-report.mjs, baseline.mjs; node --test green.
+- T6 full suite: build.mjs green, 0 failing tests.
+- T7 fast mode: first attempt (spec as written) hung at shutdown at ~5 GB: skipped frames never present, so SDL's software-renderer command queue (filled by ApplyEngineWorldRenderEffect) grew unbounded and was flushed at texture destroy. Applied the spec's fallback (skip ApplyEngineWorldRenderEffect when not rasterizing) plus an ImGui texture catch-up in the no-raster path. wp42-fast 6.9 s vs wp42-slow 107.1 s (15.5x); logs equal line by line (17 lines).
+- T8 docs: docs/playtest/README.md, TEMPLATE.md (10 P10 rows + 3 "볼 것" rows).

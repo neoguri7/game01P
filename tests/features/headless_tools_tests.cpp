@@ -46,7 +46,9 @@
 #include <spdlog/spdlog.h>
 
 #include "core/AssetManager.h"
+#include "core/Engine.h"
 #include "core/EngineState.h"
+#include "core/FFramePlan.h"
 #include "core/InputState.h"
 #include "core/Logger.h"
 #include "dev/FEnginePolicy.h"
@@ -1527,6 +1529,19 @@ void AutopilotPicksOpenOptionPastGate() {
     }
 }
 
+/// WP-42 F9: fast-forward steps a fixed 1/60 s and skips rasterization unless a capture is due.
+void FastForwardFramePlan() {
+    const auto plan = [](bool fixed, bool fast, bool capture) { return game::PlanEngineFrame(fixed, fast, capture, 0.25f); };
+    CHECK(plan(false, false, false).dt == 0.25f);
+    CHECK(plan(false, false, false).rasterize);
+    CHECK(plan(true, false, false).dt == 1.f / 60.f);
+    CHECK(plan(true, false, false).rasterize);
+    CHECK(plan(false, true, false).dt == 1.f / 60.f);
+    CHECK(!plan(false, true, false).rasterize);
+    CHECK(plan(false, true, true).dt == 1.f / 60.f);
+    CHECK(plan(false, true, true).rasterize);
+}
+
 }  // namespace
 
 int main() {
@@ -1565,5 +1580,6 @@ int main() {
         {"EnginePolicyIsDeterministic", EnginePolicyIsDeterministic},
         {"ArmedSlotIgnitesAutoDoesNot", ArmedSlotIgnitesAutoDoesNot},
         {"AutopilotPicksOpenOptionPastGate", AutopilotPicksOpenOptionPastGate},
+        {"FastForwardFramePlan", FastForwardFramePlan},
     });
 }

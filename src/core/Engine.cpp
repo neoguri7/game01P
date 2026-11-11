@@ -131,6 +131,10 @@ void Engine::setFrameDriver(FFrameDriver driver) {
     frameDriver_ = std::move(driver);
 }
 
+void Engine::setFastForward(bool enabled) {
+    fastForward_ = enabled;
+}
+
 void Engine::applyStartupStateOverride() {
     startupStateReady = false;
     flowError = false;
@@ -331,7 +335,7 @@ bool Engine::run(std::uint32_t maxFrames, std::string screenshotPath) {
         const float wallDelta = frameTime.updateDeltaTime();
         // WP-00c (dev): scripted runs are frame-locked (a TAS-style input file): pass a fixed step so frame N
         // is the same simulation moment on every run; Time still tracks the wall clock for fps/overlay.
-        const float dt = fixedTimestep_ ? kScriptFixedDeltaSeconds : wallDelta;
+        const float dt = PlanEngineFrame(fixedTimestep_, fastForward_, false, wallDelta).dt;
 
         if (auto* bus = registry.ctx().find<FEventBus>()) {
             bus->beginFrame();
@@ -361,6 +365,11 @@ bool Engine::run(std::uint32_t maxFrames, std::string screenshotPath) {
             }
         }
 
+        // WP-42: a capture queued by this frame's input (or the final screenshot) needs a rasterized frame.
+        // Fast frames skip the world render systems too: HUD buttons are not submitted on them.
+        const bool captureDue = !pendingCaptures_.empty() ||
+                                (!screenshotPath_.empty() && CurrentEngineFrameIndex(registry) == maxFrames_);
+        rasterizeFrame_ = PlanEngineFrame(fixedTimestep_, fastForward_, captureDue, wallDelta).rasterize;
         render();
         EndEngineFrameEffects(registry);
 
@@ -500,14 +509,31 @@ void Engine::render() {
     }
 
     (void)ApplyEngineBeginImGuiFrameEffect();
-    (void)ApplyEngineClearBackbufferEffect(renderer.get());
+    if (rasterizeFrame_) {
+        (void)ApplyEngineClearBackbufferEffect(renderer.get());
+    }
 
-    (void)ApplyEngineWorldRenderEffect(registry, systemMgr);
+    // WP-42: the world systems queue SDL draw commands that only a present would ever flush; a fast frame
+    // never presents, so they are skipped with it (otherwise the renderer queue grows without bound).
+    if (rasterizeFrame_) {
+        (void)ApplyEngineWorldRenderEffect(registry, systemMgr);
+    }
     stateMachine.renderStack(registry);
 
     (void)ApplyEngineOverlayRenderEffect(registry, frameTime, systemMgr, overlayRenderer);
 
-    (void)ApplyEngineRenderImGuiDrawDataEffect(renderer.get());
+    if (rasterizeFrame_) {
+        (void)ApplyEngineRenderImGuiDrawDataEffect(renderer.get());
+    } else {
+        // Closes the ImGui frame begun above; nothing is drawn. The font atlas still needs the backend's
+        // texture catch-up (the first lines of RenderDrawData), or its pending updates pile up frame after frame.
+        ImGui::Render();
+        if (const ImDrawData* drawData = ImGui::GetDrawData(); drawData != nullptr && drawData->Textures != nullptr) {
+            for (ImTextureData* texture : *drawData->Textures) {
+                if (texture->Status != ImTextureStatus_OK) ImGui_ImplSDLRenderer3_UpdateTexture(texture);
+            }
+        }
+    }
     if (!screenshotPath_.empty() && CurrentEngineFrameIndex(registry) == maxFrames_) {
         captureSucceeded_ = saveFrameCapture(screenshotPath_);
     }
@@ -520,13 +546,14 @@ void Engine::render() {
         }
     }
     pendingCaptures_.clear();
-    const FEngineEffectResult presentResult = ApplyEnginePresentBackbufferEffect(renderer.get());
+    const FEngineEffectResult presentResult = rasterizeFrame_ ? ApplyEnginePresentBackbufferEffect(renderer.get())
+                                                              : FEngineEffectResult{};
 
     const FEngineAbilityRequest presentRequest{
         .ability = EEngineAbility::PresentRenderFrame,
         .frameIndex = renderRequest.frameIndex
     };
-    EndEngineRenderAbility(registry, presentRequest, presentResult.applied);
+    EndEngineRenderAbility(registry, presentRequest, rasterizeFrame_ && presentResult.applied);
 }
 
 bool Engine::saveFrameCapture(const std::string& path) {

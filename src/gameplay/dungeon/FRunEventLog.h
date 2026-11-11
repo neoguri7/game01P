@@ -21,7 +21,9 @@ enum class ERunEventKind {
     RewardPicked,
     CampSpent,
     EventChosen,
-    ForkChosen
+    ForkChosen,
+    CampEntered,
+    CampLeft
 };
 
 /// The recent-events ring size. Only the last 64 events are kept; a consumer that needs history reads

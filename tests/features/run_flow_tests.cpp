@@ -173,8 +173,8 @@ void TransitionTableWalks() {
     // The walk recorded each victory, each offer decision and the shrine choice in order, then the dungeon
     // clear at the camp.
     const auto& log = registry.ctx().get<game::FRunEventLog>();
-    CHECK(log.tail.size() == 8u);
-    CHECK(log.nextSeq == 9);
+    CHECK(log.tail.size() == 10u);
+    CHECK(log.nextSeq == 11);
     CHECK(log.tail[0].kind == game::ERunEventKind::RoomCleared && log.tail[0].seq == 1);
     CHECK(log.tail[1].kind == game::ERunEventKind::RewardPicked && log.tail[1].seq == 2);
     CHECK(!log.tail[1].id.empty() && log.tail[1].amount == 0);
@@ -188,6 +188,8 @@ void TransitionTableWalks() {
     CHECK(log.tail[7].kind == game::ERunEventKind::DungeonCleared && log.tail[7].seq == 8);
     CHECK(log.tail[7].depth == 1);  // DungeonCleared carries the depth that was cleared
     CHECK(log.tail[7].room == 2);
+    CHECK(log.tail[8].kind == game::ERunEventKind::CampEntered);
+    CHECK(log.tail[9].kind == game::ERunEventKind::CampLeft);
 }
 
 /// The transition table has one writer: only FRunFlow.cpp assigns a run's phase. Documented exceptions:

@@ -43,6 +43,7 @@
 #include "gameplay/dungeon/FRunFlow.h"
 #include "gameplay/dungeon/FRunLog.h"
 #include "gameplay/dungeon/FRunPath.h"
+#include "gameplay/dungeon/FRunSequence.h"
 #include "gameplay/factory/FEntityDefinitions.h"
 #include "states/FEmberRunEndState.h"
 
@@ -153,10 +154,11 @@ entt::entity AddPartyEntity(
     return entity;
 }
 
-void AddLivingEnemy(entt::registry& registry) {
+entt::entity AddLivingEnemy(entt::registry& registry) {
     const entt::entity entity = registry.create();
     registry.emplace<game::FEnemy>(entity);
     registry.emplace<game::FHealth>(entity, game::FHealth{10, 10});
+    return entity;
 }
 
 void StartBattleSession(entt::registry& registry, std::uint32_t seed = 7) {
@@ -385,6 +387,7 @@ void SchemaKeysPerType() {
                      "ms_to_first_battle", "report"}},
         {"dungeon_clear", {"t", "depth"}},
         {"engine_ignition", {"t", "depth", "room", "round", "engine"}},
+        {"camp_enter", {"t", "depth", "party_hp_before_heal", "party_hp", "party_hp_max", "materials", "ms", "frame"}},
     };
 
     FBoot boot(UniqueDir("run-log-schema"));
@@ -836,6 +839,319 @@ void IntentStatsFromAnotherBattleIgnored() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// WP-42: playtest instrumentation keys
+// ---------------------------------------------------------------------------------------------
+
+/// Three won rooms (the gap event after room 0 rests) up to the camp; `beforeLastContinue` runs right
+/// before the continue that enters the camp.
+template <typename TFn>
+void ReachCamp(FBoot& boot, TFn beforeLastContinue) {
+    auto& registry = boot.registry;
+    game::StartRun(registry, kSeed, true);
+    CHECK(!game::BuildDungeonBattlefield(registry).empty());
+    CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    CHECK(game::ResolveRuneOffer(registry, 0));
+    CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward).has_value());
+    CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ChooseEventRest).has_value());
+    CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    CHECK(game::ResolveRuneOffer(registry, -1));
+    CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward).has_value());
+    CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    CHECK(game::ResolveRuneOffer(registry, -1));
+    beforeLastContinue();
+    CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward).has_value());
+    CHECK(boot.run().phase == game::EDungeonPhase::Camp);
+}
+
+void ReachCamp(FBoot& boot) {
+    ReachCamp(boot, [] {});
+}
+
+std::vector<std::string> JsonStrings(const json& array) {
+    std::vector<std::string> values;
+    for (const auto& item : array) values.push_back(item.get<std::string>());
+    return values;
+}
+
+void OfferRecordCarriesCandidates() {
+    FBoot boot(UniqueDir("run-log-candidates"));
+    auto& registry = boot.registry;
+    game::StartRun(registry, kSeed, true);
+    CHECK(!game::BuildDungeonBattlefield(registry).empty());
+    CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    const std::vector<std::string> first = registry.ctx().get<game::FRewards>().offer.candidates;
+    CHECK(!first.empty());
+    CHECK(game::ResolveRuneOffer(registry, 0));
+    CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward).has_value());
+    CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ChooseEventRest).has_value());
+    CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    const std::vector<std::string> second = registry.ctx().get<game::FRewards>().offer.candidates;
+    CHECK(!second.empty());
+    CHECK(game::ResolveRuneOffer(registry, -1));
+
+    const auto offers = EventsOfType(boot.log(), "offer");
+    CHECK(offers.size() == 2u);
+    if (offers.size() == 2u) {
+        CHECK(offers[0].contains("candidates"));
+        CHECK(offers[1].contains("candidates"));
+        if (offers[0].contains("candidates") && offers[1].contains("candidates")) {
+            CHECK(JsonStrings(offers[0]["candidates"]) == first);
+            CHECK(offers[0]["candidates"].size() == offers[0]["rarities"].size());
+            CHECK(offers[1]["skipped"] == true);
+            CHECK(JsonStrings(offers[1]["candidates"]) == second);
+            CHECK(offers[1]["candidates"].size() == offers[1]["rarities"].size());
+        }
+    }
+}
+
+void CampEnterRecordsEntryState() {
+    FBoot boot(UniqueDir("run-log-camp-enter"));
+    int before = 0;
+    ReachCamp(boot, [&] {
+        boot.run().party[0].health = 1;
+        boot.run().materials = 7;
+        for (const auto& member : boot.run().party) before += game::DungeonEffectiveHealth(boot.registry, member);
+    });
+    int now = 0;
+    int maximum = 0;
+    for (const auto& member : boot.run().party) {
+        now += game::DungeonEffectiveHealth(boot.registry, member);
+        maximum += game::DungeonMemberMaxHealth(boot.registry, member);
+    }
+    const auto camps = EventsOfType(boot.log(), "camp_enter");
+    CHECK(camps.size() == 1u);
+    if (camps.size() != 1u) return;
+    CHECK(camps[0]["party_hp_before_heal"] == before);
+    CHECK(camps[0]["party_hp"] == now);
+    CHECK(camps[0]["party_hp"].get<int>() > camps[0]["party_hp_before_heal"].get<int>());
+    CHECK(camps[0]["party_hp_max"] == maximum);
+    CHECK(camps[0]["materials"] == 7);
+    CHECK(camps[0]["depth"] == 1);
+    CHECK(camps[0].contains("ms"));
+    CHECK(camps[0].contains("frame"));
+    std::size_t clearIndex = 0;
+    std::size_t campIndex = 0;
+    for (std::size_t index = 0; index < boot.log().events.size(); ++index) {
+        const auto& line = boot.log().events[index];
+        if (line["t"] == "dungeon_clear") clearIndex = index;
+        if (line["t"] == "camp_enter") campIndex = index;
+    }
+    CHECK(clearIndex > 0u);
+    CHECK(campIndex > clearIndex);
+}
+
+void CampLeaveRecorded() {
+    {
+        FBoot boot(UniqueDir("run-log-camp-leave"));
+        ReachCamp(boot);
+        CHECK(EventsOfType(boot.log(), "camp_leave").empty());
+        CHECK(game::ApplyRunIntent(boot.registry, game::ERunIntent::LeaveCamp).has_value());
+        const auto leaves = EventsOfType(boot.log(), "camp_leave");
+        CHECK(leaves.size() == 1u);
+        if (leaves.size() == 1u) {
+            CHECK(leaves[0]["depth"] == 1);
+            CHECK(leaves[0].contains("materials"));
+            CHECK(leaves[0].contains("ms"));
+            CHECK(leaves[0].contains("frame"));
+        }
+        CHECK(boot.run().depth == 2);
+    }
+    {
+        FBoot boot(UniqueDir("run-log-camp-leave-refused"));
+        ReachCamp(boot);
+        boot.run().materials = 99;
+        CHECK(!game::PurchaseCampRuneOffer(boot.registry).has_value());
+        CHECK(boot.registry.ctx().get<game::FRewards>().offer.active);
+        CHECK(!game::ApplyRunIntent(boot.registry, game::ERunIntent::LeaveCamp).has_value());
+        CHECK(EventsOfType(boot.log(), "camp_leave").empty());
+    }
+}
+
+void RoomEndCarriesClock() {
+    FBoot boot(UniqueDir("run-log-room-clock"));
+    auto& registry = boot.registry;
+    game::StartRun(registry, kSeed, true);
+    CHECK(!game::BuildDungeonBattlefield(registry).empty());
+    CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    const auto starts = EventsOfType(boot.log(), "room_start");
+    const auto ends = EventsOfType(boot.log(), "room_end");
+    CHECK(starts.size() == 1u);
+    CHECK(ends.size() == 1u);
+    if (starts.size() != 1u || ends.size() != 1u) return;
+    CHECK(ends[0].contains("ms"));
+    CHECK(ends[0].contains("frame"));
+    if (!ends[0].contains("ms") || !ends[0].contains("frame")) return;
+    CHECK(ends[0]["ms"].is_number_unsigned());
+    CHECK(ends[0]["frame"].is_number_integer());
+    CHECK(starts[0]["ms"].is_number_unsigned());
+    CHECK(ends[0]["ms"].get<std::uint64_t>() >= starts[0]["ms"].get<std::uint64_t>());
+}
+
+void RoomEndCarriesWhiffReasons() {
+    {
+        FBoot boot(UniqueDir("run-log-whiff-reasons"));
+        game::StartRun(boot.registry, kSeed, true);
+        auto& registry = boot.registry;
+        auto& stats = registry.ctx().emplace<game::FRoomBattleStats>();
+        stats.sessionId = 2;
+        stats.active = true;
+        auto& intents = registry.ctx().emplace<game::FIntentStore>();
+        intents.sessionId = 2;
+        intents.stats.whiffed = 3;
+        intents.stats.whiffReasons = {{"displaced", 2}, {"blocked", 1}};
+        CHECK(game::ResolveRoomVictory(registry, false).has_value());
+        const auto rooms = EventsOfType(boot.log(), "room_end");
+        CHECK(rooms.size() == 1u);
+        if (rooms.size() == 1u) {
+            CHECK(rooms[0]["intents"].contains("whiff_reasons"));
+            CHECK((rooms[0]["intents"].value("whiff_reasons", json::object()) ==
+                   json{{"blocked", 1}, {"displaced", 2}}));
+        }
+    }
+    {
+        FBoot boot(UniqueDir("run-log-whiff-reasons-other"));
+        game::StartRun(boot.registry, kSeed, true);
+        auto& registry = boot.registry;
+        auto& stats = registry.ctx().emplace<game::FRoomBattleStats>();
+        stats.sessionId = 2;
+        stats.active = true;
+        auto& intents = registry.ctx().emplace<game::FIntentStore>();
+        intents.sessionId = 1;
+        intents.stats.whiffed = 3;
+        intents.stats.whiffReasons = {{"displaced", 2}, {"blocked", 1}};
+        CHECK(game::ResolveRoomVictory(registry, false).has_value());
+        const auto rooms = EventsOfType(boot.log(), "room_end");
+        CHECK(rooms.size() == 1u);
+        if (rooms.size() == 1u) {
+            CHECK(rooms[0]["intents"].contains("whiff_reasons"));
+            CHECK(rooms[0]["intents"].value("whiff_reasons", json::array()) == json::object());
+        }
+    }
+}
+
+/// The first (depth, room) whose battle slot is the final boss; false when the sequence has none.
+bool FindFinalBossSlot(entt::registry& registry, int& depth, int& room) {
+    const game::FRunSequence* sequence = game::FindRunSequence(registry);
+    if (sequence == nullptr) return false;
+    for (int candidate = 1; candidate <= sequence->TotalDungeons(); ++candidate) {
+        const auto position = sequence->PositionOf(candidate - 1);
+        for (int ordinal = 0; ordinal < sequence->BattleCountAt(position); ++ordinal) {
+            const auto* slot = sequence->BattleSlotAt(position, ordinal);
+            if (slot != nullptr && slot->boss == "final") {
+                depth = candidate;
+                room = ordinal;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void BossDefeatRecordsSlot() {
+    FBoot boot(UniqueDir("run-log-boss-defeat"));
+    auto& registry = boot.registry;
+    game::StartRun(registry, kSeed, true);
+    game::AppendRunEvent(registry, game::ERunEventKind::BossDefeated, "enemy.guardian");
+    auto defeats = EventsOfType(boot.log(), "boss_defeat");
+    CHECK(defeats.size() == 1u);
+    if (defeats.size() == 1u) {
+        CHECK(defeats[0]["boss"] == "enemy.guardian");
+        CHECK(defeats[0]["slot"] == "");
+        CHECK(game::FRunEventSchemaValid(defeats[0]));
+    }
+    int depth = 0;
+    int room = 0;
+    CHECK(FindFinalBossSlot(registry, depth, room));
+    boot.run().depth = depth;
+    boot.run().room = room;
+    game::AppendRunEvent(registry, game::ERunEventKind::BossDefeated, "enemy.guardian");
+    defeats = EventsOfType(boot.log(), "boss_defeat");
+    CHECK(defeats.size() == 2u);
+    if (defeats.size() == 2u) {
+        CHECK(defeats[1]["slot"] == "final");
+        CHECK(defeats[1]["depth"] == depth);
+        CHECK(defeats[1]["room"] == room);
+    }
+}
+
+void RunEndCarriesStartDepthAndFinalBosses() {
+    {
+        FBoot boot(UniqueDir("run-log-run-end-bosses"));
+        auto& registry = boot.registry;
+        game::StartRun(registry, kSeed, true);
+        int depth = 0;
+        int room = 0;
+        CHECK(FindFinalBossSlot(registry, depth, room));
+        boot.run().depth = depth;
+        boot.run().room = room;
+        game::AppendRunEvent(registry, game::ERunEventKind::BossDefeated, "enemy.guardian");
+        boot.run().phase = game::EDungeonPhase::Battle;
+        CHECK(game::ApplyRunIntent(registry, game::ERunIntent::AbandonRun).has_value());
+        const auto starts = EventsOfType(boot.log(), "run_start");
+        const auto ends = EventsOfType(boot.log(), "run_end");
+        CHECK(starts.size() == 1u);
+        CHECK(ends.size() == 1u);
+        if (starts.size() == 1u && ends.size() == 1u) {
+            CHECK(ends[0].contains("final_bosses"));
+            CHECK(ends[0].contains("start_depth"));
+            CHECK(ends[0].value("final_bosses", -1) == 1);
+            CHECK(ends[0].value("start_depth", -1) == starts[0]["depth"].get<int>());
+        }
+    }
+    {
+        FBoot boot(UniqueDir("run-log-run-end-none"));
+        game::StartRun(boot.registry, kSeed, true);
+        boot.run().phase = game::EDungeonPhase::Battle;
+        CHECK(game::ApplyRunIntent(boot.registry, game::ERunIntent::AbandonRun).has_value());
+        const auto ends = EventsOfType(boot.log(), "run_end");
+        CHECK(ends.size() == 1u);
+        if (ends.size() == 1u) {
+            CHECK(ends[0].contains("final_bosses"));
+            CHECK(ends[0].value("final_bosses", -1) == 0);
+        }
+    }
+}
+
+void SkillsCountedPerMember() {
+    FBoot boot(UniqueDir("run-log-skills-member"));
+    game::StartRun(boot.registry, kSeed, true);
+    auto& registry = boot.registry;
+    const entt::entity party = AddPartyEntity(registry, "party.warrior", 30, 30);
+    const entt::entity enemy = AddLivingEnemy(registry);
+    StartBattleSession(registry);
+    const std::uint64_t session = registry.ctx().get<game::FTurnRuntime>().controller.snapshot().sessionId;
+
+    const auto skillResult = [](const std::string& skill, std::uint64_t seq, entt::entity actor) {
+        game::FBattleCommand command;
+        game::FActionRequest request;
+        request.skillId = skill;
+        request.actor = actor;
+        command.action = request;
+        command.seq = seq;
+        command.source = game::ECommandSource::Player;
+        return game::FCommandResult{command, game::ECommandReject::None, {}};
+    };
+    game::FCommandResults results;
+    results.sessionId = session;
+    results.recent.push_back(skillResult("skill.strike", 1, party));
+    results.recent.push_back(skillResult("skill.counter", 2, enemy));
+    registry.ctx().emplace<game::FCommandResults>(std::move(results));
+    BattleFrame(registry, 1);
+
+    CHECK(game::ResolveRoomVictory(registry, true).has_value());
+    const auto rooms = EventsOfType(boot.log(), "room_end");
+    CHECK(rooms.size() == 1u);
+    if (rooms.size() != 1u) return;
+    CHECK(rooms[0].contains("skills_by_member"));
+    if (rooms[0].contains("skills_by_member")) {
+        CHECK((rooms[0]["skills_by_member"] == json{{"party.warrior", {{"skill.strike", 1}}}}));
+    }
+    CHECK(rooms[0]["skills_used"].size() == 2u);
+    CHECK(rooms[0]["skills_used"]["skill.strike"] == 1);
+    CHECK(rooms[0]["skills_used"]["skill.counter"] == 1);
+}
+
+// ---------------------------------------------------------------------------------------------
 // Run-end minimal summary
 // ---------------------------------------------------------------------------------------------
 
@@ -1030,6 +1346,14 @@ int main() {
         {"LogRunEventWithoutRunLogIsNoOp", LogRunEventWithoutRunLogIsNoOp},
         {"WipeWritesDefeatRoomEnd", WipeWritesDefeatRoomEnd},
         {"IntentStatsFromAnotherBattleIgnored", IntentStatsFromAnotherBattleIgnored},
+        {"OfferRecordCarriesCandidates", OfferRecordCarriesCandidates},
+        {"CampEnterRecordsEntryState", CampEnterRecordsEntryState},
+        {"CampLeaveRecorded", CampLeaveRecorded},
+        {"RoomEndCarriesClock", RoomEndCarriesClock},
+        {"RoomEndCarriesWhiffReasons", RoomEndCarriesWhiffReasons},
+        {"BossDefeatRecordsSlot", BossDefeatRecordsSlot},
+        {"RunEndCarriesStartDepthAndFinalBosses", RunEndCarriesStartDepthAndFinalBosses},
+        {"SkillsCountedPerMember", SkillsCountedPerMember},
         {"TestsNeverTouchRealSave", TestsNeverTouchRealSave},
     });
 }

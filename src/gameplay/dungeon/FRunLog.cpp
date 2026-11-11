@@ -272,6 +272,7 @@ nlohmann::json BuildRoomEnd(entt::registry& registry, const FRunEvent& event, co
     nlohmann::json line{{"t", "room_end"}, {"depth", event.depth}, {"room", event.room}, {"result", result}};
     nlohmann::json hpLoss = nlohmann::json::array();
     nlohmann::json skillsUsed = nlohmann::json::object();
+    nlohmann::json skillsByMember = nlohmann::json::object();
     int rounds = 0;
     bool ko = false;
     int crits = 0;
@@ -297,11 +298,17 @@ nlohmann::json BuildRoomEnd(entt::registry& registry, const FRunEvent& event, co
             hpLoss.push_back({{"id", id}, {"loss", std::max(0, start - lowest)}});
         }
         for (const auto& [skillId, count] : stats->skillsUsed) skillsUsed[skillId] = count;
+        for (const auto& [memberId, perSkill] : stats->skillsByMember) {
+            nlohmann::json counts = nlohmann::json::object();
+            for (const auto& [skillId, count] : perSkill) counts[skillId] = count;
+            skillsByMember[memberId] = std::move(counts);
+        }
         stats->rounds = 0;
         stats->ko = false;
         stats->hpStart.clear();
         stats->hpMin.clear();
         stats->skillsUsed.clear();
+        stats->skillsByMember.clear();
         stats->lastSeq = 0;
         stats->crits = 0;
         stats->firstDamageRound = 0;
@@ -317,8 +324,12 @@ nlohmann::json BuildRoomEnd(entt::registry& registry, const FRunEvent& event, co
     if (!objectiveId.empty()) line["objective"] = {{"id", objectiveId}, {"met", objectiveMet}};
     line["hp_loss"] = std::move(hpLoss);
     line["skills_used"] = std::move(skillsUsed);
+    line["skills_by_member"] = std::move(skillsByMember);
+    line["ms"] = RunLogMilliseconds();
+    line["frame"] = RunLogFrameIndex(registry);
     nlohmann::json intents{{"committed", 0}, {"tileCommitted", 0}, {"unitCommitted", 0},
-                           {"whiffed", 0}, {"invalidated", 0}, {"moveIntents", 0}};
+                           {"whiffed", 0}, {"invalidated", 0}, {"moveIntents", 0},
+                           {"whiff_reasons", nlohmann::json::object()}};
     // WP-11: the enemy-intent telemetry is battle-scoped like FRoomBattleStats. Both ids are turn sessions;
     // when both sides know one, they must agree. A battle that never committed leaves the store on the
     // previous session, which this rejects, so its room_end stays all zeros.
@@ -333,6 +344,7 @@ nlohmann::json BuildRoomEnd(entt::registry& registry, const FRunEvent& event, co
         intents["whiffed"] = intentStats->whiffed;
         intents["invalidated"] = intentStats->invalidated;
         intents["moveIntents"] = intentStats->moveIntents;
+        for (const auto& [reason, count] : intentStats->whiffReasons) intents["whiff_reasons"][reason] = count;
         if (std::string_view(result) == "defeat" && !intentStats->lastExecuted.skillId.empty()) {
             if (auto* log = registry.ctx().find<FRunLog>()) {
                 const auto& last = intentStats->lastExecuted;
@@ -376,6 +388,23 @@ void HandleRunEnded(entt::registry& registry, FRunLog& log, const FRunEvent& eve
     if (const FRunSequence* sequence = FindRunSequence(registry); sequence != nullptr && run != nullptr) {
         line["cycle"] = sequence->RunCycle(run->cleared);
     }
+    // WP-42: the log's own facts, counted over the lines written so far (the defeat room_end is in).
+    int finalBosses = 0;
+    std::optional<int> startDepth;
+    for (const auto& past : log.events) {
+        if (!past.is_object()) continue;
+        const auto type = past.find("t");
+        if (type == past.end() || !type->is_string()) continue;
+        if (*type == "boss_defeat") {
+            const auto slot = past.find("slot");
+            if (slot != past.end() && slot->is_string() && slot->get<std::string>() == "final") ++finalBosses;
+        } else if (*type == "run_start" && !startDepth.has_value()) {
+            const auto depth = past.find("depth");
+            if (depth != past.end() && depth->is_number_integer()) startDepth = depth->get<int>();
+        }
+    }
+    line["final_bosses"] = finalBosses;
+    if (startDepth.has_value()) line["start_depth"] = *startDepth;
     if (log.fatalIntent.present) {
         line["fatal_intent"] = {{"skill", log.fatalIntent.skillId},
                                 {"declared_at_commit", log.fatalIntent.expectedAtCommit},
@@ -416,8 +445,12 @@ void HandleRunEvent(entt::registry& registry, const FRunEvent& event) {
             return std::string(gameplay::RuneRarityName(rune != nullptr ? rune->rarity : gameplay::ERuneRarity::Common));
         };
         nlohmann::json rarities = nlohmann::json::array();
+        nlohmann::json candidates = nlohmann::json::array();
         if (rewards != nullptr) {
-            for (const auto& candidate : rewards->offer.candidates) rarities.push_back(rarityOf(candidate));
+            for (const auto& candidate : rewards->offer.candidates) {
+                rarities.push_back(rarityOf(candidate));
+                candidates.push_back(candidate);
+            }
         }
         const bool knownPick = !skipped && content != nullptr && content->runes.find(event.id) != nullptr;
         LogRunEvent(registry, nlohmann::json{{"t", "offer"},
@@ -429,6 +462,7 @@ void HandleRunEvent(entt::registry& registry, const FRunEvent& event) {
                                              {"refund", event.amount},
                                              {"table", rewards != nullptr ? rewards->offer.rarityTable : std::string{}},
                                              {"rarities", std::move(rarities)},
+                                             {"candidates", std::move(candidates)},
                                              {"picked_rarity", knownPick ? rarityOf(event.id) : std::string{}}});
         break;
     }
@@ -464,8 +498,51 @@ void HandleRunEvent(entt::registry& registry, const FRunEvent& event) {
                                              {"amount", event.amount},
                                              {"member", event.member}});
         break;
-    case ERunEventKind::BossDefeated:
-        break;  // no v1 line: the boss room is a room_end like any other
+    case ERunEventKind::CampEntered: {
+        int hp = 0;
+        int hpMax = 0;
+        int materials = 0;
+        if (const auto* run = registry.ctx().find<FDungeonRun>()) {
+            for (const auto& member : run->party) {
+                hp += DungeonEffectiveHealth(registry, member);
+                hpMax += DungeonMemberMaxHealth(registry, member);
+            }
+            materials = run->materials;
+        }
+        LogRunEvent(registry, nlohmann::json{{"t", "camp_enter"},
+                                             {"depth", event.depth},
+                                             {"party_hp_before_heal", event.amount},
+                                             {"party_hp", hp},
+                                             {"party_hp_max", hpMax},
+                                             {"materials", materials},
+                                             {"ms", RunLogMilliseconds()},
+                                             {"frame", RunLogFrameIndex(registry)}});
+        break;
+    }
+    case ERunEventKind::CampLeft: {
+        const auto* run = registry.ctx().find<FDungeonRun>();
+        LogRunEvent(registry, nlohmann::json{{"t", "camp_leave"},
+                                             {"depth", event.depth},
+                                             {"materials", run != nullptr ? run->materials : 0},
+                                             {"ms", RunLogMilliseconds()},
+                                             {"frame", RunLogFrameIndex(registry)}});
+        break;
+    }
+    case ERunEventKind::BossDefeated: {
+        // WP-42: which slot the boss held (mid / final); empty when the sequence or the slot is unknown.
+        std::string slotName;
+        if (const FRunSequence* sequence = FindRunSequence(registry); sequence != nullptr && event.depth >= 1) {
+            if (const FRunRoomSlot* slot = sequence->BattleSlotAt(sequence->PositionOf(event.depth - 1), event.room)) {
+                slotName = slot->boss;
+            }
+        }
+        LogRunEvent(registry, nlohmann::json{{"t", "boss_defeat"},
+                                             {"depth", event.depth},
+                                             {"room", event.room},
+                                             {"boss", event.id},
+                                             {"slot", slotName}});
+        break;
+    }
     }
 }
 
@@ -778,6 +855,9 @@ bool FRunEventSchemaValid(const nlohmann::json& event) {
                      "ms_to_first_battle", "report"}},
         {"dungeon_clear", {"t", "depth"}},
         {"engine_ignition", {"t", "depth", "room", "round", "engine"}},
+        {"camp_enter", {"t", "depth", "party_hp_before_heal", "party_hp", "party_hp_max", "materials", "ms", "frame"}},
+        {"camp_leave", {"t", "depth", "materials", "ms", "frame"}},
+        {"boss_defeat", {"t", "depth", "room", "boss", "slot"}},
         {"loadout", {"t", "depth", "room", "phase", "member", "slot", "rune", "action"}},
     };
     const std::string& name = type->get_ref<const std::string&>();

@@ -137,6 +137,9 @@ std::expected<FRunResult, std::string> ContinueReward(entt::registry& registry) 
     }
     run->phase = EDungeonPhase::Camp;
     run->cleared = run->depth;
+    // WP-42: the party HP the camp entry found, before the free heal (the camp_enter line records both).
+    int hpBeforeHeal = 0;
+    for (const auto& member : run->party) hpBeforeHeal += DungeonEffectiveHealth(registry, member);
     auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
     checkpoint.cleared = std::max(checkpoint.cleared, std::min(run->cleared, 999));
     (void)SaveCheckpoint(registry);
@@ -146,6 +149,7 @@ std::expected<FRunResult, std::string> ContinueReward(entt::registry& registry) 
     LogCampEntryReport(registry);
     // The checkpoint/cleared update is complete; the event is appended before the save.
     AppendRunEvent(registry, ERunEventKind::DungeonCleared);
+    AppendRunEvent(registry, ERunEventKind::CampEntered, {}, hpBeforeHeal);
     return SaveAfterTransition(registry, FRunResult{ERunExit::ShowModal, RunModalIdForPhase(EDungeonPhase::Camp)});
 }
 
@@ -273,6 +277,7 @@ std::expected<FRunResult, std::string> LeaveCamp(entt::registry& registry) {
         LOG_WARN("The rune offer is still open; pick or skip it before leaving camp.");
         return std::unexpected(std::string("Resolve the rune offer before leaving camp."));
     }
+    AppendRunEvent(registry, ERunEventKind::CampLeft);
     run->depth = std::min(run->depth + 1, 1000);
     run->room = 0;
     Advance(registry);

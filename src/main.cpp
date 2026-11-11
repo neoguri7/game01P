@@ -322,6 +322,16 @@ int main(int argc, char* argv[])
         }
     }
 
+    // WP-42: GAME01P_FAST=1 steps a fixed 1/60 s and skips rasterization (windowless baseline runs).
+    if (const char* fast = std::getenv("GAME01P_FAST"); fast != nullptr && std::string_view(fast) == "1") {
+        if (!inputScriptPath.empty()) {
+            LOG_WARN("[fast] ignored: --input-script needs the HUD render pass");
+        } else {
+            engine.setFastForward(true);
+            LOG_INFO("[fast] fixed 1/60 s step, world/HUD render and rasterization skipped");
+        }
+    }
+
     const bool succeeded = engine.run(maxFrames, screenshotPath);
 
     shutdown();

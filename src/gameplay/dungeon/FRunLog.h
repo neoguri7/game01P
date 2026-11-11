@@ -33,6 +33,7 @@ struct FRoomBattleStats {
     std::map<std::string, int> hpStart;
     std::map<std::string, int> hpMin;
     std::map<std::string, int> skillsUsed;
+    std::map<std::string, std::map<std::string, int>> skillsByMember;
     std::uint64_t lastSeq{0};
     std::uint64_t sessionId{0};
     bool active{false};

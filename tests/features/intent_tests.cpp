@@ -1480,6 +1480,81 @@ void AutoBattlesWithIntentsFinish() {
     std::cout << "  party wins with intents " << winsWith << "/9, without " << winsWithout << "/9\n";
 }
 
+/// WP-42 F5: every whiff is counted under its reason, so the reason counts always sum to whiffed.
+int WhiffReasonSum(const FIntentStats& stats) {
+    int sum = 0;
+    for (const auto& [reason, count] : stats.whiffReasons) sum += count;
+    return sum;
+}
+
+void WhiffReasonsCounted() {
+    {
+        FIntentBattle fixture;
+        fixture.arena();
+        const auto warrior = fixture.place(fixture.party("party.warrior"), {7, 5});
+        const auto imp = fixture.place(fixture.enemies()[0], {5, 5});
+        fixture.skills(imp, {"skill.strike"});
+        fixture.speed(warrior, 100);
+        fixture.speed(imp, 1);
+        fixture.frame(0.1f);
+        CHECK(fixture.stats().whiffed == 0);
+        CHECK(fixture.stats().whiffReasons.empty()); // a battle with no whiff
+        fixture.registry.get<game::FGridPosition>(warrior) = {5, 11};
+        fixture.endCurrentTurn();
+        fixture.flowFrame();
+        const FIntentStats stats = fixture.stats();
+        CHECK(stats.whiffed == 1);
+        CHECK(WhiffReasonSum(stats) == stats.whiffed);
+        CHECK(stats.whiffReasons.count("out of reach") == 1u);
+        CHECK(stats.whiffReasons.at("out of reach") == 1);
+    }
+    {
+        FIntentBattle fixture;
+        fixture.arena();
+        const auto warrior = fixture.place(fixture.party("party.warrior"), {5, 5});
+        const auto imp = fixture.place(fixture.enemies()[0], {4, 5});
+        fixture.skills(imp, {"skill.cleave"});
+        fixture.speed(warrior, 100);
+        fixture.speed(imp, 1);
+        fixture.frame(0.1f);
+        fixture.registry.get<game::FGridPosition>(imp) = {7, 5};
+        const auto evaluation = game::EvaluateIntent(fixture.registry, imp, fixture.content());
+        CHECK(evaluation.verdict == EIntentVerdict::Whiff);
+        fixture.endCurrentTurn();
+        fixture.flowFrame();
+        const FIntentStats stats = fixture.stats();
+        CHECK(stats.whiffed == 1);
+        CHECK(WhiffReasonSum(stats) == stats.whiffed);
+        CHECK(stats.whiffReasons.count(evaluation.reason) == 1u);
+        CHECK(stats.whiffReasons.at(evaluation.reason) == 1);
+    }
+    {
+        // The fired-and-missed path: the stored shot damaged nobody.
+        FIntentBattle fixture;
+        fixture.arena();
+        const auto warrior = fixture.place(fixture.party("party.warrior"), {5, 5});
+        const auto imp = fixture.place(fixture.enemies()[0], {4, 5});
+        fixture.skills(imp, {"skill.cleave"});
+        fixture.speed(warrior, 100);
+        fixture.speed(imp, 1);
+        fixture.frame(0.1f);
+        auto* store = fixture.store();
+        CHECK(store != nullptr);
+        if (store == nullptr) return;
+        store->execution = game::FIntentExecution{};
+        store->execution.sessionId = store->sessionId;
+        store->execution.enemy = imp;
+        store->execution.attack = true;
+        store->execution.targets = {{warrior, fixture.registry.get<game::FHealth>(warrior).current}};
+        store->hasExecution = true;
+        fixture.queue().pending.clear();
+        game::SettleIntentExecution(fixture.registry, store->sessionId);
+        const FIntentStats stats = fixture.stats();
+        CHECK(stats.whiffed == 1);
+        CHECK(WhiffReasonSum(stats) == stats.whiffed);
+        CHECK(stats.whiffReasons.at("hit nobody") == 1);
+    }
+}
 } // namespace
 
 int main() {
@@ -1531,5 +1606,6 @@ int main() {
         {"LockMoveZeroesMoveAp", LockMoveZeroesMoveAp},
         {"IntentModeParsesAndRejects", IntentModeParsesAndRejects},
         {"AutoBattlesWithIntentsFinish", AutoBattlesWithIntentsFinish},
+        {"WhiffReasonsCounted", WhiffReasonsCounted},
     });
 }

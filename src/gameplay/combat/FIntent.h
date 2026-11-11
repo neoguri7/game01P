@@ -69,6 +69,7 @@ struct FIntentStats {
     int moveIntents{0};
     int whiffed{0};
     int invalidated{0};
+    std::map<std::string, int> whiffReasons;
 
     struct FLastExecuted {
         std::string skillId;

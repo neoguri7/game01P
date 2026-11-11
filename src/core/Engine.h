@@ -13,6 +13,7 @@
 
 #include "core/SDLDeleter.h"
 #include "core/EngineAbility.h"
+#include "core/FFramePlan.h"
 #include "core/Time.h"
 #include "core/SystemManager.h"
 #include "states/FStateCatalog.h"
@@ -47,6 +48,7 @@ using FInputInjector = std::function<FInjectedFrame(std::uint32_t frame, SDL_Win
 
 /// WP-00c (dev): fixed simulation step for scripted runs, so frame N is the same moment on every run.
 inline constexpr float kScriptFixedDeltaSeconds = 1.f / 60.f;
+static_assert(kFastForwardDeltaSeconds == kScriptFixedDeltaSeconds);
 
 /**
  * Central Engine class.
@@ -74,6 +76,12 @@ public:
 
     /// WP-00c (dev): per-frame driver after update() (e.g. the run autopilot); unset = no call.
     void setFrameDriver(FFrameDriver driver);
+
+    /// WP-42 (dev): fast-forward — a fixed 1/60 s step per frame and no rasterization (clear, ImGui draw data,
+    /// present) except on a frame that saves a capture. Fast mode also skips the world render
+    /// systems, including the combat HUD, so it is valid only when no decision goes through ImGui (autoplay
+    /// plus autopilot).
+    void setFastForward(bool enabled);
 
     /// Inject the app-flow state catalog before initialize(). The engine creates no state itself: the start
     /// state is created once from this catalog in applyStartupStateOverride().
@@ -146,6 +154,8 @@ private:
     bool quitAfterFrame_{false};
     FFrameDriver frameDriver_;
     bool driverFailed_{false};
+    bool fastForward_{false};
+    bool rasterizeFrame_{true};
 };
 
 } // namespace game
