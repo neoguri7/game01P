@@ -1,0 +1,18 @@
+{
+  "wp": "WP-47",
+  "files": [
+    "assets/data/units.json",
+    "assets/data/bosses.json",
+    "assets/data/ai.json",
+    "assets/data/battle_anim.json",
+    "tests/features/boss_goals_tests.cpp"
+  ],
+  "allowTimeoutChange": false,
+  "allowCheckDrop": [],
+  "features": [
+    {"id": "F1", "behavior": "Every boss slot of every theme resolves to a shipped boss whose units and AI profile exist", "test": "boss_goals_tests::ShipBossesCoverEverySlot", "passes": false},
+    {"id": "F2", "behavior": "Each new boss builds with its goals, phases, parts and starting immunities", "test": "boss_goals_tests::NewBossesBuildWithGoals", "passes": false},
+    {"id": "F3", "behavior": "In action phase 2 each new boss picks its phase skill; phase 1 does not force it", "test": "boss_goals_tests::NewBossPhaseSkills", "passes": false},
+    {"id": "F4", "behavior": "The Ash Hierophant's body stays above half HP while its chanters live", "test": "boss_goals_tests::HierophantGateHoldsWhileChantersLive", "passes": false}
+  ]
+}
