@@ -4,7 +4,8 @@
     "assets/data/units.json",
     "assets/data/bosses.json",
     "assets/data/ai.json",
-    "tests/features/boss_goals_tests.cpp"
+    "tests/features/boss_goals_tests.cpp",
+    "tests/features/meta_save_tests.cpp"
   ],
   "allowTimeoutChange": false,
   "allowCheckDrop": [],

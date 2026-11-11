@@ -98,6 +98,7 @@ No combat modifier is added; `combat-math.md` is unaffected.
 Modify:
 - `assets/data/units.json`, `assets/data/bosses.json`, `assets/data/ai.json` — §4.
 - `tests/features/boss_goals_tests.cpp` — §7.
+- `tests/features/meta_save_tests.cpp` — amendment after the implementer's second `BLOCKED:` report: in `UnlockCatalogValid`, the loop that requires an unlockable skill to sit at index 4 or later of every unit that authors it skips enemy units (`if (unit.id.starts_with("enemy.")) continue;`, with a comment naming WP-47). The rule protects the party's default loadout; the Chain Warden uses `skill.hook` and `skill.shackle`, which are player unlocks, in its first slots. The `CHECK(authored)` after the loop is unchanged (party units still author those skills).
 
 No source file changes: the boss catalog, phases, parts gate, immunities, AI node types and the boss feed lines exist and are data-driven.
 
