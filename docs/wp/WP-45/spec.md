@@ -82,6 +82,7 @@ Modify:
 - `src/ecs/systems/EmberCombatHudView.cpp` — the runeword line in the skill tooltip.
 - `tests/features/engine_ignition_tests.cpp` — §7.
 - `tests/features/hub_shop_tests.cpp` — the unlock catalog count (line 978) goes from 9 to 8.
+- `tests/features/effect_hooks_tests.cpp` — one expected hook count (amendment, see §7).
 
 `FEngineContent.h`:
 ```cpp
@@ -208,6 +209,7 @@ Cases:
 - **RunewordSlotAndRecipeLines** (F11): slot `{fire, ember}` → `"Runeword: Ember Engine: "` + text; slot `{fire}` → `"Runeword 1/2: Ember Engine needs "` + the display name of `rune.ember`; slot `{rune.range}` → `""`. `run.runes = {}` and no party → `KnownRunewords` empty; `run.runes = {"rune.shock"}` → one entry, `engine.shock`, and `RunewordRecipeLine` equals `"Arc: "` + display name of `rune.lightning` + `" + "` + display name of `rune.shock` + `": "` + text; `run.runes = {"rune.fire"}` → two entries, `engine.ember` then `engine.ember_kindled`; inventory empty with `rune.cold` socketed in a party member's skill → one entry, `engine.frost`.
 
 `hub_shop_tests.cpp:978`: `CHECK(catalog.size() == 8);`.
+Amendment (after the implementer's `BLOCKED:` report): `effect_hooks_tests.cpp:587`, case `HealDeadTargetIsNoOp`, `CHECK(fired == 1)` becomes `CHECK(fired == 2)` with a comment naming WP-45. `FireHooks` counts every registered code listener for the event as fired, whether or not it acts (`FEffectHooks.cpp:523-532`), and this WP registers one listener on OnKill. The case still proves what it is for: the heal on a dead target does nothing.
 The tooltip line of `EmberCombatHudView.cpp` is the same `RunewordSlotLine` that F11 tests.
 The card and camp wiring in the two view files and the one-line resolver call have no test of their own (the texts and the guard are tested through their functions; `EmberEngineBurnsNeighbours` goes through the real resolver); the diff review checks them. Timeouts are unchanged. `features.json` exempts no file from the gate's CHECK-count rule.
 

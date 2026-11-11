@@ -20,7 +20,8 @@
     "tests/features/engine_ignition_tests.cpp",
     "src/ecs/systems/ActionResolverSystem.h",
     "tests/features/hub_shop_tests.cpp",
-    "src/ecs/systems/EmberCombatHudView.cpp"
+    "src/ecs/systems/EmberCombatHudView.cpp",
+    "tests/features/effect_hooks_tests.cpp"
   ],
   "allowTimeoutChange": false,
   "allowCheckDrop": [],
