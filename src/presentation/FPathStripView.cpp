@@ -4,6 +4,7 @@
 
 #include <imgui.h>
 
+#include "gameplay/combat/FEliteRules.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FRunPath.h"
 #include "presentation/FUiTheme.h"
@@ -33,6 +34,13 @@ void DrawPathStrip(entt::registry& registry, float rightX, float topY, float sca
             const ImVec4 color = node.current ? ui::palette::kGoldBrightV
                                               : (node.done ? ui::palette::kMutedV : ui::palette::kTextV);
             ImGui::TextColored(color, "%s", text.c_str());
+        }
+        // WP-44: the elite rule of this battle, wrapped so the right-anchored window cannot grow across the HUD.
+        const std::string rule = EliteRuleHudLine(registry);
+        if (!rule.empty()) {
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 460.f * scale);
+            ImGui::TextColored(ui::palette::kGoldBrightV, "%s", rule.c_str());
+            ImGui::PopTextWrapPos();
         }
     }
     ImGui::End();

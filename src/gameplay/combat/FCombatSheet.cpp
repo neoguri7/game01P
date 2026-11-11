@@ -14,6 +14,7 @@
 #include "gameplay/combat/FCombatQuery.h"
 #include "gameplay/combat/FCombatRules.h"
 #include "gameplay/combat/FCombatTypes.h"
+#include "gameplay/combat/FEliteRules.h"
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FRunPath.h"
@@ -83,11 +84,12 @@ void RefreshCombatSheet(
             stats->attack += stats->attack * cycle.attackPct / 100;
             stats->magicAttack += stats->magicAttack * cycle.attackPct / 100;
         }
-        // WP-41: the elite affix of this room, after the cycle scale (combat-math.md: enemy sheet).
-        if (const FEliteAffix* affix = EliteAffixFor(registry, run->room)) {
-            health->max += health->max * affix->healthPercent / 100;
-            stats->attack += affix->attackBonus;
-            stats->magicAttack += affix->attackBonus;
+        // WP-44 elite stage (combat-math.md: enemy sheet), after the cycle scale: max HP +health_percent%, then the
+        // rule's flat attack bonus on attack and magic attack.
+        if (const FEliteBattleState* elite = FindEliteBattle(registry)) {
+            health->max += health->max * elite->healthPercent / 100;
+            stats->attack += elite->attackBonus;
+            stats->magicAttack += elite->attackBonus;
         }
     }
 

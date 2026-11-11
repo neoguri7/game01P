@@ -19,6 +19,7 @@
 #include "ecs/components/FSpeed.h"
 #include "ecs/components/FStats.h"
 #include "gameplay/combat/FCombatSheet.h"
+#include "gameplay/combat/FEliteRules.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/data/FContentRegistry.h"
 #include "gameplay/dungeon/FBossContent.h"
@@ -879,6 +880,12 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
     // writes roleSlots/fill/enemyCount into THIS build's config copy — the shared parsed config stays as is.
     FRoomPlan plan = FrameRoomPlan(registry, run.room);
     // WP-41: the elite stamp comes from the saved path state only (this also runs on Reward/Event/Camp continues).
+    // WP-44: the battle rule state (erased for a non-elite room, so the build is idempotent).
+    {
+        const auto* eliteSequence = FindRunSequence(registry);
+        InstallEliteBattle(registry, EliteAffixFor(registry, run.room),
+                           eliteSequence != nullptr ? eliteSequence->elite.healthPercent : 0);
+    }
     if (const FEliteAffix* affix = EliteAffixFor(registry, run.room)) {
         plan.elite = true;
         plan.affixId = affix->id;
@@ -926,6 +933,7 @@ nlohmann::json BuildDungeonBattlefield(entt::registry& registry) {
 }
 
 void ApplyRunParty(entt::registry& registry) {
+    ApplyEliteBattleStart(registry);  // WP-44: bonuses back to 0 and rule immunities, before the sheets refresh
     // WP-03: 런 보너스는 제자리 가산이 아니라 RefreshCombatSheet의 파생 계산이 소유한다(멱등 —
     // 호출마다 값이 부푸는 결함 제거). 순서가 계약이다: 갱신(갱신 후 max) → ApplyBattleStart(HP/로드아웃).
     if (const auto* content = registry.ctx().find<gameplay::FContentRegistry>()) {

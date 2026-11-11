@@ -21,6 +21,7 @@
 #include "gameplay/combat/FCombatSheet.h"
 #include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/combat/FEffectHooks.h"
+#include "gameplay/combat/FEliteRules.h"
 #include "gameplay/combat/FIntent.h"
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
@@ -66,6 +67,8 @@ struct TurnFlowSystem {
         // in that frame — the frame-scoped FRoundStarted would be lost if the commit sat below it. Committing
         // is pure bookkeeping (no action, nothing shown), so it is safe while unsettled; a repeated commit
         // of the same (sessionId, round) is a no-op.
+        // WP-44: elite round-start bonus lands on the sheets before the intents read them.
+        EliteOnRoundStarted(registry, *content, runtime->controller.snapshot().roundNumber);
         CommitEnemyIntents(registry, *content);
 
         // WP-05b driver guard: the turn flow waits for the presentation to settle, exactly like TurnSystem

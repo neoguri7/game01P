@@ -521,12 +521,7 @@ std::expected<FRunResult, std::string> ResolveRoomVictory(entt::registry& regist
     run->phase = EDungeonPhase::Reward;
     run->message = "Room secured. Each member gains " + std::to_string(experienceReward) + " EXP.";
     if (levelsGained > 0) run->message += " Level up: allocate a passive node.";
-    if (elite) {
-        const auto* eliteSequence = FindRunSequence(registry);
-        const int bonus = eliteSequence != nullptr ? eliteSequence->elite.rewardMaterials : 0;
-        run->materials += bonus;
-        run->message += " Elite defeated: +" + std::to_string(bonus) + " materials.";
-    }
+    if (elite) run->message += " Elite defeated.";
     // WP-39: the battle objective, judged on the room stats the battle accumulated. Latched on the objective
     // (for the HUD) and on the stats (for the room_end line the RoomCleared event writes below).
     auto* objective = registry.ctx().find<FBattleObjective>();

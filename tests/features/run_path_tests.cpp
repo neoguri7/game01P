@@ -38,6 +38,12 @@
 #include "core/SDLDeleter.h"
 #include "dev/FRunAutopilot.h"
 #include "gameplay/GameplayServices.h"
+#include "ecs/components/FActiveStatuses.h"
+#include "ecs/components/FDead.h"
+#include "gameplay/combat/FCombatQuery.h"
+#include "gameplay/combat/FCombatTypes.h"
+#include "gameplay/combat/FEliteRules.h"
+#include "gameplay/combat/FStatusRules.h"
 #include "gameplay/dungeon/FBattleObjective.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FDungeonSave.h"
@@ -143,13 +149,15 @@ json RoomJson(std::string_view spec) {
 }
 
 json EliteBlock() {
-    return json::parse(R"({
-      "reward_materials": 2,
+    return json::parse(R"json({
+      "health_percent": 20,
       "affixes": [
-        {"id": "affix.hardened", "display_name": "Hardened", "text": "Enemy max HP +30%", "health_percent": 30, "attack_bonus": 0},
-        {"id": "affix.fierce", "display_name": "Fierce", "text": "Enemy attack +1", "health_percent": 0, "attack_bonus": 1}
+        {"id": "affix.spell_fed", "display_name": "Spell-fed", "text": "Each Spell your party uses gives enemies +1 attack from the next round (up to +4)", "rule": "spell_fed", "amount": 1, "max_bonus": 4},
+        {"id": "affix.thorned", "display_name": "Thorned", "text": "Melee skills cost the attacker 2 HP per enemy hit (never below 1 HP)", "rule": "thorned", "amount": 2},
+        {"id": "affix.escalating", "display_name": "Escalating", "text": "From round 3, enemies gain +1 attack each round (up to +4)", "rule": "escalating", "amount": 1, "from_round": 3, "max_bonus": 4},
+        {"id": "affix.unyielding", "display_name": "Unyielding", "text": "Enemies cannot be frozen or paralyzed", "rule": "unyielding", "statuses": ["status.freeze", "status.paralyze"]}
       ]
-    })");
+    })json");
 }
 
 json PathDungeon(const std::vector<std::string_view>& rooms, bool elite = true) {
@@ -233,16 +241,28 @@ void EliteBlockLoadsAndValidates() {
     std::string error;
     const auto sequence = game::FRunSequence::Load(good, error);
     CHECK(sequence.has_value());
-    CHECK(sequence->elite.rewardMaterials == 2);
-    CHECK(sequence->elite.affixes.size() == 2u);
-    CHECK(sequence->elite.affixes[0].id == "affix.hardened");
-    CHECK(sequence->elite.affixes[0].displayName == "Hardened");
-    CHECK(sequence->elite.affixes[0].text == "Enemy max HP +30%");
-    CHECK(sequence->elite.affixes[0].healthPercent == 30);
-    CHECK(sequence->elite.affixes[0].attackBonus == 0);
-    CHECK(sequence->elite.affixes[1].id == "affix.fierce");
-    CHECK(sequence->elite.affixes[1].healthPercent == 0);
-    CHECK(sequence->elite.affixes[1].attackBonus == 1);
+    CHECK(sequence->elite.healthPercent == 20);
+    CHECK(sequence->elite.affixes.size() == 4u);
+    if (sequence->elite.affixes.size() == 4u) {
+        const auto& rows = sequence->elite.affixes;
+        CHECK(rows[0].id == "affix.spell_fed");
+        CHECK(rows[0].displayName == "Spell-fed");
+        CHECK(rows[0].rule == game::EEliteRule::SpellFed);
+        CHECK(rows[0].amount == 1);
+        CHECK(rows[0].maxBonus == 4);
+        CHECK(rows[1].rule == game::EEliteRule::Thorned);
+        CHECK(rows[1].amount == 2);
+        CHECK(rows[2].rule == game::EEliteRule::Escalating);
+        CHECK(rows[2].amount == 1);
+        CHECK(rows[2].fromRound == 3);
+        CHECK(rows[2].maxBonus == 4);
+        CHECK(rows[3].rule == game::EEliteRule::Unyielding);
+        CHECK(rows[3].statuses.size() == 2u);
+        if (rows[3].statuses.size() == 2u) {
+            CHECK(rows[3].statuses[0] == "status.freeze");
+            CHECK(rows[3].statuses[1] == "status.paralyze");
+        }
+    }
 
     const auto broken = [&](const char* label, auto&& mutate) {
         auto document = good;
@@ -256,14 +276,14 @@ void EliteBlockLoadsAndValidates() {
     broken("missing id", [](json& e) { e["affixes"][0].erase("id"); });
     broken("missing display_name", [](json& e) { e["affixes"][0].erase("display_name"); });
     broken("missing text", [](json& e) { e["affixes"][0].erase("text"); });
-    broken("health -1", [](json& e) { e["affixes"][0]["health_percent"] = -1; });
-    broken("attack -1", [](json& e) { e["affixes"][1]["attack_bonus"] = -1; });
-    broken("both zero", [](json& e) {
-        e["affixes"][0]["health_percent"] = 0;
-        e["affixes"][0]["attack_bonus"] = 0;
-    });
-    broken("duplicate id", [](json& e) { e["affixes"][1]["id"] = "affix.hardened"; });
-    broken("reward -1", [](json& e) { e["reward_materials"] = -1; });
+    broken("unknown rule", [](json& e) { e["affixes"][0]["rule"] = "bogus"; });
+    broken("spell_fed without max_bonus", [](json& e) { e["affixes"][0].erase("max_bonus"); });
+    broken("spell_fed max_bonus below amount", [](json& e) { e["affixes"][0]["max_bonus"] = 0; });
+    broken("thorned amount 0", [](json& e) { e["affixes"][1]["amount"] = 0; });
+    broken("escalating from_round 0", [](json& e) { e["affixes"][2]["from_round"] = 0; });
+    broken("unyielding empty statuses", [](json& e) { e["affixes"][3]["statuses"] = json::array(); });
+    broken("duplicate id", [](json& e) { e["affixes"][1]["id"] = "affix.spell_fed"; });
+    broken("health_percent -1", [](json& e) { e["health_percent"] = -1; });
 
     auto none = good;
     none.erase("elite");
@@ -325,10 +345,10 @@ void AffixIsSeeded() {
         const auto& state = game::EnsureRunPath(path.registry());
         CHECK(state.hasFork);
         CHECK(state.battle);
-        CHECK(state.affixId == affixes[game::EventPickHash(seed, 1, 1002) % 2].id);
+        CHECK(state.affixId == affixes[game::EventPickHash(seed, 1, 1002) % affixes.size()].id);
         seen.insert(state.affixId);
     }
-    CHECK(seen.size() == 2u);
+    CHECK(seen.size() == affixes.size());
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -408,7 +428,7 @@ void ContinueTakesStandardTakeForkTakesVariant() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// F5 — the affix scales enemies only
+// WP-44 — the elite battle state
 // ---------------------------------------------------------------------------------------------
 
 struct FBattleHarness {
@@ -476,42 +496,365 @@ struct FBattleHarness {
     }
 };
 
-void EliteAffixScalesEnemies() {
-    for (const char* wanted : {"affix.hardened", "affix.fierce"}) {
-        FPathBoot probe("path-f5probe", {"battle", "battle", "battle"});
-        const auto seed = PickSeed(probe.registry(), [&](const game::FRunPathState& s) {
-            return s.hasFork && s.slot == 1 && s.affixId == wanted;
+// ---------------------------------------------------------------------------------------------
+// WP-44 — the four elite rules
+// ---------------------------------------------------------------------------------------------
+
+constexpr const char* kSpellSkill = "skill.bolt";   // tags Spell
+constexpr const char* kMeleeSkill = "skill.strike"; // tags Melee
+constexpr const char* kPlainSkill = "skill.buff";   // neither
+
+/// One battle of the picked seed: the elite branch with `affixId` at slot 1, or (elite = false) the standard
+/// branch of the same seed. `h` stays null when no seed carries that affix (the case then fails on the CHECK).
+struct FEliteHarness {
+    FPathBoot probe;
+    std::uint32_t seed{kNoSeed};
+    std::unique_ptr<FBattleHarness> h;
+
+    FEliteHarness(const char* name, const char* affixId, bool elite = true)
+        : probe(name, {"battle", "battle", "battle"}) {
+        seed = PickSeed(probe.registry(), [&](const game::FRunPathState& s) {
+            return s.hasFork && s.slot == 1 && s.affixId == affixId;
         });
         CHECK(seed != kNoSeed);
+        if (seed == kNoSeed) return;
+        h = std::make_unique<FBattleHarness>(seed, probe.assets.Roots());
+        h->toRoomOne(elite ? game::ERunIntent::TakeFork : game::ERunIntent::ContinueReward);
+    }
 
-        FBattleHarness elite(seed, probe.assets.Roots());
-        elite.toRoomOne(game::ERunIntent::TakeFork);
-        const auto* plan = game::FindRoomPlan(elite.registry);
-        CHECK(plan != nullptr);
-        CHECK(plan->elite);
-        CHECK(plan->affixId == wanted);
-        const auto eliteEnemies = elite.enemies();
+    entt::registry& registry() { return h->registry; }
+};
 
-        FBattleHarness standard(seed, probe.assets.Roots());
-        standard.toRoomOne(game::ERunIntent::ContinueReward);
-        const auto* standardPlan = game::FindRoomPlan(standard.registry);
-        CHECK(standardPlan != nullptr);
-        CHECK(!standardPlan->elite);
-        const auto standardEnemies = standard.enemies();
+const game::gameplay::FSkillContent* TaggedSkill(entt::registry& registry, const char* id, const char* tag) {
+    const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
+    const auto* row = content.skills.find(id);
+    CHECK(row != nullptr);
+    if (row == nullptr) return nullptr;
+    const bool has = std::find(row->tags.begin(), row->tags.end(), std::string(tag)) != row->tags.end();
+    CHECK(has);
+    return row;
+}
 
+entt::entity FirstWith(entt::registry& registry, bool party) {
+    for (const auto entity : registry.view<game::FHealth>()) {
+        if (party ? registry.all_of<game::FPartyMember>(entity) : registry.all_of<game::FEnemy>(entity)) {
+            return entity;
+        }
+    }
+    return entt::null;
+}
+
+void ShipEliteRules() {
+    const auto dungeon = ReadJsonFile("assets/data/dungeon.json");
+    const auto statuses = ReadJsonFile("assets/data/statuses.json");
+    const auto& elite = dungeon.at("elite");
+    CHECK(elite.at("health_percent").get<int>() == 20);
+    CHECK(!elite.contains("reward_materials"));
+    const auto& rows = elite.at("affixes");
+    CHECK(rows.size() == 4u);
+    if (rows.size() != 4u) return;
+    CHECK(rows[0].at("id") == "affix.spell_fed");
+    CHECK(rows[0].at("rule") == "spell_fed");
+    CHECK(rows[0].at("amount").get<int>() == 1);
+    CHECK(rows[0].at("max_bonus").get<int>() == 4);
+    CHECK(rows[1].at("id") == "affix.thorned");
+    CHECK(rows[1].at("rule") == "thorned");
+    CHECK(rows[1].at("amount").get<int>() == 2);
+    CHECK(rows[2].at("id") == "affix.escalating");
+    CHECK(rows[2].at("rule") == "escalating");
+    CHECK(rows[2].at("amount").get<int>() == 1);
+    CHECK(rows[2].at("from_round").get<int>() == 3);
+    CHECK(rows[2].at("max_bonus").get<int>() == 4);
+    CHECK(rows[3].at("id") == "affix.unyielding");
+    CHECK(rows[3].at("rule") == "unyielding");
+    CHECK(rows[3].at("statuses").size() == 2u);
+    for (const auto& id : rows[3].at("statuses")) {
+        bool found = false;
+        for (const auto& status : statuses.at("statuses")) {
+            if (status.at("id") == id) found = true;
+        }
+        CHECK(found);
+    }
+}
+
+void EliteBattleInstallsState() {
+    for (const char* wanted : {"affix.spell_fed", "affix.thorned", "affix.escalating", "affix.unyielding"}) {
+        FEliteHarness elite("path-f3e", wanted);
+        FEliteHarness standard("path-f3s", wanted, false);
+        if (!elite.h || !standard.h) continue;
+        const auto* state = game::FindEliteBattle(elite.registry());
+        CHECK(state != nullptr);
+        if (state == nullptr) continue;
+        CHECK(state->affix.id == wanted);
+        CHECK(state->attackBonus == 0);
+        CHECK(state->pendingBonus == 0);
+        CHECK(game::FindEliteBattle(standard.registry()) == nullptr);
+        const auto eliteEnemies = elite.h->enemies();
+        const auto standardEnemies = standard.h->enemies();
         CHECK(!eliteEnemies.empty());
         CHECK(eliteEnemies.size() == standardEnemies.size());
-        CHECK(elite.partyMaxHp() == standard.partyMaxHp());
+        CHECK(elite.h->partyMaxHp() == standard.h->partyMaxHp());
         for (std::size_t i = 0; i < eliteEnemies.size() && i < standardEnemies.size(); ++i) {
-            if (std::string_view(wanted) == "affix.hardened") {
-                CHECK(eliteEnemies[i].hpMax == standardEnemies[i].hpMax + standardEnemies[i].hpMax * 30 / 100);
-                CHECK(eliteEnemies[i].attack == standardEnemies[i].attack);
-            } else {
-                CHECK(eliteEnemies[i].hpMax == standardEnemies[i].hpMax);
-                CHECK(eliteEnemies[i].attack == standardEnemies[i].attack + 1);
-                CHECK(eliteEnemies[i].magic == standardEnemies[i].magic + 1);
-            }
+            CHECK(eliteEnemies[i].hpMax == standardEnemies[i].hpMax + standardEnemies[i].hpMax * 20 / 100);
+            CHECK(eliteEnemies[i].attack == standardEnemies[i].attack);
+            CHECK(eliteEnemies[i].magic == standardEnemies[i].magic);
         }
+    }
+}
+
+void SpellFedQueuesUntilNextRound() {
+    FEliteHarness e("path-f4", "affix.spell_fed");
+    if (!e.h) return;
+    auto& registry = e.registry();
+    const auto* state = game::FindEliteBattle(registry);
+    CHECK(state != nullptr);
+    if (state == nullptr) return;
+    const auto* spell = TaggedSkill(registry, kSpellSkill, "Spell");
+    const auto* plain = TaggedSkill(registry, kPlainSkill, "Support");
+    if (spell == nullptr || plain == nullptr) return;
+    const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
+    const auto party = FirstWith(registry, true);
+    const auto foe = FirstWith(registry, false);
+    CHECK(party != entt::null);
+    CHECK(foe != entt::null);
+    const auto before = e.h->enemies();
+
+    game::EliteOnSkillUsed(registry, party, *spell);
+    game::EliteOnSkillUsed(registry, party, *spell);
+    CHECK(state->pendingBonus == 2);
+    CHECK(state->attackBonus == 0);
+    const auto queued = e.h->enemies();
+    for (std::size_t i = 0; i < before.size() && i < queued.size(); ++i) {
+        CHECK(queued[i].attack == before[i].attack);
+        CHECK(queued[i].magic == before[i].magic);
+    }
+    game::EliteOnSkillUsed(registry, party, *plain);
+    game::EliteOnSkillUsed(registry, foe, *spell);
+    CHECK(state->pendingBonus == 2);
+
+    game::EliteOnRoundStarted(registry, content, 2);
+    CHECK(state->attackBonus == 2);
+    CHECK(state->pendingBonus == 0);
+    auto after = e.h->enemies();
+    for (std::size_t i = 0; i < before.size() && i < after.size(); ++i) {
+        CHECK(after[i].attack == before[i].attack + 2);
+        CHECK(after[i].magic == before[i].magic + 2);
+    }
+    game::EliteOnRoundStarted(registry, content, 2);
+    CHECK(state->attackBonus == 2);
+
+    for (int i = 0; i < 5; ++i) game::EliteOnSkillUsed(registry, party, *spell);
+    CHECK(state->pendingBonus == 2);
+    game::EliteOnRoundStarted(registry, content, 3);
+    CHECK(state->attackBonus == 4);
+    after = e.h->enemies();
+    for (std::size_t i = 0; i < before.size() && i < after.size(); ++i) {
+        CHECK(after[i].attack == before[i].attack + 4);
+        CHECK(after[i].magic == before[i].magic + 4);
+    }
+    game::EliteOnSkillUsed(registry, party, *spell);
+    CHECK(state->pendingBonus == 0);
+}
+
+void EscalatingFromRound() {
+    FEliteHarness e("path-f5", "affix.escalating");
+    if (!e.h) return;
+    auto& registry = e.registry();
+    const auto* state = game::FindEliteBattle(registry);
+    CHECK(state != nullptr);
+    if (state == nullptr) return;
+    const auto* spell = TaggedSkill(registry, kSpellSkill, "Spell");
+    if (spell == nullptr) return;
+    const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
+    const auto before = e.h->enemies();
+    game::EliteOnRoundStarted(registry, content, 1);
+    game::EliteOnRoundStarted(registry, content, 2);
+    CHECK(state->attackBonus == 0);
+    game::EliteOnRoundStarted(registry, content, 3);
+    CHECK(state->attackBonus == 1);
+    game::EliteOnRoundStarted(registry, content, 3);
+    CHECK(state->attackBonus == 1);
+    const int expected[] = {2, 3, 4};
+    for (std::uint64_t round = 4; round <= 6; ++round) {
+        game::EliteOnRoundStarted(registry, content, round);
+        CHECK(state->attackBonus == expected[round - 4]);
+    }
+    game::EliteOnRoundStarted(registry, content, 7);
+    CHECK(state->attackBonus == 4);
+    const auto after = e.h->enemies();
+    for (std::size_t i = 0; i < before.size() && i < after.size(); ++i) {
+        CHECK(after[i].attack == before[i].attack + 4);
+        CHECK(after[i].magic == before[i].magic + 4);
+    }
+    game::EliteOnSkillUsed(registry, FirstWith(registry, true), *spell);
+    CHECK(state->pendingBonus == 0);
+}
+
+void ThornedHurtsMeleeAttacker() {
+    FEliteHarness e("path-f6t", "affix.thorned");
+    FEliteHarness standard("path-f6s", "affix.thorned", false);
+    if (!e.h || !standard.h) return;
+    auto& registry = e.registry();
+    const auto* state = game::FindEliteBattle(registry);
+    CHECK(state != nullptr);
+    if (state == nullptr) return;
+    CHECK(TaggedSkill(registry, kMeleeSkill, "Melee") != nullptr);
+    CHECK(TaggedSkill(registry, kSpellSkill, "Spell") != nullptr);
+    const auto party = FirstWith(registry, true);
+    const auto foe = FirstWith(registry, false);
+    CHECK(party != entt::null);
+    CHECK(foe != entt::null);
+    if (party == entt::null || foe == entt::null) return;
+    auto& health = registry.get<game::FHealth>(party);
+    health.current = 10;
+    const auto foeHp = registry.get<game::FHealth>(foe).current;
+    game::EliteOnHit(registry, {.owner = party, .other = foe, .amount = 5, .skillId = kMeleeSkill});
+    CHECK(health.current == 8);
+    game::EliteOnHit(registry, {.owner = party, .other = foe, .amount = 5, .skillId = kSpellSkill});
+    CHECK(health.current == 8);
+    game::EliteOnHit(registry, {.owner = party, .other = foe, .amount = 0, .skillId = kMeleeSkill});
+    CHECK(health.current == 8);
+    game::EliteOnHit(registry, {.owner = foe, .other = party, .amount = 5, .skillId = kMeleeSkill});
+    CHECK(health.current == 8);
+    CHECK(registry.get<game::FHealth>(foe).current == foeHp);
+    health.current = 2;
+    game::EliteOnHit(registry, {.owner = party, .other = foe, .amount = 5, .skillId = kMeleeSkill});
+    CHECK(health.current == 1);
+    game::EliteOnHit(registry, {.owner = party, .other = foe, .amount = 5, .skillId = kMeleeSkill});
+    CHECK(health.current == 1);
+    CHECK(!registry.all_of<game::FDead>(party));
+
+    auto& other = standard.registry();
+    const auto otherParty = FirstWith(other, true);
+    const auto otherFoe = FirstWith(other, false);
+    if (otherParty == entt::null || otherFoe == entt::null) return;
+    other.get<game::FHealth>(otherParty).current = 10;
+    game::EliteOnHit(other, {.owner = otherParty, .other = otherFoe, .amount = 5, .skillId = kMeleeSkill});
+    CHECK(other.get<game::FHealth>(otherParty).current == 10);
+}
+
+void UnyieldingBlocksControl() {
+    FEliteHarness e("path-f7u", "affix.unyielding");
+    FEliteHarness standard("path-f7s", "affix.unyielding", false);
+    if (!e.h || !standard.h) return;
+    int enemies = 0;
+    for (const auto entity : e.registry().view<game::FEnemy>()) {
+        ++enemies;
+        const auto* active = e.registry().try_get<game::FActiveStatuses>(entity);
+        CHECK(active != nullptr);
+        if (active == nullptr) continue;
+        CHECK(game::IsStatusImmune(*active, "status.freeze"));
+        CHECK(game::IsStatusImmune(*active, "status.paralyze"));
+        CHECK(std::count(active->immune.begin(), active->immune.end(), std::string("status.freeze")) == 1);
+        CHECK(std::count(active->immune.begin(), active->immune.end(), std::string("status.paralyze")) == 1);
+    }
+    CHECK(enemies > 0);
+    for (const auto entity : standard.registry().view<game::FEnemy>()) {
+        const auto* active = standard.registry().try_get<game::FActiveStatuses>(entity);
+        if (active == nullptr) continue;
+        CHECK(!game::IsStatusImmune(*active, "status.freeze"));
+        CHECK(!game::IsStatusImmune(*active, "status.paralyze"));
+    }
+}
+
+void EliteHudLine() {
+    {
+        FEliteHarness standard("path-f8s", "affix.thorned", false);
+        if (standard.h) CHECK(game::EliteRuleHudLine(standard.registry()).empty());
+    }
+    const auto endsWith = [](const std::string& text, const std::string& tail) {
+        return text.size() >= tail.size() && text.compare(text.size() - tail.size(), tail.size(), tail) == 0;
+    };
+    {
+        FEliteHarness e("path-f8t", "affix.thorned");
+        if (!e.h) return;
+        auto& registry = e.registry();
+        const auto* state = game::FindEliteBattle(registry);
+        CHECK(state != nullptr);
+        if (state == nullptr) return;
+        const std::string line = game::EliteRuleHudLine(registry);
+        const std::string head = "Thorned: Melee skills cost the attacker 2 HP per enemy hit (never below 1 HP) ";
+        CHECK(line.rfind(head, 0) == 0);
+        std::string skills = game::EliteAffectedSkills(registry, state->affix);
+        CHECK(!skills.empty() && skills.back() == ' ');
+        if (!skills.empty()) skills.pop_back();
+        CHECK(line == head + skills);
+        const bool none = skills == "Your party has no Melee skills.";
+        CHECK(skills.rfind("Your Melee skills: ", 0) == 0 || none);
+        const auto rows = game::PartySkillRows(registry);
+        std::string expectedList;
+        for (const auto* row : rows) {
+            if (std::find(row->tags.begin(), row->tags.end(), std::string("Melee")) == row->tags.end()) continue;
+            if (!expectedList.empty()) expectedList += ", ";
+            expectedList += row->displayName;
+        }
+        if (expectedList.empty()) {
+            CHECK(none);
+        } else {
+            CHECK(skills == "Your Melee skills: " + expectedList + ".");
+        }
+
+        auto& run = registry.ctx().get<game::FDungeonRun>();
+        run.phase = game::EDungeonPhase::Reward;
+        CHECK(game::EliteRuleHudLine(registry).empty());
+        run.phase = game::EDungeonPhase::Battle;
+        CHECK(!game::EliteRuleHudLine(registry).empty());
+    }
+    {
+        FEliteHarness e("path-f8e", "affix.escalating");
+        if (!e.h) return;
+        const auto* state = game::FindEliteBattle(e.registry());
+        CHECK(state != nullptr);
+        if (state != nullptr) CHECK(game::EliteAffectedSkills(e.registry(), state->affix).empty());
+    }
+    {
+        FEliteHarness e("path-f8f", "affix.spell_fed");
+        if (!e.h) return;
+        auto& registry = e.registry();
+        const auto* spell = TaggedSkill(registry, kSpellSkill, "Spell");
+        if (spell == nullptr) return;
+        const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
+        CHECK(endsWith(game::EliteRuleHudLine(registry), "  |  enemy attack +0"));
+        game::EliteOnSkillUsed(registry, FirstWith(registry, true), *spell);
+        CHECK(endsWith(game::EliteRuleHudLine(registry), "  |  enemy attack +0 (+1 next round)"));
+        game::EliteOnRoundStarted(registry, content, 2);
+        CHECK(endsWith(game::EliteRuleHudLine(registry), "  |  enemy attack +1"));
+    }
+}
+
+void EliteFeedLines() {
+    {
+        FEliteHarness e("path-f11e", "affix.escalating");
+        if (!e.h) return;
+        auto& registry = e.registry();
+        if (registry.ctx().find<game::FCombatLog>() == nullptr) registry.ctx().emplace<game::FCombatLog>();
+        auto& log = *registry.ctx().find<game::FCombatLog>();
+        const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
+        game::EliteOnRoundStarted(registry, content, 3);
+        CHECK(!log.lines.empty());
+        if (!log.lines.empty()) CHECK(log.lines.back() == "Escalating: enemies +1 attack (now +1)");
+        const auto count = log.lines.size();
+        game::EliteOnRoundStarted(registry, content, 3);
+        CHECK(log.lines.size() == count);
+    }
+    {
+        FEliteHarness e("path-f11t", "affix.thorned");
+        if (!e.h) return;
+        auto& registry = e.registry();
+        if (registry.ctx().find<game::FCombatLog>() == nullptr) registry.ctx().emplace<game::FCombatLog>();
+        auto& log = *registry.ctx().find<game::FCombatLog>();
+        const auto party = FirstWith(registry, true);
+        const auto foe = FirstWith(registry, false);
+        if (party == entt::null || foe == entt::null) return;
+        registry.get<game::FHealth>(party).current = 10;
+        game::EliteOnHit(registry, {.owner = party, .other = foe, .amount = 5, .skillId = kMeleeSkill});
+        CHECK(!log.lines.empty());
+        if (!log.lines.empty()) {
+            CHECK(log.lines.back() == game::UnitDisplayName(registry, party) + " takes 2 damage (Thorned)");
+        }
+        const auto count = log.lines.size();
+        game::EliteOnHit(registry, {.owner = party, .other = foe, .amount = 5, .skillId = kSpellSkill});
+        CHECK(log.lines.size() == count);
     }
 }
 
@@ -526,6 +869,17 @@ json TieredRewards() {
     return document;
 }
 
+/// The fixture runes with tiers (the frozen file has none): every row uncommon except fire, cold and lightning.
+json TieredRunes() {
+    auto document = FixtureDoc("runes.json");
+    for (auto& row : document.at("runes")) {
+        const std::string id = row.at("id").get<std::string>();
+        const bool common = id == "rune.fire" || id == "rune.cold" || id == "rune.lightning";
+        row["rarity"] = common ? "common" : "uncommon";
+    }
+    return document;
+}
+
 struct FTieredPathBoot {
     FTempAssets assets;
     FBoot boot;
@@ -533,11 +887,12 @@ struct FTieredPathBoot {
     FTieredPathBoot(const char* stem, const std::vector<std::string_view>& rooms)
         : assets(stem),
           boot((assets.Write("dungeon.json", PathDungeon(rooms)), assets.Write("events.json", PathEvents()),
-                assets.Write("rewards.json", TieredRewards()), UniquePath(stem)),
+                assets.Write("rewards.json", TieredRewards()), assets.Write("runes.json", TieredRunes()),
+                UniquePath(stem)),
                assets.Roots()) {}
 };
 
-void EliteVictoryPaysOfferAndMaterials() {
+void EliteVictoryPaysOffer() {
     const auto reachRoomOne = [](FTieredPathBoot& boot, std::uint32_t seed, game::ERunIntent intent) {
         game::StartRun(boot.boot.registry, seed, true);
         CHECK(game::ResolveRoomVictory(boot.boot.registry, true).has_value());
@@ -551,28 +906,69 @@ void EliteVictoryPaysOfferAndMaterials() {
         tuned.pity = 1;
         boot.boot.registry.ctx().erase<game::FBattleObjective>();
     };
+    const auto isCommon = [](const std::string& id) {
+        return id == "rune.fire" || id == "rune.cold" || id == "rune.lightning";
+    };
     FTieredPathBoot probe("path-f6probe", {"battle", "battle", "battle"});
     const auto seed = PickSeed(probe.boot.registry, [](const game::FRunPathState& s) { return s.hasFork && s.slot == 1; });
     CHECK(seed != kNoSeed);
+    int eliteGain = -1;
+    int standardGain = -2;
     {
         FTieredPathBoot boot("path-f6a", {"battle", "battle", "battle"});
         reachRoomOne(boot, seed, game::ERunIntent::TakeFork);
         const int before = boot.boot.run().materials;
         CHECK(game::ResolveRoomVictory(boot.boot.registry, true).has_value());
+        eliteGain = boot.boot.run().materials - before;
         const auto& rewards = boot.boot.registry.ctx().get<game::FRewards>();
-        CHECK(boot.boot.run().materials - before == game::DungeonBalance(boot.boot.registry, "room_materials") + 2);
         CHECK(rewards.offer.active);
-        CHECK(rewards.offer.rarityTable == "boosted");
+        CHECK(rewards.offer.rarityTable == "boss");
+        CHECK(!rewards.offer.candidates.empty());
+        for (const auto& id : rewards.offer.candidates) CHECK(!isCommon(id));
         CHECK(rewards.pity == 0);
-        CHECK(boot.boot.run().message.find("Elite defeated: +2 materials") != std::string::npos);
+        CHECK(boot.boot.run().message.find("Elite defeated") != std::string::npos);
+        CHECK(boot.boot.run().message.find("materials") == std::string::npos);
     }
     {
         FTieredPathBoot boot("path-f6b", {"battle", "battle", "battle"});
         reachRoomOne(boot, seed, game::ERunIntent::ContinueReward);
         const int before = boot.boot.run().materials;
         CHECK(game::ResolveRoomVictory(boot.boot.registry, true).has_value());
-        CHECK(boot.boot.run().materials - before == game::DungeonBalance(boot.boot.registry, "room_materials"));
+        standardGain = boot.boot.run().materials - before;
+        CHECK(standardGain == game::DungeonBalance(boot.boot.registry, "room_materials"));
         CHECK(!boot.boot.registry.ctx().get<game::FRewards>().offer.active);
+    }
+    CHECK(eliteGain == standardGain);
+
+    // Dry pool: every uncommon rune but one is owned.
+    const auto allRunes = FixtureDoc("runes.json").at("runes");
+    const auto ownAllButOne = [&](FTieredPathBoot& boot) {
+        game::StartRun(boot.boot.registry, seed, true);
+        std::string spare;
+        for (const auto& row : allRunes) {
+            const std::string id = row.at("id").get<std::string>();
+            if (isCommon(id)) continue;
+            if (spare.empty()) {
+                spare = id;
+                continue;
+            }
+            boot.boot.run().runes.push_back(id);
+        }
+    };
+    {
+        FTieredPathBoot boot("path-f6c", {"battle", "battle", "battle"});
+        ownAllButOne(boot);
+        const auto strict = game::RollRuneCandidates(boot.boot.registry, game::kRarityTableBoss, true);
+        CHECK(strict.size() <= 2u);
+        for (const auto& id : strict) CHECK(!isCommon(id));
+    }
+    {
+        FTieredPathBoot boot("path-f6d", {"battle", "battle", "battle"});
+        ownAllButOne(boot);
+        const auto loose = game::RollRuneCandidates(boot.boot.registry, game::kRarityTableBoss, false);
+        bool hasCommon = false;
+        for (const auto& id : loose) hasCommon = hasCommon || isCommon(id);
+        CHECK(hasCommon);
     }
 }
 
@@ -751,7 +1147,7 @@ void HostAcceptsTakeFork() {
 void StripMirrorsSlotsAndPhase() {
     FPathBoot path("path-f9", {"battle", "event", "battle", "boss-final"});
     const auto seed = PickSeed(path.registry(), [](const game::FRunPathState& s) {
-        return s.hasFork && s.slot == 2 && s.affixId == "affix.hardened";
+        return s.hasFork && s.slot == 2 && s.affixId == "affix.unyielding";
     });
     CHECK(seed != kNoSeed);
     {
@@ -765,7 +1161,7 @@ void StripMirrorsSlotsAndPhase() {
         CHECK(strip.nodes[4].label == "Camp");
         CHECK(strip.nodes[0].current && !strip.nodes[0].done);
         CHECK(strip.forkNode == 2);
-        CHECK(strip.forkAlt.has_value() && strip.forkAlt->label == "Elite: Hardened");
+        CHECK(strip.forkAlt.has_value() && strip.forkAlt->label == "Elite: Unyielding");
     }
     WinRoom(path);
     {
@@ -783,7 +1179,7 @@ void StripMirrorsSlotsAndPhase() {
     CHECK(Apply(path, game::ERunIntent::TakeFork));
     {
         const auto strip = game::BuildPathStrip(path.registry());
-        CHECK(strip.nodes[2].label == "Elite: Hardened");
+        CHECK(strip.nodes[2].label == "Elite: Unyielding");
         CHECK(strip.nodes[2].kind == game::EPathNodeKind::Elite);
         CHECK(strip.nodes[2].current);
         CHECK(!strip.forkAlt.has_value());
@@ -857,14 +1253,14 @@ bool Has(const std::string& text, std::string_view needle) { return text.find(ne
 void StripDrawsLabels() {
     FPathBoot path("path-f10", {"battle", "event", "battle", "boss-final"});
     const auto seed = PickSeed(path.registry(), [](const game::FRunPathState& s) {
-        return s.hasFork && s.slot == 2 && s.affixId == "affix.hardened";
+        return s.hasFork && s.slot == 2 && s.affixId == "affix.unyielding";
     });
     CHECK(seed != kNoSeed);
     const std::string text =
         CaptureFrame(path.registry(), [&] { game::DrawPathStrip(path.registry(), 1268.f, 44.f, 1.f); });
     CHECK(Has(text, "[Battle]"));
     CHECK(Has(text, "Event"));
-    CHECK(Has(text, "Battle / Elite: Hardened"));
+    CHECK(Has(text, "Battle / Elite: Unyielding"));
     CHECK(Has(text, "Boss"));
     CHECK(Has(text, "Camp"));
     CHECK(Has(text, ">"));
@@ -881,7 +1277,26 @@ void ForkPanelShowsBothOptions() {
         CHECK(Has(text, "Party HP "));
         CHECK(Has(text, "Materials "));
         CHECK(Has(text, "Elite: "));
-        CHECK(Has(text, "Reward: rune offer (boosted), +2 materials"));
+        CHECK(Has(text, "Enemy max HP +20%"));
+        CHECK(Has(text, "uncommon or better"));
+        CHECK(!Has(text, "boosted"));
+        CHECK(!Has(text, "+2 materials"));
+        {
+            const auto& sequence = path.registry().ctx().get<game::FRunSequence>();
+            const auto& state = game::EnsureRunPath(path.registry());
+            const game::FEliteAffix* affix = nullptr;
+            for (const auto& row : sequence.elite.affixes) {
+                if (row.id == state.affixId) affix = &row;
+            }
+            CHECK(affix != nullptr);
+            const auto options = game::ForkOptions(path.registry());
+            CHECK(options.size() == 2u);
+            if (affix != nullptr && options.size() == 2u) {
+                CHECK(options[1].detail == "Enemy max HP +20%. " + affix->text + ". " +
+                                               game::EliteAffectedSkills(path.registry(), *affix) +
+                                               "Reward: rune offer (uncommon or better)");
+            }
+        }
         CHECK(Has(text, "Standard rewards"));
         if (at != std::string::npos) CHECK(!Has(text.substr(at), "Continue"));
     }
@@ -949,8 +1364,15 @@ int main() {
         {"ForkSlotIsSeededAndEligible", ForkSlotIsSeededAndEligible},
         {"AffixIsSeeded", AffixIsSeeded},
         {"ContinueTakesStandardTakeForkTakesVariant", ContinueTakesStandardTakeForkTakesVariant},
-        {"EliteAffixScalesEnemies", EliteAffixScalesEnemies},
-        {"EliteVictoryPaysOfferAndMaterials", EliteVictoryPaysOfferAndMaterials},
+        {"ShipEliteRules", ShipEliteRules},
+        {"EliteBattleInstallsState", EliteBattleInstallsState},
+        {"SpellFedQueuesUntilNextRound", SpellFedQueuesUntilNextRound},
+        {"EscalatingFromRound", EscalatingFromRound},
+        {"ThornedHurtsMeleeAttacker", ThornedHurtsMeleeAttacker},
+        {"UnyieldingBlocksControl", UnyieldingBlocksControl},
+        {"EliteHudLine", EliteHudLine},
+        {"EliteFeedLines", EliteFeedLines},
+        {"EliteVictoryPaysOffer", EliteVictoryPaysOffer},
         {"MysteryForkPicksMysteryPool", MysteryForkPicksMysteryPool},
         {"ForkSurvivesSaveAndContentChange", ForkSurvivesSaveAndContentChange},
         {"HostAcceptsTakeFork", HostAcceptsTakeFork},

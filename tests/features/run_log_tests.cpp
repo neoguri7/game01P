@@ -335,12 +335,12 @@ void ForkRecordCarriesChoiceAndHp() {
             {{{"type", "battle"}, {"family", "open"}},
              {{"type", "battle"}, {"family", "open"}},
              {{"type", "battle"}, {"family", "open"}}});
-        document["elite"] = {{"reward_materials", 2},
-                             {"affixes", json::array({{{"id", "affix.hardened"},
-                                                       {"display_name", "Hardened"},
-                                                       {"text", "Enemy max HP +30%"},
-                                                       {"health_percent", 30},
-                                                       {"attack_bonus", 0}}})}};
+        document["elite"] = {{"affixes",
+                              json::array({{{"id", "affix.thorned"},
+                                            {"display_name", "Thorned"},
+                                            {"text", "Melee skills cost the attacker 2 HP per enemy hit (never below 1 HP)"},
+                                            {"rule", "thorned"},
+                                            {"amount", 2}}})}};
         std::ofstream out(std::filesystem::path(rootDir) / "data" / "dungeon.json", std::ios::trunc);
         out << document.dump(2);
     }

@@ -81,14 +81,14 @@ void EnsureRewardsForRun(entt::registry& registry);
 
 /// Room clear: decides (and opens) the offer only. It never pays materials or EXP and never changes the
 /// phase. `bossRoom` uses `boss_offer`; a monster room uses chance/pity.
-/// An elite monster room skips the chance roll and opens a "boosted" offer (WP-41).
+/// An elite monster room skips the chance roll and opens a strict "boss"-table offer: uncommon or better (WP-44).
 void RollRoomOffer(entt::registry& registry, bool bossRoom, bool elite = false);
 
 /// Rolls candidates from `rarityTable` (RollRuneCandidates) and opens the offer: active, candidates,
 /// rarityTable = FindRarityTable name or empty, pity = 0, bossExtraPending = false. False when an offer is
 /// already open (nothing consumed) or fewer than max(1, min_legal_candidates) candidates came up (the draw
-/// index is consumed, nothing else changes).
-bool OpenRuneOffer(entt::registry& registry, std::string_view rarityTable);
+/// index is consumed, nothing else changes). `strictTiers` (WP-44): no candidate of a rarity whose table weight is 0.
+bool OpenRuneOffer(entt::registry& registry, std::string_view rarityTable, bool strictTiers = false);
 
 /// Resolves the open offer: `pickedIndex < 0` skips (materials refund), otherwise the candidate is granted
 /// (or refunded when already owned and the policy says so). It never changes the phase. False = nothing was
@@ -102,7 +102,10 @@ bool OpenRuneOffer(entt::registry& registry, std::string_view rarityTable);
 /// index, so a caller gets the next deterministic draw of this (run, depth, room). Each card first rolls a
 /// rarity from `rarityTable` (WP-40), then draws a legal rune of that rarity.
 [[nodiscard]] std::vector<std::string> RollRuneCandidates(
-    entt::registry& registry, std::string_view rarityTable = kRarityTableNormal);
+    entt::registry& registry, std::string_view rarityTable = kRarityTableNormal, bool strictTiers = false);
+
+/// The distinct skills of the run party (made public for the elite texts, WP-44).
+[[nodiscard]] std::vector<const gameplay::FSkillContent*> PartySkillRows(entt::registry& registry);
 
 /// The same draw without consuming an index (previews/tests).
 [[nodiscard]] std::vector<std::string> PeekRuneCandidates(

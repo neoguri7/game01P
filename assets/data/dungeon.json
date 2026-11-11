@@ -149,10 +149,12 @@
     "rune_offers": 1
   },
   "elite": {
-    "reward_materials": 2,
+    "health_percent": 20,
     "affixes": [
-      {"id": "affix.hardened", "display_name": "Hardened", "text": "Enemy max HP +30%", "health_percent": 30, "attack_bonus": 0},
-      {"id": "affix.fierce", "display_name": "Fierce", "text": "Enemy attack +1", "health_percent": 0, "attack_bonus": 1}
+      {"id": "affix.spell_fed", "display_name": "Spell-fed", "text": "Each Spell your party uses gives enemies +1 attack from the next round (up to +4)", "rule": "spell_fed", "amount": 1, "max_bonus": 4},
+      {"id": "affix.thorned", "display_name": "Thorned", "text": "Melee skills cost the attacker 2 HP per enemy hit (never below 1 HP)", "rule": "thorned", "amount": 2},
+      {"id": "affix.escalating", "display_name": "Escalating", "text": "From round 3, enemies gain +1 attack each round (up to +4)", "rule": "escalating", "amount": 1, "from_round": 3, "max_bonus": 4},
+      {"id": "affix.unyielding", "display_name": "Unyielding", "text": "Enemies cannot be frozen or paralyzed", "rule": "unyielding", "statuses": ["status.freeze", "status.paralyze"]}
     ]
   },
   "run": {

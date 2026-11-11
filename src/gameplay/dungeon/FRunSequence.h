@@ -72,20 +72,25 @@ struct FDungeonBootProbe {
     int iterations{0};
 };
 
-/// One elite affix (dungeon.json `elite.affixes[]`, WP-41): enemy max HP +healthPercent%, attack and magic
-/// attack +attackBonus. Applied in the combat sheet after the cycle scale.
+/// The rule of an elite battle (dungeon.json `elite.affixes[].rule`, WP-44).
+enum class EEliteRule : std::uint8_t { SpellFed, Thorned, Escalating, Unyielding };
+
+/// One elite rule row. Which parameters are used depends on `rule` (see the loader).
 struct FEliteAffix {
     std::string id;
     std::string displayName;
     std::string text;
-    int healthPercent{0};
-    int attackBonus{0};
+    EEliteRule rule{EEliteRule::SpellFed};
+    int amount{0};                      // SpellFed, Escalating: attack bonus per trigger; Thorned: HP per enemy hit
+    int fromRound{0};                   // Escalating: first round that adds the bonus
+    int maxBonus{0};                    // SpellFed, Escalating: cap of the total attack bonus
+    std::vector<std::string> statuses;  // Unyielding: status ids the enemies are immune to
 };
 
-/// The elite-battle rules (dungeon.json `elite`): extra materials on a win and the affix list. Empty
+/// The elite-battle rules (dungeon.json `elite`): the shared enemy HP bump and the rule list. Empty
 /// affixes = the block is absent and no dungeon has an elite fork.
 struct FEliteRules {
-    int rewardMaterials{0};
+    int healthPercent{0};               // every elite: enemy max HP +healthPercent% (elite.health_percent)
     std::vector<FEliteAffix> affixes;
 };
 

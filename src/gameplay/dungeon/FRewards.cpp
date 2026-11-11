@@ -163,7 +163,7 @@ constexpr std::array<std::array<ERuneRarity, 3>, 3> kRarityFallback{{
 }};
 
 [[nodiscard]] std::vector<std::string> CandidatesFor(
-    entt::registry& registry, std::uint32_t drawIndex, std::string_view rarityTable) {
+    entt::registry& registry, std::uint32_t drawIndex, std::string_view rarityTable, bool strictTiers) {
     std::vector<std::string> candidates;
     auto* rewards = registry.ctx().find<FRewards>();
     const auto* run = registry.ctx().find<FDungeonRun>();
@@ -189,6 +189,21 @@ constexpr std::array<std::array<ERuneRarity, 3>, 3> kRarityFallback{{
     FRewardRng rng(StreamSeed(run->seed, run->depth, run->room, drawIndex, kDrawSalt));
     FRewardRng tierRng(StreamSeed(run->seed, run->depth, run->room, drawIndex, kTierSalt));
     const FRarityWeights* weights = FindRarityTable(rewards->tables, rarityTable);
+
+    // WP-44 strict mode: a rune of a rarity whose weight is 0 in the table is never a candidate (the elite offer
+    // is uncommon or better, no fallback to common).
+    if (strictTiers && weights != nullptr) {
+        const auto zeroWeight = [weights](const FRuneContent* rune) {
+            switch (rune->rarity) {
+                case ERuneRarity::Common: return weights->common <= 0;
+                case ERuneRarity::Uncommon: return weights->uncommon <= 0;
+                case ERuneRarity::Rare: return weights->rare <= 0;
+            }
+            return false;
+        };
+        std::erase_if(unowned, zeroWeight);
+        std::erase_if(owned, zeroWeight);
+    }
 
     // Cards come from the unowned pool first (weighted, no repeats), so a duplicate never takes a slot while
     // enough unowned runes exist.
@@ -373,13 +388,13 @@ void EnsureRewardsForRun(entt::registry& registry) {
     ResetRewardsForRun(registry);
 }
 
-bool OpenRuneOffer(entt::registry& registry, std::string_view rarityTable) {
+bool OpenRuneOffer(entt::registry& registry, std::string_view rarityTable, bool strictTiers) {
     EnsureRewardsForRun(registry);
     auto* rewards = registry.ctx().find<FRewards>();
     if (rewards == nullptr || registry.ctx().find<FDungeonRun>() == nullptr) return false;
     if (rewards->offer.active) return false;
     const FRewardTables& tables = rewards->tables;
-    auto candidates = RollRuneCandidates(registry, rarityTable);  // consumes one draw index
+    auto candidates = RollRuneCandidates(registry, rarityTable, strictTiers);  // consumes one draw index
     const auto minimum = static_cast<std::size_t>(std::max(1, tables.minLegalCandidates));
     if (candidates.size() < minimum) return false;
     rewards->offer.active = true;
@@ -399,8 +414,9 @@ void RollRoomOffer(entt::registry& registry, bool bossRoom, bool elite) {
     if (rewards == nullptr || run == nullptr) return;
     if (rewards->offer.active) return;  // one offer per room: a repeated call never re-rolls or re-pities
     if (elite && !bossRoom) {
-        // WP-41: an elite win always offers a rune from the boosted table; no chance roll, pity reset.
-        if (!OpenRuneOffer(registry, kRarityTableBoosted)) {
+        // WP-44: an elite win always offers a rune from the boss table in strict mode (uncommon or better, never a
+        // common fallback); no chance roll, pity reset. Withheld when too few legal allowed cards exist.
+        if (!OpenRuneOffer(registry, kRarityTableBoss, true)) {
             LOG_INFO("Elite rune offer withheld: too few legal candidates.");
         }
         return;
@@ -488,11 +504,11 @@ bool ResolveRuneOffer(entt::registry& registry, int pickedIndex) {
     return true;
 }
 
-std::vector<std::string> RollRuneCandidates(entt::registry& registry, std::string_view rarityTable) {
+std::vector<std::string> RollRuneCandidates(entt::registry& registry, std::string_view rarityTable, bool strictTiers) {
     EnsureRewardsForRun(registry);
     auto* rewards = registry.ctx().find<FRewards>();
     if (rewards == nullptr) return {};
-    auto candidates = CandidatesFor(registry, rewards->nextDrawIndex, rarityTable);
+    auto candidates = CandidatesFor(registry, rewards->nextDrawIndex, rarityTable, strictTiers);
     ++rewards->nextDrawIndex;  // every draw call advances the cursor, even when the pool came up short
     return candidates;
 }
@@ -501,7 +517,14 @@ std::vector<std::string> PeekRuneCandidates(entt::registry& registry, std::strin
     EnsureRewardsForRun(registry);
     auto* rewards = registry.ctx().find<FRewards>();
     if (rewards == nullptr) return {};
-    return CandidatesFor(registry, rewards->nextDrawIndex, rarityTable);
+    return CandidatesFor(registry, rewards->nextDrawIndex, rarityTable, false);
+}
+
+std::vector<const FSkillContent*> PartySkillRows(entt::registry& registry) {
+    const auto* run = registry.ctx().find<FDungeonRun>();
+    const auto* content = registry.ctx().find<FContentRegistry>();
+    if (run == nullptr || content == nullptr) return {};
+    return PartySkills(registry, *content, *run);
 }
 
 RuneOfferForecast RuneOfferForecastOf(entt::registry& registry) {

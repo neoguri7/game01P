@@ -217,15 +217,15 @@ std::optional<FRunSequence> FRunSequence::Load(const nlohmann::json& document, s
 
     if (const auto elite = document.find("elite"); elite != document.end()) {
         if (!elite->is_object()) return Fail(error, "`elite` must be an object");
-        if (const auto reward = elite->find("reward_materials"); reward != elite->end()) {
-            if (!reward->is_number_integer()) {
-                return Fail(error, "elite.reward_materials: must be an integer");
+        if (const auto health = elite->find("health_percent"); health != elite->end()) {
+            if (!health->is_number_integer()) {
+                return Fail(error, "elite.health_percent: must be an integer");
             }
-            const auto value = reward->get<std::int64_t>();
-            if (value < 0 || value > kMaxStartSupportValue) {
-                return Fail(error, "elite.reward_materials: must be 0.." + std::to_string(kMaxStartSupportValue));
+            const auto value = health->get<std::int64_t>();
+            if (value < 0 || value > 1000) {
+                return Fail(error, "elite.health_percent: must be 0..1000");
             }
-            sequence.elite.rewardMaterials = static_cast<int>(value);
+            sequence.elite.healthPercent = static_cast<int>(value);
         }
         if (const auto affixes = elite->find("affixes"); affixes != elite->end()) {
             if (!affixes->is_array()) return Fail(error, "elite.affixes: must be an array");
@@ -244,18 +244,68 @@ std::optional<FRunSequence> FRunSequence::Load(const nlohmann::json& document, s
                     }
                     *target = found->get<std::string>();
                 }
-                for (const auto& [key, target] :
-                     {std::pair<const char*, int*>{"health_percent", &affix.healthPercent},
-                      std::pair<const char*, int*>{"attack_bonus", &affix.attackBonus}}) {
-                    const auto found = row.find(key);
-                    if (found == row.end()) continue;
-                    if (!found->is_number_integer()) return Fail(error, where + "`" + key + "` must be an integer");
-                    const auto value = found->get<std::int64_t>();
-                    if (value < 0 || value > 1000) return Fail(error, where + "`" + key + "` must be 0..1000");
-                    *target = static_cast<int>(value);
+                const auto ruleKey = row.find("rule");
+                const std::string ruleName =
+                    (ruleKey != row.end() && ruleKey->is_string()) ? ruleKey->get<std::string>() : std::string();
+                if (ruleName == "spell_fed") affix.rule = EEliteRule::SpellFed;
+                else if (ruleName == "thorned") affix.rule = EEliteRule::Thorned;
+                else if (ruleName == "escalating") affix.rule = EEliteRule::Escalating;
+                else if (ruleName == "unyielding") affix.rule = EEliteRule::Unyielding;
+                else {
+                    return Fail(error, where + "`rule` must be spell_fed, thorned, escalating or unyielding");
                 }
-                if (affix.healthPercent == 0 && affix.attackBonus == 0) {
-                    return Fail(error, where + "needs health_percent or attack_bonus above 0");
+                struct FIntParam {
+                    const char* key;
+                    int* target;
+                    bool required;
+                };
+                std::vector<FIntParam> params;
+                switch (affix.rule) {
+                    case EEliteRule::SpellFed:
+                        params = {{"amount", &affix.amount, true}, {"max_bonus", &affix.maxBonus, true}};
+                        break;
+                    case EEliteRule::Thorned:
+                        params = {{"amount", &affix.amount, true}};
+                        break;
+                    case EEliteRule::Escalating:
+                        params = {{"amount", &affix.amount, true},
+                                  {"from_round", &affix.fromRound, true},
+                                  {"max_bonus", &affix.maxBonus, true}};
+                        break;
+                    case EEliteRule::Unyielding:
+                        break;
+                }
+                for (const auto& param : params) {
+                    const auto found = row.find(param.key);
+                    if (found == row.end()) {
+                        return Fail(error, where + "`" + param.key + "` is required for rule " + ruleName);
+                    }
+                    if (!found->is_number_integer()) {
+                        return Fail(error, where + "`" + param.key + "` must be an integer");
+                    }
+                    const auto value = found->get<std::int64_t>();
+                    if (value < 1 || value > 1000) {
+                        return Fail(error, where + "`" + param.key + "` must be 1..1000");
+                    }
+                    *param.target = static_cast<int>(value);
+                }
+                if ((affix.rule == EEliteRule::SpellFed || affix.rule == EEliteRule::Escalating) &&
+                    affix.maxBonus < affix.amount) {
+                    return Fail(error, where + "`max_bonus` must be at least `amount`");
+                }
+                if (affix.rule == EEliteRule::Unyielding) {
+                    const auto found = row.find("statuses");
+                    bool ok = found != row.end() && found->is_array() && !found->empty();
+                    if (ok) {
+                        for (const auto& entry : *found) {
+                            if (!entry.is_string() || entry.get<std::string>().empty()) {
+                                ok = false;
+                                break;
+                            }
+                            affix.statuses.push_back(entry.get<std::string>());
+                        }
+                    }
+                    if (!ok) return Fail(error, where + "`statuses` must be a non-empty array of status ids");
                 }
                 for (const auto& existing : sequence.elite.affixes) {
                     if (existing.id == affix.id) return Fail(error, where + "duplicate id `" + affix.id + "`");

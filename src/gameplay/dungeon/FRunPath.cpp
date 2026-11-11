@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 
 #include "core/Logger.h"
+#include "gameplay/combat/FEliteRules.h"
 #include "gameplay/dungeon/FBossContent.h"
 #include "gameplay/dungeon/FDungeonRun.h"
 #include "gameplay/dungeon/FEventContent.h"
@@ -326,9 +327,13 @@ std::vector<FForkOption> ForkOptions(entt::registry& registry) {
         const auto* affix = FindAffix(*sequence, state.affixId);
         if (affix == nullptr) return {};
         options.push_back({"Battle", "Standard rewards"});
+        const std::string hpSentence =
+            sequence->elite.healthPercent > 0
+                ? "Enemy max HP +" + std::to_string(sequence->elite.healthPercent) + "%. "
+                : std::string();
         options.push_back({"Elite: " + affix->displayName,
-                           affix->text + ". Reward: rune offer (boosted), +" +
-                               std::to_string(sequence->elite.rewardMaterials) + " materials"});
+                           hpSentence + affix->text + ". " + EliteAffectedSkills(registry, *affix) +
+                               "Reward: rune offer (uncommon or better)"});
         return options;
     }
     const auto& rooms = sequence->DungeonAt(sequence->PositionOf(run->depth - 1)).rooms;

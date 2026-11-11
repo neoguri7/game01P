@@ -23,6 +23,7 @@
 #include "gameplay/combat/FCombatSheet.h"
 #include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/combat/FEffectHooks.h"
+#include "gameplay/combat/FEliteRules.h"
 #include "gameplay/combat/FSkillResolver.h"
 #include "gameplay/combat/FStatusRules.h"
 #include "gameplay/data/FContentRegistry.h"
@@ -372,6 +373,11 @@ private:
                         }
                         continue;
                     }
+                    // WP-44: tell the player when an immunity (elite rule, boss) blocks the status.
+                    if (IsStatusImmune(*active, definition->id)) {
+                        if (log) log->push(targetName + " is immune to " + definition->displayName);
+                        continue;
+                    }
                     // WP-13 (D-12): the one rolling application — an on_apply control can refuse itself.
                     if (TryApplyStatus(*active, *definition, status.durationDelta, status.magnitudeDelta,
                                        combat->rng)) {
@@ -386,6 +392,7 @@ private:
                 }
             }
         }
+        if (skillRow != nullptr) EliteOnSkillUsed(registry, actor, *skillRow);  // WP-44 Spell-fed
         EmitAt(registry, std::move(event), eventBase);
         return FRejection{};
     }
