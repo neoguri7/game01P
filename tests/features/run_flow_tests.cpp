@@ -34,7 +34,10 @@
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FRunLog.h"
+#include "gameplay/dungeon/FRunSequence.h"
 #include "gameplay/dungeon/FSaveSections.h"
+#include "gameplay/meta/FMetaProgress.h"
 
 namespace {
 
@@ -901,6 +904,146 @@ void LegacyWrappersMatchRunFlow() {
     CHECK(!flowDefeat.registry.ctx().get<game::FDungeonSave>().exists);
 }
 
+// --- WP-46: run completion --------------------------------------------------------------------
+
+/// WP-46 §7 recipe: the camp of dungeon `index` (0-based). The run is placed at the reward of that
+/// dungeon's last room and ContinueReward moves it to the camp.
+void CampAfterDungeon(entt::registry& registry, int index) {
+    registry.ctx().get<game::FDungeonCheckpoint>().cleared = index;
+    game::InstallDungeonRunAt(registry, kSeed, index);
+    const auto* sequence = game::FindRunSequence(registry);
+    CHECK(sequence != nullptr);
+    auto& run = registry.ctx().get<game::FDungeonRun>();
+    run.phase = game::EDungeonPhase::Reward;
+    run.room = sequence->BattleCountAt(sequence->PositionOf(index)) - 1;  // a battle ordinal, as the save validates
+    if (auto* rewards = registry.ctx().find<game::FRewards>()) rewards->offer.active = false;
+    CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward).has_value());
+    CHECK(registry.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Camp);
+}
+
+int LastDungeonOfFirstTheme(const entt::registry& registry) {
+    return static_cast<int>(game::FindRunSequence(registry)->themes[0].dungeons.size()) - 1;
+}
+
+const json* LastRunEnd(const game::FRunLog& log) {
+    const json* found = nullptr;
+    for (const auto& event : log.events) {
+        if (event.is_object() && event.value("t", "") == "run_end") found = &event;
+    }
+    return found;
+}
+
+void ThemeClearedCampDetected() {
+    FBoot boot(UniquePath("run-flow-theme-camp"));
+    auto& registry = boot.registry;
+    CHECK(!game::IsThemeClearedCamp(registry));  // no run
+    const int last = LastDungeonOfFirstTheme(registry);
+    CampAfterDungeon(registry, last);
+    CHECK(game::IsThemeClearedCamp(registry));
+    CampAfterDungeon(registry, 0);
+    CHECK(!game::IsThemeClearedCamp(registry));
+    registry.ctx().get<game::FDungeonRun>().phase = game::EDungeonPhase::Battle;
+    CHECK(!game::IsThemeClearedCamp(registry));
+}
+
+void ReturnInTriumphEndsRunAsVictory() {
+    FBoot boot(UniquePath("run-flow-triumph"));
+    auto& registry = boot.registry;
+    const int last = LastDungeonOfFirstTheme(registry);
+    CampAfterDungeon(registry, last);
+    const int checkpoint = registry.ctx().get<game::FDungeonCheckpoint>().cleared;
+    const int seals = game::MetaSeals(registry);
+    const auto result = game::ApplyRunIntent(registry, game::ERunIntent::ReturnInTriumph);
+    CHECK(result.has_value());
+    CHECK(result.has_value() && result->exit == game::ERunExit::ShowModal);
+    CHECK(result.has_value() && result->modalId == std::string(game::kRunModalRunEnd));
+    const auto& run = registry.ctx().get<game::FDungeonRun>();
+    CHECK(run.phase == game::EDungeonPhase::Victory);
+    CHECK(!std::filesystem::exists(boot.runSave));
+    CHECK(registry.ctx().get<game::FDungeonCheckpoint>().cleared == checkpoint);
+    const json* end = LastRunEnd(registry.ctx().get<game::FRunLog>());
+    CHECK(end != nullptr);
+    if (end != nullptr) {
+        CHECK(end->value("result", "") == "victory");
+        CHECK(end->value("reason", "") == "return");
+    }
+    CHECK(run.message.find(game::FindRunSequence(registry)->themes[0].name) != std::string::npos);
+    if (game::MetaDisabled(registry)) {
+        CHECK(game::MetaSeals(registry) == seals);
+    } else {
+        CHECK(game::MetaSeals(registry) == seals + game::kTriumphSeals);
+    }
+}
+
+void ReturnInTriumphRefusedElsewhere() {
+    {
+        FBoot boot(UniquePath("run-flow-triumph-refuse-a"));
+        auto& registry = boot.registry;
+        CampAfterDungeon(registry, 0);
+        CHECK(!game::ApplyRunIntent(registry, game::ERunIntent::ReturnInTriumph).has_value());
+        CHECK(registry.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Camp);
+        registry.ctx().get<game::FDungeonRun>().phase = game::EDungeonPhase::Battle;
+        CHECK(!game::ApplyRunIntent(registry, game::ERunIntent::ReturnInTriumph).has_value());
+    }
+    {
+        FBoot boot(UniquePath("run-flow-triumph-refuse-b"));
+        auto& registry = boot.registry;
+        CampAfterDungeon(registry, LastDungeonOfFirstTheme(registry));
+        CHECK(game::IsThemeClearedCamp(registry));
+        registry.ctx().get<game::FRewards>().offer.active = true;
+        const auto result = game::ApplyRunIntent(registry, game::ERunIntent::ReturnInTriumph);
+        CHECK(!result.has_value());
+        CHECK(!result.has_value() && result.error() == "Resolve the rune offer before leaving camp.");
+        CHECK(registry.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Camp);
+        CHECK(std::filesystem::exists(boot.runSave));
+    }
+}
+
+void VictoryExitsDropTheRun() {
+    for (const bool retry : {true, false}) {
+        FBoot boot(UniquePath("run-flow-victory-exit"));
+        auto& registry = boot.registry;
+        CampAfterDungeon(registry, LastDungeonOfFirstTheme(registry));
+        CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ReturnInTriumph).has_value());
+        const auto result =
+            game::ApplyRunIntent(registry, retry ? game::ERunIntent::RetryAfterDefeat : game::ERunIntent::LeaveRun);
+        CHECK(result.has_value());
+        CHECK(result.has_value() && result->exit == (retry ? game::ERunExit::ToPrepare : game::ERunExit::ToTitle));
+        CHECK(!registry.ctx().contains<game::FDungeonRun>());
+    }
+}
+
+void LeaveRunAtCampKeepsSave() {
+    FBoot boot(UniquePath("run-flow-leave-camp"));
+    auto& registry = boot.registry;
+    CampAfterDungeon(registry, 0);
+    const auto result = game::ApplyRunIntent(registry, game::ERunIntent::LeaveRun);
+    CHECK(result.has_value());
+    CHECK(result.has_value() && result->exit == game::ERunExit::ToTitle);
+    CHECK(!registry.ctx().contains<game::FDungeonRun>());
+    CHECK(std::filesystem::exists(boot.runSave));
+    CHECK(game::ContinueDungeonRun(registry));
+    CHECK(registry.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Camp);
+    registry.ctx().get<game::FDungeonRun>().phase = game::EDungeonPhase::Reward;
+    CHECK(!game::ApplyRunIntent(registry, game::ERunIntent::LeaveRun).has_value());
+}
+
+void RunPlaceLabelFormat() {
+    FBoot boot(UniquePath("run-flow-place"));
+    auto& registry = boot.registry;
+    const auto* sequence = game::FindRunSequence(registry);
+    CHECK(sequence != nullptr);
+    const std::size_t n0 = sequence->themes[0].dungeons.size();
+    const int total = sequence->TotalDungeons();
+    CHECK(game::RunPlaceLabel(registry, 0) == sequence->themes[0].name + " 1/" + std::to_string(n0));
+    const std::string tail = "/" + std::to_string(sequence->themes.back().dungeons.size());
+    const std::string lastLabel = game::RunPlaceLabel(registry, total - 1);
+    CHECK(lastLabel.ends_with(tail));
+    CHECK(lastLabel.find("Cycle") == std::string::npos);
+    CHECK(game::RunPlaceLabel(registry, total) ==
+          sequence->themes[0].name + " 1/" + std::to_string(n0) + "  |  Cycle 1");
+}
+
 } // namespace
 
 int main() {
@@ -909,6 +1052,12 @@ int main() {
         {"TransitionTableSingleWriter", TransitionTableSingleWriter},
         {"WrongPhaseIsRejected", WrongPhaseIsRejected},
         {"ExitTransitionsDropTheRun", ExitTransitionsDropTheRun},
+        {"ThemeClearedCampDetected", ThemeClearedCampDetected},
+        {"ReturnInTriumphEndsRunAsVictory", ReturnInTriumphEndsRunAsVictory},
+        {"ReturnInTriumphRefusedElsewhere", ReturnInTriumphRefusedElsewhere},
+        {"VictoryExitsDropTheRun", VictoryExitsDropTheRun},
+        {"LeaveRunAtCampKeepsSave", LeaveRunAtCampKeepsSave},
+        {"RunPlaceLabelFormat", RunPlaceLabelFormat},
         {"RunResultIsNeutral", RunResultIsNeutral},
         {"PhaseIdRoundTrip", PhaseIdRoundTrip},
         {"IsKnownPhaseIdCore", IsKnownPhaseIdCore},

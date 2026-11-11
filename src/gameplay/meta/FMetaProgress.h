@@ -54,6 +54,15 @@ void ShutdownMetaProgress(entt::registry& registry);
 /// changes nothing; a zero amount is a no-op (no save).
 void GrantSeals(entt::registry& registry, int amount, std::string_view reason);
 
+/// [WP-46] Seals for returning in triumph at a theme-cleared camp (repeatable; the first-clear and first-boss
+/// amounts are the code constants kClearSeals/kBossSeals in the .cpp). Declared here because the camp view
+/// prints it.
+inline constexpr int kTriumphSeals = 1;
+
+/// Grants kTriumphSeals for a run that returned in triumph (repeatable). Returns the amount granted;
+/// 0 when meta progress is absent or disabled. Uses GrantSeals(registry, kTriumphSeals, "triumph").
+int GrantTriumphSeals(entt::registry& registry);
+
 /// Grants an unlock. The id must be in the shipped catalog (an unknown id is ignored with a warning — a
 /// stored id outside unlocks.json would make the next load fail its cross-check). Idempotent.
 void GrantMetaUnlock(entt::registry& registry, std::string_view unlockId);

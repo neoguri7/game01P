@@ -750,6 +750,12 @@ void GrantSeals(entt::registry& registry, int amount, std::string_view reason) {
     SaveMetaProgress(registry);
 }
 
+int GrantTriumphSeals(entt::registry& registry) {
+    if (MetaDisabled(registry)) return 0;
+    GrantSeals(registry, kTriumphSeals, "triumph");
+    return kTriumphSeals;
+}
+
 void GrantMetaUnlock(entt::registry& registry, std::string_view unlockId) {
     auto* store = registry.ctx().find<FMetaProgressStore>();
     if (store == nullptr) {

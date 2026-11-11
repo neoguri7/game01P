@@ -23,6 +23,7 @@
 #include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunLog.h"
 #include "gameplay/dungeon/FRunSequence.h"
+#include "gameplay/meta/FMetaProgress.h"
 
 namespace game {
 namespace {
@@ -284,6 +285,29 @@ std::expected<FRunResult, std::string> LeaveCamp(entt::registry& registry) {
     return SaveAfterTransition(registry, FRunResult{ERunExit::NextRoom, {}});
 }
 
+/// WP-46: the run ends as a success at a theme-cleared camp. The run stays in the registry for the run-end
+/// screen (only Retry and Leave erase it). The checkpoint was raised at camp entry and is not touched.
+std::expected<FRunResult, std::string> ReturnInTriumph(entt::registry& registry) {
+    auto* run = registry.ctx().find<FDungeonRun>();
+    if (run == nullptr) return NoRun();
+    if (run->phase != EDungeonPhase::Camp) return WrongPhase(run->phase);
+    if (!IsThemeClearedCamp(registry)) return std::unexpected(std::string("The theme is not cleared yet."));
+    EnsureRewardsForRun(registry);
+    if (const auto* rewards = registry.ctx().find<FRewards>();
+        rewards != nullptr && rewards->offer.active) {
+        LOG_WARN("The rune offer is still open; pick or skip it before leaving camp.");
+        return std::unexpected(std::string("Resolve the rune offer before leaving camp."));
+    }
+    const auto* sequence = FindRunSequence(registry);
+    const std::string themeName = sequence->themes[sequence->PositionOf(run->depth - 1).theme].name;
+    (void)GrantTriumphSeals(registry);
+    run->phase = EDungeonPhase::Victory;
+    run->message = "The expedition returns in triumph. " + themeName + " is cleared.";
+    AppendRunEvent(registry, ERunEventKind::RunEnded);
+    DeleteDungeonSave(registry);
+    return FRunResult{ERunExit::ShowModal, RunModalIdForPhase(EDungeonPhase::Victory)};
+}
+
 std::expected<FRunResult, std::string> AbandonRun(entt::registry& registry) {
     auto* run = registry.ctx().find<FDungeonRun>();
     if (run == nullptr) return NoRun();
@@ -299,8 +323,8 @@ std::expected<FRunResult, std::string> AbandonRun(entt::registry& registry) {
 std::expected<FRunResult, std::string> RetryAfterDefeat(entt::registry& registry) {
     auto* run = registry.ctx().find<FDungeonRun>();
     if (run == nullptr) return NoRun();
-    if (run->phase != EDungeonPhase::Defeat) return WrongPhase(run->phase);
-    // The lost run is dropped; the prepare step (WP-02b) starts a new one from the checkpoint.
+    if (run->phase != EDungeonPhase::Defeat && run->phase != EDungeonPhase::Victory) return WrongPhase(run->phase);
+    // The finished run is dropped; the prepare step (WP-02b) starts a new one from the checkpoint.
     registry.ctx().erase<FDungeonRun>();
     return FRunResult{ERunExit::ToPrepare, {}};
 }
@@ -308,12 +332,12 @@ std::expected<FRunResult, std::string> RetryAfterDefeat(entt::registry& registry
 std::expected<FRunResult, std::string> LeaveRun(entt::registry& registry) {
     auto* run = registry.ctx().find<FDungeonRun>();
     if (run == nullptr) return NoRun();
-    if (run->phase == EDungeonPhase::Defeat) {
-        // A lost run's save is already gone; leaving only drops the run object.
+    if (run->phase == EDungeonPhase::Defeat || run->phase == EDungeonPhase::Victory) {
+        // A finished run's save is already gone; leaving only drops the run object.
         registry.ctx().erase<FDungeonRun>();
         return FRunResult{ERunExit::ToTitle, {}};
     }
-    if (run->phase != EDungeonPhase::Battle) return WrongPhase(run->phase);
+    if (run->phase != EDungeonPhase::Battle && run->phase != EDungeonPhase::Camp) return WrongPhase(run->phase);
     if (!SaveDungeonRun(registry)) {
         const auto* save = registry.ctx().find<FDungeonSave>();
         const std::string reason =
@@ -567,8 +591,28 @@ std::expected<FRunResult, std::string> ApplyRunIntent(entt::registry& registry, 
     case ERunIntent::AbandonRun: return AbandonRun(registry);
     case ERunIntent::RetryAfterDefeat: return RetryAfterDefeat(registry);
     case ERunIntent::LeaveRun: return LeaveRun(registry);
+    case ERunIntent::ReturnInTriumph: return ReturnInTriumph(registry);
     }
     return std::unexpected("Unknown run intent.");
+}
+
+bool IsThemeClearedCamp(const entt::registry& registry) {
+    const auto* run = registry.ctx().find<FDungeonRun>();
+    const auto* sequence = FindRunSequence(registry);
+    if (run == nullptr || sequence == nullptr || run->phase != EDungeonPhase::Camp) return false;
+    const auto position = sequence->PositionOf(run->depth - 1);
+    return position.dungeonInTheme + 1 == sequence->themes[position.theme].dungeons.size();
+}
+
+std::string RunPlaceLabel(const entt::registry& registry, int dungeonIndex) {
+    const auto* sequence = FindRunSequence(registry);
+    if (sequence == nullptr) return {};
+    const auto position = sequence->PositionOf(dungeonIndex);
+    const auto& theme = sequence->themes[position.theme];
+    std::string label = theme.name + " " + std::to_string(position.dungeonInTheme + 1) + "/" +
+                        std::to_string(theme.dungeons.size());
+    if (position.cycle >= 1) label += "  |  Cycle " + std::to_string(position.cycle);
+    return label;
 }
 
 std::string RunModalIdForPhase(EDungeonPhase phase) {
@@ -577,6 +621,7 @@ std::string RunModalIdForPhase(EDungeonPhase phase) {
     case EDungeonPhase::Event: return std::string(kRunModalEvent);
     case EDungeonPhase::Camp: return std::string(kRunModalCamp);
     case EDungeonPhase::Defeat: return std::string(kRunModalRunEnd);
+    case EDungeonPhase::Victory: return std::string(kRunModalRunEnd);
     case EDungeonPhase::Battle: return {};
     }
     return {};
@@ -589,13 +634,15 @@ const char* PhaseId(EDungeonPhase phase) {
     case EDungeonPhase::Event: return "event";
     case EDungeonPhase::Camp: return "camp";
     case EDungeonPhase::Defeat: return "defeat";
+    case EDungeonPhase::Victory: return "victory";
     }
     return "battle";
 }
 
 std::optional<EDungeonPhase> PhaseFromId(std::string_view id) {
     for (const auto phase :
-         {EDungeonPhase::Battle, EDungeonPhase::Reward, EDungeonPhase::Event, EDungeonPhase::Camp, EDungeonPhase::Defeat}) {
+         {EDungeonPhase::Battle, EDungeonPhase::Reward, EDungeonPhase::Event, EDungeonPhase::Camp, EDungeonPhase::Defeat,
+          EDungeonPhase::Victory}) {
         if (id == PhaseId(phase)) return phase;
     }
     return std::nullopt;

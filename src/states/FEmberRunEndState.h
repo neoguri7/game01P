@@ -80,6 +80,11 @@ struct FRunEndLedger {
 [[nodiscard]] FRunEndLedger BuildRunEndLedger(const game::FDungeonRun* run, const game::FRunLog& log,
                                               const FNextRunDeltas& deltas);
 
+/// "EXPEDITION COMPLETE" for Victory, "EXPEDITION LOST" otherwise.
+[[nodiscard]] const char* RunEndHeading(game::EDungeonPhase phase);
+/// "What ends with the run / what stays" for Victory, "What you lost / what stays" otherwise.
+[[nodiscard]] const char* RunEndLossSectionTitle(game::EDungeonPhase phase);
+
 /// Run-end screen. The view posts RetryAfterDefeat or LeaveRun; WP-19a replaced the stub presentation, not
 /// the contract. It never pops: a run end is a screen, not a modal.
 class FEmberRunEndState final : public FBaseState

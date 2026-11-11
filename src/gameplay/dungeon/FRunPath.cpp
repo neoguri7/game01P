@@ -186,7 +186,10 @@ FRunPathState& EnsureRunPath(entt::registry& registry) {
 std::optional<int> CurrentSlotIndex(const entt::registry& registry) {
     const auto* run = registry.ctx().find<FDungeonRun>();
     const auto* sequence = FindRunSequence(registry);
-    if (run == nullptr || sequence == nullptr || run->phase == EDungeonPhase::Defeat) return std::nullopt;
+    if (run == nullptr || sequence == nullptr || run->phase == EDungeonPhase::Defeat ||
+        run->phase == EDungeonPhase::Victory) {
+        return std::nullopt;
+    }
     const auto& rooms = sequence->DungeonAt(sequence->PositionOf(run->depth - 1)).rooms;
     if (run->phase == EDungeonPhase::Camp) return static_cast<int>(rooms.size());
     int seen = 0;

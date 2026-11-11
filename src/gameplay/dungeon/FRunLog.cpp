@@ -369,6 +369,7 @@ nlohmann::json BuildRoomEnd(entt::registry& registry, const FRunEvent& event, co
 void HandleRunEnded(entt::registry& registry, FRunLog& log, const FRunEvent& event) {
     const auto* run = registry.ctx().find<FDungeonRun>();
     const bool defeat = run != nullptr && run->phase == EDungeonPhase::Defeat;
+    const bool victory = run != nullptr && run->phase == EDungeonPhase::Victory;
     if (defeat) {
         // W5 review risk 2: the lost room is a room_end like any other, so the report's room count and
         // averages include it. Written first; the run_end report below then sees it.
@@ -376,10 +377,10 @@ void HandleRunEnded(entt::registry& registry, FRunLog& log, const FRunEvent& eve
     }
     const FRunReport report = FRunReportSummarize(*registry.ctx().find<FRunLog>());
     nlohmann::json line{{"t", "run_end"},
-                        {"result", defeat ? "defeat" : "abandon"},
+                        {"result", victory ? "victory" : defeat ? "defeat" : "abandon"},
                         {"depth", event.depth},
                         {"dungeons_cleared", run != nullptr ? run->cleared : 0},
-                        {"reason", defeat ? "wipe" : "abandon"},
+                        {"reason", victory ? "return" : defeat ? "wipe" : "abandon"},
                         {"frames_to_first_battle", report.framesToFirstBattle},
                         {"ms_to_first_battle", report.msToFirstBattle},
                         {"report", FRunReportToJson(report)}};

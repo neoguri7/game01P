@@ -1,0 +1,11 @@
+# WP-46 progress
+- T1 done: failing tests (9 cases + stubs) committed; all nine red for the right reason.
+- T2 done: Victory phase, ReturnInTriumph, LeaveRun at camp, place label, run_end victory line, triumph grant, camp host intents.
+- T3 done: run-end texts by phase, camp victory variant + Save and leave, HUD place label.
+- Decision: kTriumphSeals lives in FMetaProgress.h (the camp view and tests print/read it; spec said .cpp).
+- Decision: test helper CampAfterDungeon sets run.room to BattleCountAt-1 (a battle ordinal), not rooms.size()-1: the latter is not loadable from a camp save.
+- Decision: the camp abandon dialog's third line reads "The cleared-dungeon checkpoint remains." (the old "are lost." would duplicate the new second line).
+- T4 done: baseline.mjs wp46-flow seeds 1-4 exit 0, out/baseline-wp46-flow.txt non-empty (3226 bytes). Battle rows:
+  - all: count 36, defeats 0, meanFirstDamageRound 1.50, meanRounds 6.19, meanSimSeconds 34.65, meanWallSeconds 2.60, wins 36
+  - elite: count 0
+  - normal: count 36, defeats 0, meanFirstDamageRound 1.50, meanRounds 6.19, meanSimSeconds 34.65, meanWallSeconds 2.60, wins 36

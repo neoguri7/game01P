@@ -785,7 +785,10 @@ void StartDungeonRun(entt::registry& registry, std::uint32_t seed, bool fresh) {
 bool SaveDungeonRun(entt::registry& registry) {
     auto* save = registry.ctx().find<FDungeonSave>();
     const auto* run = registry.ctx().find<FDungeonRun>();
-    if (save == nullptr || save->path.empty() || run == nullptr || run->phase == EDungeonPhase::Defeat) return false;
+    if (save == nullptr || save->path.empty() || run == nullptr || run->phase == EDungeonPhase::Defeat ||
+        run->phase == EDungeonPhase::Victory) {
+        return false;
+    }
     auto document = DungeonRunToJson(*run);
     // Section pack failures are a whole-save failure: the previous file stays and the run stays.
     if (const auto packed = PackSections(registry, document); !packed) {
@@ -992,7 +995,10 @@ bool CanAllocateDungeonNode(const entt::registry& registry, std::size_t memberIn
     const auto* run = registry.ctx().find<FDungeonRun>();
     const auto* growth = registry.ctx().find<FDungeonGrowth>();
     if (run == nullptr || growth == nullptr) return false;
-    if (run->phase == EDungeonPhase::Battle || run->phase == EDungeonPhase::Defeat) return false;
+    if (run->phase == EDungeonPhase::Battle || run->phase == EDungeonPhase::Defeat ||
+        run->phase == EDungeonPhase::Victory) {
+        return false;
+    }
     if (memberIndex >= run->party.size()) return false;
     const FRunMember& member = run->party[memberIndex];
     if (member.passivePoints <= 0) return false;

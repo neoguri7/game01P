@@ -40,8 +40,8 @@ template <typename TRow>
 /// both draw it; the definition lives in FDungeonRewardView.cpp so there is one copy.
 void DrawGrowthPanel(entt::registry& registry, const FDungeonGrowth& growth, FDungeonRun& run, std::size_t memberIndex);
 
-/// The shared leave/abandon confirm. `allowLeave` shows "Save and leave" (the battle offers it); the camp
-/// offers only the abandon. `viaIntent` posts the run intent instead of setting the run's flags (the camp
+/// The shared leave/abandon confirm. `allowLeave` shows "Save and leave" (the battle and, since WP-46, the
+/// camp offer it; the camp's posts the LeaveRun intent). `viaIntent` posts the run intent instead of setting the run's flags (the camp
 /// host owns its phase; the battle owns its flags). The confirm owns the "keep exploring" escape and clears
 /// the flag itself.
 void DrawAbandonConfirm(entt::registry& registry, bool allowLeave, bool viaIntent = false);

@@ -298,6 +298,26 @@ void RoundTripAndCorruption() {
         json{{"schema_version", 1}, {"ladder", json::object({{"0", json::object()}})}})); // rank 0
 }
 
+void TriumphGrantsSealsEveryTime() {
+    {
+        FMetaFixture fixture("triumph-seals");
+        CHECK(fixture.Init());
+        const int lifetime = game::LifetimeSealsEarned(fixture.registry);
+        const int before = game::MetaSeals(fixture.registry);
+        CHECK(game::GrantTriumphSeals(fixture.registry) == game::kTriumphSeals);
+        CHECK(game::MetaSeals(fixture.registry) == before + game::kTriumphSeals);
+        CHECK(game::GrantTriumphSeals(fixture.registry) == game::kTriumphSeals);
+        CHECK(game::MetaSeals(fixture.registry) == before + 2 * game::kTriumphSeals);
+        CHECK(game::LifetimeSealsEarned(fixture.registry) == lifetime);
+    }
+    {
+        // No meta progress initialised: nothing is granted.
+        FMetaFixture fixture("triumph-seals-off");
+        CHECK(game::GrantTriumphSeals(fixture.registry) == 0);
+        CHECK(game::MetaSeals(fixture.registry) == 0);
+    }
+}
+
 void SealEconomy() {
     FMetaFixture fixture("seal-economy");
     CHECK(fixture.Init());
@@ -1211,6 +1231,7 @@ int main() {
     return game_test::RunTests("meta save", {
         {"RoundTripAndCorruption", RoundTripAndCorruption},
         {"SealEconomy", SealEconomy},
+        {"TriumphGrantsSealsEveryTime", TriumphGrantsSealsEveryTime},
         {"FirstClearOnlyGrantsOnce", FirstClearOnlyGrantsOnce},
         {"CycleDoesNotRegrant", CycleDoesNotRegrant},
         {"FailureGrantsNothing", FailureGrantsNothing},

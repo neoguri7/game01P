@@ -42,6 +42,7 @@
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunEventLog.h"
 #include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FRunSequence.h"
 #include "gameplay/factory/FEntityDefinitions.h"
 #include "gameplay/factory/FEntityFactory.h"
 #include "gameplay/factory/FScene.h"
@@ -1256,6 +1257,51 @@ void CampDataValidationRejects() {
     CHECK(BootsDungeon({assets.root.string()}, UniquePath("camp-valid-checkpoint")));
 }
 
+/// WP-46 §7 recipe: the camp of dungeon `index` (0-based), reached through ContinueReward.
+void CampAfterDungeon(entt::registry& registry, int index) {
+    registry.ctx().get<game::FDungeonCheckpoint>().cleared = index;
+    game::InstallDungeonRunAt(registry, 4242u, index);
+    const auto* sequence = game::FindRunSequence(registry);
+    CHECK(sequence != nullptr);
+    auto& run = registry.ctx().get<game::FDungeonRun>();
+    run.phase = game::EDungeonPhase::Reward;
+    run.room = sequence->BattleCountAt(sequence->PositionOf(index)) - 1;  // a battle ordinal, as the save validates
+    if (auto* rewards = registry.ctx().find<game::FRewards>()) rewards->offer.active = false;
+    CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward).has_value());
+    CHECK(registry.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Camp);
+}
+
+void CampViewShowsThemeVictory() {
+    const std::vector<std::string> modal{std::string(game::RunModalIdForPhase(game::EDungeonPhase::Camp))};
+    {
+        FBoot boot(UniquePath("camp-view-theme-victory"));
+        const int last = static_cast<int>(game::FindRunSequence(boot.registry)->themes[0].dungeons.size()) - 1;
+        CampAfterDungeon(boot.registry, last);
+        const auto logs = RenderModalLogs(boot.registry, modal);
+        CHECK(logs.size() == 1u);
+        if (logs.size() == 1u) {
+            CHECK(logs[0].find("THEME CLEARED / ") != std::string::npos);
+            CHECK(logs[0].find("has fallen. Seals: ") != std::string::npos);
+            CHECK(logs[0].find("Descend deeper: ") != std::string::npos);
+            CHECK(logs[0].find("Return in triumph") != std::string::npos);
+            CHECK(logs[0].find("The checkpoint stays. Seals +") != std::string::npos);
+            CHECK(logs[0].find("DUNGEON CLEARED / CAMP") == std::string::npos);
+        }
+    }
+    {
+        FBoot boot(UniquePath("camp-view-next-place"));
+        CampAfterDungeon(boot.registry, 0);
+        const auto logs = RenderModalLogs(boot.registry, modal);
+        CHECK(logs.size() == 1u);
+        if (logs.size() == 1u) {
+            CHECK(logs[0].find("DUNGEON CLEARED / CAMP") != std::string::npos);
+            CHECK(logs[0].find("Next: ") != std::string::npos);
+            CHECK(logs[0].find("Descend to the next dungeon") != std::string::npos);
+            CHECK(logs[0].find("Return in triumph") == std::string::npos);
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1316,5 +1362,6 @@ int main() {
         {"RestPreviewMatchesOutcome", RestPreviewMatchesOutcome},
         {"RestLogged", RestLogged},
         {"CampViewShowsChoice", CampViewShowsChoice},
+        {"CampViewShowsThemeVictory", CampViewShowsThemeVictory},
     });
 }

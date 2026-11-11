@@ -16,7 +16,7 @@ namespace game {
 
 namespace gameplay { struct FUnitContent; }
 
-enum class EDungeonPhase { Battle, Reward, Event, Camp, Defeat };
+enum class EDungeonPhase { Battle, Reward, Event, Camp, Defeat, Victory };
 enum class EMenuRequest { None, Start, Continue, Quit };
 
 struct FMenuRequest {

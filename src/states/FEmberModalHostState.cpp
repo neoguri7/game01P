@@ -23,7 +23,8 @@ bool AcceptsIntent(std::string_view id, game::ERunIntent intent) {
                intent == game::ERunIntent::TakeFork;
     }
     if (id == game::kRunModalCamp) {
-        return intent == game::ERunIntent::LeaveCamp || intent == game::ERunIntent::AbandonRun;
+        return intent == game::ERunIntent::LeaveCamp || intent == game::ERunIntent::AbandonRun ||
+               intent == game::ERunIntent::ReturnInTriumph || intent == game::ERunIntent::LeaveRun;
     }
     return false;
 }

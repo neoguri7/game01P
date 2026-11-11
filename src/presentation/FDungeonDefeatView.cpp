@@ -7,6 +7,7 @@
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FUiTheme.h"
+#include "states/FEmberRunEndState.h"
 
 namespace game {
 
@@ -24,7 +25,7 @@ void RenderDungeonDefeatView(entt::registry& registry) {
         ui::DecorateCurrentWindow();
         DrawDungeonIcon(registry, EDungeonSprite::Guardian);
         ImGui::SameLine();
-        ui::HeadingText("EXPEDITION LOST", 26.f);
+        ui::HeadingText(RunEndHeading(run.phase), 26.f);
         ImGui::TextWrapped("%s", run.message.c_str());
         ImGui::Separator();
         if (ui::Button("New expedition from checkpoint", {-1, 44})) {

@@ -216,6 +216,7 @@ const char* DungeonPhaseName(EDungeonPhase phase) noexcept {
     case EDungeonPhase::Event: return "event";
     case EDungeonPhase::Camp: return "camp";
     case EDungeonPhase::Defeat: return "defeat";
+    case EDungeonPhase::Victory: return "victory";
     }
     return "battle";
 }

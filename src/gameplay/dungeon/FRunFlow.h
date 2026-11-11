@@ -52,7 +52,8 @@ enum class ERunIntent {
     AbandonRun,
     RetryAfterDefeat,
     LeaveRun,
-    TakeFork
+    TakeFork,
+    ReturnInTriumph  // WP-46: end the run as a success at a theme-cleared camp
 };
 
 /// The one-frame request in the context. Only one may be pending; the newest post wins.
@@ -75,6 +76,13 @@ std::expected<FRunResult, std::string> ApplyRunIntent(entt::registry& registry, 
 /// Resolves a finished battle. A victory captures the party, advances the room rewards (heal, materials,
 /// rune, EXP) and sets phase=Reward. A defeat loses the run: phase=Defeat and the save is deleted.
 std::expected<FRunResult, std::string> ResolveRoomVictory(entt::registry& registry, bool victory);
+
+/// True when a run exists, its phase is Camp, a run sequence exists, and the dungeon just cleared
+/// (PositionOf(run.depth - 1)) is the last dungeon of its theme.
+[[nodiscard]] bool IsThemeClearedCamp(const entt::registry& registry);
+/// "<theme name> <dungeonInTheme + 1>/<dungeons in theme>", plus "  |  Cycle <cycle>" when cycle >= 1.
+/// `dungeonIndex` is 0-based over the whole run (depth - 1). "" without a run sequence.
+[[nodiscard]] std::string RunPlaceLabel(const entt::registry& registry, int dungeonIndex);
 
 /// The modal id a run phase opens; empty for a phase with no modal.
 [[nodiscard]] std::string RunModalIdForPhase(EDungeonPhase phase);

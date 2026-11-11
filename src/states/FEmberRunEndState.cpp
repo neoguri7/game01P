@@ -283,6 +283,15 @@ std::vector<std::string> NextRunDeltaLines(const FNextRunDeltas& deltas) {
     return lines;
 }
 
+const char* RunEndHeading(game::EDungeonPhase phase) {
+    return phase == game::EDungeonPhase::Victory ? "EXPEDITION COMPLETE" : "EXPEDITION LOST";
+}
+
+const char* RunEndLossSectionTitle(game::EDungeonPhase phase) {
+    return phase == game::EDungeonPhase::Victory ? "What ends with the run / what stays"
+                                                 : "What you lost / what stays";
+}
+
 FRunEndLedger BuildRunEndLedger(const game::FDungeonRun* run, const game::FRunLog& log,
                                 const FNextRunDeltas& deltas) {
     FRunEndLedger ledger;
@@ -380,7 +389,8 @@ void FEmberRunEndState::Render(entt::registry& Registry)
         game::ui::DecorateCurrentWindow();
         game::DrawDungeonIcon(Registry, game::EDungeonSprite::Guardian);
         ImGui::SameLine();
-        game::ui::HeadingText("EXPEDITION LOST", 26.f);
+        const game::EDungeonPhase endPhase = run != nullptr ? run->phase : game::EDungeonPhase::Defeat;
+        game::ui::HeadingText(RunEndHeading(endPhase), 26.f);
         if (run != nullptr) ImGui::TextWrapped("%s", run->message.c_str());
         ImGui::Separator();
 
@@ -405,7 +415,7 @@ void FEmberRunEndState::Render(entt::registry& Registry)
             RunEndSection("What you gained");
             for (const auto& line : ledger.gained) ImGui::TextWrapped("%s", line.c_str());
 
-            RunEndSection("What you lost / what stays");
+            RunEndSection(RunEndLossSectionTitle(endPhase));
             for (const auto& line : ledger.lost) ImGui::TextWrapped("%s", line.c_str());
             for (const auto& line : ledger.kept) ImGui::TextWrapped("%s", line.c_str());
 

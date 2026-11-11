@@ -1,6 +1,7 @@
 #include "presentation/FDungeonViews.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -12,7 +13,9 @@
 #include "gameplay/dungeon/FDungeonCamp.h"
 #include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FRunSequence.h"
 #include "gameplay/dungeon/FRunewordInfo.h"
+#include "gameplay/meta/FMetaProgress.h"
 #include "presentation/FCampLoadoutHost.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
@@ -35,9 +38,14 @@ void DrawAbandonConfirm(entt::registry& registry, bool allowLeave, bool viaInten
             ImGuiWindowFlags_NoTitleBar)) {
         ui::DecorateCurrentWindow();
         ui::HeadingText("LEAVE EXPEDITION?", 22.f);
-        ImGui::Text("The expedition is saved at every room. Leaving mid-battle restarts this room");
-        ImGui::Text("when you continue. Abandoning deletes the save: run EXP, nodes, runes and materials");
-        ImGui::Text("are lost. The cleared-dungeon checkpoint remains.");
+        if (viaIntent) {
+            ImGui::Text("The expedition is saved at this camp; continuing reopens it. Abandoning deletes the save:");
+            ImGui::Text("run EXP, nodes, runes and materials are lost.");
+        } else {
+            ImGui::Text("The expedition is saved at every room. Leaving mid-battle restarts this room");
+            ImGui::Text("when you continue. Abandoning deletes the save: run EXP, nodes, runes and materials");
+        }
+        ImGui::Text(viaIntent ? "The cleared-dungeon checkpoint remains." : "are lost. The cleared-dungeon checkpoint remains.");
         if (ui::Button("Keep exploring", {180, 36})) {
             ui.confirmAbandon = false;
             ImGui::CloseCurrentPopup();
@@ -45,7 +53,11 @@ void DrawAbandonConfirm(entt::registry& registry, bool allowLeave, bool viaInten
         ImGui::SameLine();
         if (allowLeave) {
             if (ui::Button("Save and leave", {180, 36})) {
-                run->leaveRequested = true;
+                if (viaIntent) {
+                    PostRunIntent(registry, ERunIntent::LeaveRun);
+                } else {
+                    run->leaveRequested = true;
+                }
                 ui.confirmAbandon = false;
                 ImGui::CloseCurrentPopup();
             }
@@ -201,6 +213,9 @@ void DrawCampMemberSection(entt::registry& registry, FDungeonRun& run, std::size
 void RenderDungeonCampView(entt::registry& registry) {
     auto& run = registry.ctx().get<FDungeonRun>();
     auto& ui = registry.ctx().get<FDungeonUiState>();
+    const bool themeCleared = IsThemeClearedCamp(registry);
+    const auto* sequence = FindRunSequence(registry);
+    const std::string next = RunPlaceLabel(registry, run.depth);  // the dungeon the descent leads to
     const auto& window = registry.ctx().get<FEngineWindowState>();
     ImGui::SetNextWindowPos({window.width * .5f, window.height * .5f}, ImGuiCond_Always, {.5f, .5f});
     ImGui::SetNextWindowSize({580, 0}, ImGuiCond_Always);
@@ -211,12 +226,27 @@ void RenderDungeonCampView(entt::registry& registry) {
         ui::DecorateCurrentWindow();
         DrawDungeonIcon(registry, EDungeonSprite::Stairs);
         ImGui::SameLine();
-        ui::HeadingText("DUNGEON CLEARED / CAMP", 26.f);
+        std::string themeName;
+        if (themeCleared && sequence != nullptr) {
+            themeName = sequence->themes[sequence->PositionOf(run.depth - 1).theme].name;
+        }
+        std::string heading = "DUNGEON CLEARED / CAMP";
+        if (themeCleared) {
+            heading = "THEME CLEARED / ";
+            for (const char letter : themeName) {
+                heading += static_cast<char>(std::toupper(static_cast<unsigned char>(letter)));
+            }
+        }
+        ui::HeadingText(heading.c_str(), 26.f);
         ImGui::TextWrapped("%s", run.message.c_str());
+        if (themeCleared) {
+            ImGui::TextWrapped("The boss of %s has fallen. Seals: %d.", themeName.c_str(), MetaSeals(registry));
+        }
         ImGui::Separator();
         const auto& checkpoint = registry.ctx().get<FDungeonCheckpoint>();
         if (!checkpoint.error.empty()) ImGui::TextColored({.9f, .31f, .31f, 1}, "%s", checkpoint.error.c_str());
         ImGui::Text("Checkpoint: dungeon %d cleared  |  materials %d", run.cleared, run.materials);
+        if (!themeCleared && !next.empty()) ImGui::TextDisabled("Next: %s", next.c_str());
         DrawRuneOfferForecast(registry);
         // WP-08 authors `next_dungeon_hint`; the preview is conditional on that data (nothing shown today).
         const auto& data = DungeonDefinition(registry);
@@ -329,9 +359,18 @@ void RenderDungeonCampView(entt::registry& registry) {
         }
         if (offerOpen) ImGui::TextDisabled("Pick a rune or skip the offer to descend.");
         ImGui::BeginDisabled(offerOpen);
-        if (ui::Button("Descend to the next dungeon", {-1, 42})) {
+        const std::string descendLabel = themeCleared ? "Descend deeper: " + next : "Descend to the next dungeon";
+        if (ui::Button(descendLabel.c_str(), {-1, 42})) {
             PostRunIntent(registry, ERunIntent::LeaveCamp);
             ImGui::CloseCurrentPopup();
+        }
+        if (themeCleared) {
+            if (ui::Button("Return in triumph (ends the expedition as a success)", {-1, 42})) {
+                PostRunIntent(registry, ERunIntent::ReturnInTriumph);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::TextDisabled("Ends the run: its runes, levels and materials end with it. The checkpoint stays. Seals +%d.",
+                                kTriumphSeals);
         }
         ImGui::EndDisabled();
         if (ui::Button("End expedition at checkpoint", {-1, 30})) {
@@ -339,7 +378,7 @@ void RenderDungeonCampView(entt::registry& registry) {
         }
         ImGui::EndPopup();
     }
-    DrawAbandonConfirm(registry, false, true);
+    DrawAbandonConfirm(registry, true, true);
 }
 
 } // namespace game

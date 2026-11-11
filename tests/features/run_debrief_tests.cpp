@@ -986,6 +986,18 @@ void SummaryPureOverLog() {
     CHECK(SceneText(scenesA) == SceneText(scenesB));
 }
 
+void RunEndTextsFollowPhase() {
+    using game::EDungeonPhase;
+    CHECK(std::string(RunEndHeading(EDungeonPhase::Victory)) == "EXPEDITION COMPLETE");
+    CHECK(std::string(RunEndHeading(EDungeonPhase::Defeat)) == "EXPEDITION LOST");
+    CHECK(std::string(RunEndLossSectionTitle(EDungeonPhase::Victory)) == "What ends with the run / what stays");
+    CHECK(std::string(RunEndLossSectionTitle(EDungeonPhase::Defeat)) == "What you lost / what stays");
+    for (const auto phase : {EDungeonPhase::Battle, EDungeonPhase::Reward, EDungeonPhase::Event, EDungeonPhase::Camp}) {
+        CHECK(std::string(RunEndHeading(phase)) == "EXPEDITION LOST");
+        CHECK(std::string(RunEndLossSectionTitle(phase)) == "What you lost / what stays");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1021,5 +1033,6 @@ int main() {
         {"CycleShownWhenPresent", CycleShownWhenPresent},
         {"FrictionShown", FrictionShown},
         {"SummaryPureOverLog", SummaryPureOverLog},
+        {"RunEndTextsFollowPhase", RunEndTextsFollowPhase},
     });
 }

@@ -35,7 +35,9 @@
 #include "gameplay/GameplayServices.h"
 #include "gameplay/combat/FCombatTypes.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FRewards.h"
 #include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FRunSequence.h"
 #include "presentation/FDungeonArt.h"
 #include "presentation/FDungeonOverlay.h"
 #include "presentation/FDungeonViews.h"
@@ -697,6 +699,53 @@ void RunEndRetryStartsExactlyOneRun() {
     CHECK(registry.ctx().get<game::FDungeonRun>().materials == 777);
 }
 
+// --- WP-46: run completion --------------------------------------------------------------------
+
+/// WP-46 §7 recipe: the camp of dungeon `index` (0-based), reached through ContinueReward.
+void CampAfterDungeon(entt::registry& registry, int index) {
+    registry.ctx().get<game::FDungeonCheckpoint>().cleared = index;
+    game::InstallDungeonRunAt(registry, kSeed, index);
+    const auto* sequence = game::FindRunSequence(registry);
+    CHECK(sequence != nullptr);
+    auto& run = registry.ctx().get<game::FDungeonRun>();
+    run.phase = game::EDungeonPhase::Reward;
+    run.room = sequence->BattleCountAt(sequence->PositionOf(index)) - 1;  // a battle ordinal, as the save validates
+    if (auto* rewards = registry.ctx().find<game::FRewards>()) rewards->offer.active = false;
+    CHECK(game::ApplyRunIntent(registry, game::ERunIntent::ContinueReward).has_value());
+    CHECK(registry.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Camp);
+}
+
+void CampAndRunEndAcceptVictoryIntents() {
+    {
+        FBoot boot(UniquePath("modal-victory"));
+        auto& registry = boot.registry;
+        const int last = static_cast<int>(game::FindRunSequence(registry)->themes[0].dungeons.size()) - 1;
+        CampAfterDungeon(registry, last);
+        FEmberModalHostState host(std::string(game::kRunModalCamp), EHostMode::RunPhase);
+        game::PostRunIntent(registry, game::ERunIntent::ReturnInTriumph);
+        CHECK((host.Update(registry, 0.f) ==
+               FStateTransition{EStateChangeKind::ReplaceTop, std::string(game::kRunModalRunEnd)}));
+        CHECK(registry.ctx().get<game::FDungeonRun>().phase == game::EDungeonPhase::Victory);
+
+        FEmberRunEndState runEnd;
+        game::PostRunIntent(registry, game::ERunIntent::RetryAfterDefeat);
+        CHECK((runEnd.Update(registry, 0.f) == FStateTransition{EStateChangeKind::Root, std::string(kEmberPrepareId)}));
+        const auto* start = registry.ctx().find<game::FRunStartRequest>();
+        CHECK(start != nullptr && !start->fresh);
+    }
+    {
+        FBoot boot(UniquePath("modal-camp-leave"));
+        auto& registry = boot.registry;
+        CampAfterDungeon(registry, 0);
+        FEmberModalHostState host(std::string(game::kRunModalCamp), EHostMode::RunPhase);
+        game::PostRunIntent(registry, game::ERunIntent::LeaveRun);
+        CHECK((host.Update(registry, 0.f) == FStateTransition{EStateChangeKind::Root, std::string(kEmberTitleId)}));
+        CHECK(!registry.ctx().contains<game::FDungeonRun>());
+        CHECK(std::filesystem::exists(boot.runSave));
+        CHECK(ReadJsonFile(boot.runSave)["run"]["phase"] == "camp");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -730,5 +779,6 @@ int main() {
         {"BattleConfirmOnlyInBattlePhase", BattleConfirmOnlyInBattlePhase},
         {"ContinueDoesNotRefireRoomClear", ContinueDoesNotRefireRoomClear},
         {"RunEndRetryStartsExactlyOneRun", RunEndRetryStartsExactlyOneRun},
+        {"CampAndRunEndAcceptVictoryIntents", CampAndRunEndAcceptVictoryIntents},
     });
 }

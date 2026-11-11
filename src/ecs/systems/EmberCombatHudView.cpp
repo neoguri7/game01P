@@ -26,6 +26,7 @@
 #include "gameplay/data/FStatusContent.h"
 #include "gameplay/dungeon/FBattleObjective.h"
 #include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FRunFlow.h"
 #include "gameplay/dungeon/FRunewordInfo.h"
 #include "gameplay/dungeon/FRunLog.h"
 #include "gameplay/grid/FGridQuery.h"
@@ -400,9 +401,15 @@ void TopBar(entt::registry& registry, const FUiLayout& layout, const FDungeonRun
     ui::DrawRecess(draw, Min(zones.status), Max(zones.status));
     char depth[96];
     std::snprintf(depth, sizeof depth, "DEPTH %02d", run.depth);
-    char stats[96];
-    std::snprintf(stats, sizeof stats, "MATERIALS %d  |  CHECKPOINT %d  |  NODES %d", run.materials, run.cleared,
-                  UnspentNodePoints(run));
+    char stats[192];
+    const std::string place = RunPlaceLabel(registry, run.depth - 1);  // WP-46: where in the sequence
+    if (place.empty()) {
+        std::snprintf(stats, sizeof stats, "MATERIALS %d  |  CHECKPOINT %d  |  NODES %d", run.materials, run.cleared,
+                      UnspentNodePoints(run));
+    } else {
+        std::snprintf(stats, sizeof stats, "%s  |  MATERIALS %d  |  CHECKPOINT %d  |  NODES %d", place.c_str(),
+                      run.materials, run.cleared, UnspentNodePoints(run));
+    }
     const float right = zones.status.right() - 8.f * u;
     {
         ImFont* heading = ui::HeadingFont();
