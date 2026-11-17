@@ -1,0 +1,14 @@
+{
+  "_comment": "WP-20 L3 unlock catalog: the id IS the content id stored in meta_save.unlocks; kind must match the id namespace (skill./rune./party.). Skill entries are unit-pool entries beyond each class's default first four (WP-22: default loadout = pool[0..3]). cost/seal_gate are playtest variables (D-14/D-22). W8 ships no event entries: event pool ids have no content source until WP-09 (WP-22/23 author the pool). No stat or power field exists here or in the save — the NoPowerFields test scans both files.",
+  "schema_version": 1,
+  "unlocks": [
+    {"id": "skill.hook", "kind": "skill", "cost": 2, "seal_gate": 2},
+    {"id": "skill.bash", "kind": "skill", "cost": 3, "seal_gate": 3},
+    {"id": "skill.mark", "kind": "skill", "cost": 2, "seal_gate": 2},
+    {"id": "skill.pin", "kind": "skill", "cost": 3, "seal_gate": 4},
+    {"id": "skill.storm", "kind": "skill", "cost": 5, "seal_gate": 6},
+    {"id": "skill.shackle", "kind": "skill", "cost": 4, "seal_gate": 5},
+    {"id": "rune.chain", "kind": "rune", "cost": 4, "seal_gate": 5},
+    {"id": "party.rogue_stub", "kind": "roster", "cost": 8, "seal_gate": 8}
+  ]
+}

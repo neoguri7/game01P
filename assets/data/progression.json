@@ -1,0 +1,8 @@
+{
+  "_comment": "WP-21 L2 promotion (progression.json; loaded and validated at boot by InitializeMetaProgress - a missing or invalid file stops the boot). slot_cap / bosses_per_promotion / seals_per_overflow are playtest variables (D-14). Both flags ship false: active skills 4 and 3 rune sockets stay the HUD/battle contract (the HUD binds Skill1..Skill4 only) until the 5-slot HUD work package turns slot_promotion on. tier always accrues and is saved; a flag only decides whether its axis APPLIES (R6: no silent seal-economy change).",
+  "schema_version": 1,
+  "slot_cap": 5,
+  "slot_promotion": false,
+  "socket_promotion": false,
+  "promotion_rewards": {"bosses_per_promotion": 2, "seals_per_overflow": 1}
+}

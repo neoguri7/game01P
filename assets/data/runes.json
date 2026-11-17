@@ -1,0 +1,262 @@
+{
+  "_comment": "개편 3차 + WP-16/WP-22: 서포트젬식 룬 24종. 축(속성/형태/강화)은 폐기 — 제한은 스킬별 룬 소켓(rune_sockets) + 태그(고정점) + 중복 금지가 담당한다. 수치는 잠정값이다. rune.shock 문구는 D-12(+20%p 마비 부여 확률)를 표시명에 싣는다. WP-28 T1/T2 (post-W7 tuning): ember 4->10, imp_shaman 2->4; rollback = old values.",
+  "schema_version": 1,
+  "runes": [
+    {
+      "id": "rune.fire",
+      "kind": "catalyst",
+      "display_name": "Added Fire Damage",
+      "status_on_hit": "status.burn",
+      "power_delta": 1,
+      "requires_any_tags": ["Attack", "Spell"],
+      "excludes_tags": ["Heal", "Support"],
+      "adds_tags": ["Fire"],
+      "drop_weight": 10,
+      "rarity": "common"
+    },
+    {
+      "id": "rune.cold",
+      "kind": "catalyst",
+      "display_name": "Added Cold Damage",
+      "status_on_hit": "status.freeze",
+      "power_delta": 1,
+      "requires_any_tags": ["Attack", "Spell"],
+      "excludes_tags": ["Heal", "Support"],
+      "adds_tags": ["Cold"],
+      "drop_weight": 10,
+      "rarity": "common"
+    },
+    {
+      "id": "rune.lightning",
+      "kind": "catalyst",
+      "display_name": "Added Lightning Damage",
+      "status_on_hit": "status.paralyze",
+      "power_delta": 1,
+      "requires_any_tags": ["Attack", "Spell"],
+      "excludes_tags": ["Heal", "Support"],
+      "adds_tags": ["Lightning"],
+      "drop_weight": 10,
+      "rarity": "common"
+    },
+    {
+      "id": "rune.multishot",
+      "display_name": "Lesser Multiple Projectiles",
+      "shape_override": "spread",
+      "requires_all_tags": ["Projectile"],
+      "drop_weight": 8,
+      "rarity": "rare"
+    },
+    {
+      "id": "rune.pierce",
+      "display_name": "Pierce",
+      "shape_override": "pierce",
+      "requires_all_tags": ["Projectile"],
+      "drop_weight": 8,
+      "rarity": "rare"
+    },
+    {
+      "id": "rune.zone",
+      "display_name": "Lingering Zone",
+      "shape_override": "zone",
+      "requires_all_tags": ["Spell"],
+      "adds_tags": ["Zone"],
+      "drop_weight": 6,
+      "rarity": "rare"
+    },
+    {
+      "id": "rune.area",
+      "display_name": "Increased Area of Effect",
+      "area_radius_delta": 1,
+      "requires_all_tags": ["Zone"],
+      "drop_weight": 6,
+      "rarity": "uncommon"
+    },
+    {
+      "id": "rune.concentrated",
+      "display_name": "Concentrated Effect",
+      "area_radius_delta": -1,
+      "power_delta": 3,
+      "requires_all_tags": ["Zone"],
+      "drop_weight": 6,
+      "rarity": "uncommon"
+    },
+    {
+      "id": "rune.power",
+      "kind": "retired",
+      "display_name": "Brutality",
+      "power_delta": 2,
+      "drop_weight": 10,
+      "rarity": "common"
+    },
+    {
+      "id": "rune.swift",
+      "display_name": "Quicken",
+      "ap_delta": -1,
+      "drop_weight": 10,
+      "rarity": "common"
+    },
+    {
+      "id": "rune.range",
+      "display_name": "Far Reach",
+      "range_delta": 1,
+      "drop_weight": 10,
+      "rarity": "uncommon"
+    },
+    {
+      "id": "rune.duration",
+      "kind": "catalyst",
+      "display_name": "Persistence",
+      "status_duration_delta": 1,
+      "requires_any_tags": ["Duration", "Fire", "Cold", "Lightning"],
+      "drop_weight": 6,
+      "rarity": "uncommon"
+    },
+    {
+      "id": "rune.ember",
+      "kind": "catalyst",
+      "display_name": "Burning Embers",
+      "requires_all_tags": ["Fire"],
+      "status_id": "status.burn",
+      "status_magnitude_delta": 2,
+      "drop_weight": 10,
+      "rarity": "uncommon"
+    },
+    {
+      "id": "rune.frostbite",
+      "kind": "catalyst",
+      "display_name": "Deep Frostbite",
+      "requires_all_tags": ["Cold"],
+      "status_id": "status.freeze",
+      "status_duration_delta": 1,
+      "drop_weight": 4,
+      "rarity": "uncommon"
+    },
+    {
+      "id": "rune.shock",
+      "kind": "catalyst",
+      "display_name": "Amplified Shock (+20%p paralysis chance)",
+      "requires_all_tags": ["Lightning"],
+      "status_id": "status.paralyze",
+      "status_magnitude_delta": 20,
+      "drop_weight": 4,
+      "rarity": "uncommon"
+    },
+    {
+      "id": "rune.leech",
+      "display_name": "Life Leech",
+      "life_on_hit": 2,
+      "requires_any_tags": ["Attack"],
+      "drop_weight": 10,
+      "rarity": "common"
+    },
+    {
+      "id": "rune.inferno",
+      "kind": "retired",
+      "display_name": "Inferno",
+      "power_delta": 2,
+      "requires_all_tags": ["Fire"],
+      "drop_weight": 4,
+      "rarity": "common"
+    },
+    {
+      "id": "rune.glacial",
+      "kind": "retired",
+      "display_name": "Glacial Hammer",
+      "power_delta": 2,
+      "requires_all_tags": ["Cold"],
+      "drop_weight": 4,
+      "rarity": "common"
+    },
+    {
+      "id": "rune.precision",
+      "display_name": "Precision",
+      "power_delta": 1,
+      "range_delta": 1,
+      "requires_all_tags": ["Projectile"],
+      "drop_weight": 4,
+      "rarity": "uncommon"
+    },
+    {
+      "id": "rune.chain",
+      "display_name": "Chain",
+      "requires_all_tags": ["Projectile"],
+      "hooks": [
+        {
+          "event": "on_hit",
+          "effect": {
+            "kind": "chain",
+            "amount": 2,
+            "distance": 1
+          }
+        }
+      ],
+      "drop_weight": 6,
+      "rarity": "rare"
+    },
+    {
+      "id": "rune.frostpath",
+      "display_name": "Frost Path",
+      "requires_all_tags": ["Cold"],
+      "hooks": [
+        {
+          "event": "on_hit",
+          "effect": {
+            "kind": "apply_status_target",
+            "status_id": "status.locked_move"
+          }
+        }
+      ],
+      "drop_weight": 4,
+      "rarity": "rare"
+    },
+    {
+      "id": "rune.combust",
+      "display_name": "Combust",
+      "requires_all_tags": ["Fire"],
+      "hooks": [
+        {
+          "event": "on_kill",
+          "effect": {
+            "kind": "chain",
+            "amount": 2,
+            "distance": 1
+          }
+        }
+      ],
+      "drop_weight": 4,
+      "rarity": "rare"
+    },
+    {
+      "id": "rune.guard",
+      "display_name": "Counter Guard",
+      "hooks": [
+        {
+          "event": "on_damage_taken",
+          "effect": {
+            "kind": "apply_status_target",
+            "status_id": "status.debuff"
+          }
+        }
+      ],
+      "drop_weight": 6,
+      "rarity": "rare"
+    },
+    {
+      "id": "rune.impact",
+      "display_name": "Impact",
+      "requires_all_tags": ["Melee"],
+      "hooks": [
+        {
+          "event": "on_hit",
+          "effect": {
+            "kind": "push",
+            "from": "caster",
+            "distance": 1
+          }
+        }
+      ],
+      "drop_weight": 6,
+      "rarity": "rare"
+    }
+  ]
+}

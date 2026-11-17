@@ -1,0 +1,53 @@
+{
+  "_comment": "상태이상 1차 세트. docs/design/skill-rune-progression.md §4. 수치는 잠정값이며 밸런싱 단계에서 이 파일만 고쳐 정한다.",
+  "schema_version": 1,
+  "statuses": [
+    {
+      "id": "status.burn",
+      "display_name": "Burn",
+      "kind": "dot",
+      "magnitude": 3,
+      "duration_turns": 3
+    },
+    {
+      "id": "status.freeze",
+      "display_name": "Freeze",
+      "kind": "control",
+      "magnitude": 0,
+      "duration_turns": 2,
+      "speed_pct": 50,
+      "mode": "turn_start",
+      "chance_cap": 90
+    },
+    {
+      "id": "status.paralyze",
+      "display_name": "Shock",
+      "kind": "control",
+      "magnitude": 50,
+      "duration_turns": 2,
+      "mode": "on_apply",
+      "chance_cap": 90
+    },
+    {
+      "id": "status.buff",
+      "display_name": "Empowered",
+      "kind": "stat",
+      "magnitude": 2,
+      "duration_turns": 3
+    },
+    {
+      "id": "status.debuff",
+      "display_name": "Weakened",
+      "kind": "stat",
+      "magnitude": -2,
+      "duration_turns": 3
+    },
+    {
+      "id": "status.locked_move",
+      "display_name": "Shackled",
+      "kind": "move_lock",
+      "magnitude": 0,
+      "duration_turns": 1
+    }
+  ]
+}

@@ -1,0 +1,243 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "vcpkg-base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_TOOLCHAIN_FILE": {
+          "type": "FILEPATH",
+          "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        }
+      }
+    },
+    {
+      "name": "windows-msvc-base",
+      "hidden": true,
+      "inherits": "vcpkg-base",
+      "generator": "Visual Studio 18 2026",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "windows-msvc-debug",
+      "displayName": "Windows MSVC Debug",
+      "inherits": "windows-msvc-base"
+    },
+    {
+      "name": "windows-msvc-release",
+      "displayName": "Windows MSVC Release",
+      "inherits": "windows-msvc-base"
+    },
+    {
+      "name": "windows-msvc-agent",
+      "displayName": "Windows MSVC Agent (Debug, no Edit-and-Continue, no Tracy)",
+      "inherits": "windows-msvc-base",
+      "cacheVariables": {
+        "CMAKE_MSVC_DEBUG_INFORMATION_FORMAT": {
+          "type": "STRING",
+          "value": "Embedded"
+        },
+        "GAME01P_ENABLE_TRACY": "OFF"
+      }
+    },
+    {
+      "name": "windows-msvc-package",
+      "displayName": "Windows MSVC Package (static Release, single exe)",
+      "inherits": "windows-msvc-base",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>",
+        "BUILD_TESTING": "OFF",
+        "GAME01P_ENABLE_TRACY": "OFF",
+        "GAME01P_PACKAGE": "ON"
+      }
+    },
+    {
+      "name": "linux-clang-base",
+      "hidden": true,
+      "inherits": "vcpkg-base",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "VCPKG_TARGET_TRIPLET": "x64-linux"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "linux-clang-debug",
+      "displayName": "Linux Clang Debug",
+      "inherits": "linux-clang-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-clang-release",
+      "displayName": "Linux Clang Release",
+      "inherits": "linux-clang-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "macos-clang-base",
+      "hidden": true,
+      "inherits": "vcpkg-base",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "macos-clang-debug",
+      "displayName": "macOS Clang Debug",
+      "inherits": "macos-clang-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "macos-clang-release",
+      "displayName": "macOS Clang Release",
+      "inherits": "macos-clang-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "macos-clang-package",
+      "displayName": "macOS Clang Package (static Release, EmberDungeon.app)",
+      "inherits": "macos-clang-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3",
+        "VCPKG_TARGET_TRIPLET": "arm64-osx",
+        "BUILD_TESTING": "OFF",
+        "GAME01P_ENABLE_TRACY": "OFF",
+        "GAME01P_PACKAGE": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-msvc-debug",
+      "configurePreset": "windows-msvc-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-msvc-release",
+      "configurePreset": "windows-msvc-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-msvc-agent",
+      "configurePreset": "windows-msvc-agent",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-msvc-package",
+      "configurePreset": "windows-msvc-package",
+      "configuration": "Release"
+    },
+    {
+      "name": "linux-clang-debug",
+      "configurePreset": "linux-clang-debug"
+    },
+    {
+      "name": "linux-clang-release",
+      "configurePreset": "linux-clang-release"
+    },
+    {
+      "name": "macos-clang-debug",
+      "configurePreset": "macos-clang-debug"
+    },
+    {
+      "name": "macos-clang-release",
+      "configurePreset": "macos-clang-release"
+    },
+    {
+      "name": "macos-clang-package",
+      "configurePreset": "macos-clang-package"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-msvc-debug",
+      "configurePreset": "windows-msvc-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-msvc-release",
+      "configurePreset": "windows-msvc-release",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-msvc-agent",
+      "configurePreset": "windows-msvc-agent",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-clang-debug",
+      "configurePreset": "linux-clang-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "linux-clang-release",
+      "configurePreset": "linux-clang-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-clang-debug",
+      "configurePreset": "macos-clang-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-clang-release",
+      "configurePreset": "macos-clang-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

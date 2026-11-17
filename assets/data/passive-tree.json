@@ -1,0 +1,207 @@
+{
+  "schema_version": 2,
+  "caps": { "max_total_health": 30, "max_total_attack": 7, "max_total_magic_attack": 6, "max_total_defense": 6, "max_total_magic_defense": 3, "max_total_speed": 4 },
+  "nodes": [
+    {
+      "id": "node.origin",
+      "display_name": "Origin",
+      "description": "The starting point of the passive tree.",
+      "next": ["node.might", "node.vitality", "node.guard", "node.insight"],
+      "x": 50,
+      "y": 94,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.vitality",
+      "display_name": "Vitality",
+      "description": "+5 maximum health.",
+      "next": ["node.precision"],
+      "x": 20,
+      "y": 90,
+      "bonuses": { "max_health": 5, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.might",
+      "display_name": "Might",
+      "description": "+1 physical attack.",
+      "next": ["node.swiftstep"],
+      "x": 40,
+      "y": 78,
+      "bonuses": { "max_health": 0, "attack": 1, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.guard",
+      "display_name": "Guard",
+      "description": "+1 physical defense.",
+      "next": ["node.warding"],
+      "x": 60,
+      "y": 78,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 1, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.insight",
+      "display_name": "Insight",
+      "description": "+1 magical attack.",
+      "next": ["node.endurance"],
+      "x": 80,
+      "y": 90,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 1, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.precision",
+      "display_name": "Precision",
+      "description": "+1 physical attack.",
+      "next": ["node.conflagration"],
+      "x": 20,
+      "y": 62,
+      "bonuses": { "max_health": 0, "attack": 1, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.swiftstep",
+      "display_name": "Swiftstep",
+      "description": "+1 initiative speed.",
+      "next": ["node.conduction", "node.zenith"],
+      "x": 40,
+      "y": 62,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 1 }
+    },
+    {
+      "id": "node.warding",
+      "display_name": "Warding",
+      "description": "+1 magical defense.",
+      "next": ["node.permafrost"],
+      "x": 60,
+      "y": 62,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 1, "speed": 0 }
+    },
+    {
+      "id": "node.endurance",
+      "display_name": "Endurance",
+      "description": "+5 maximum health.",
+      "next": ["node.deadeye"],
+      "x": 80,
+      "y": 62,
+      "bonuses": { "max_health": 5, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.conflagration",
+      "display_name": "Conflagration",
+      "description": "+1 magical attack.",
+      "next": ["node.arcana", "node.zenith"],
+      "x": 10,
+      "y": 44,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 1, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.conduction",
+      "display_name": "Conduction",
+      "description": "+1 magical attack.",
+      "next": ["node.overload"],
+      "x": 30,
+      "y": 47,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 1, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.permafrost",
+      "display_name": "Permafrost",
+      "description": "+1 physical defense.",
+      "next": ["node.bulwark", "node.zenith"],
+      "x": 70,
+      "y": 47,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 1, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.deadeye",
+      "display_name": "Deadeye",
+      "description": "+1 physical attack.",
+      "next": ["node.trueshot", "node.zenith"],
+      "x": 86,
+      "y": 44,
+      "bonuses": { "max_health": 0, "attack": 1, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.arcana",
+      "display_name": "Arcana",
+      "description": "+1 magical attack.",
+      "next": [],
+      "x": 6,
+      "y": 26,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 1, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.overload",
+      "display_name": "Overload",
+      "description": "+1 magical attack.",
+      "next": [],
+      "x": 20,
+      "y": 26,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 1, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.zenith",
+      "display_name": "Zenith",
+      "description": "+1 initiative speed.",
+      "next": ["node.warpath", "node.wardpath", "node.tempered", "node.attunement"],
+      "x": 50,
+      "y": 36,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 1 }
+    },
+    {
+      "id": "node.bulwark",
+      "display_name": "Bulwark",
+      "description": "+1 physical defense.",
+      "next": [],
+      "x": 74,
+      "y": 26,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 1, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.trueshot",
+      "display_name": "Trueshot",
+      "description": "+1 physical attack.",
+      "next": [],
+      "x": 94,
+      "y": 26,
+      "bonuses": { "max_health": 0, "attack": 1, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.warpath",
+      "display_name": "Warpath",
+      "description": "+2 attack, +1 initiative speed.",
+      "next": [],
+      "x": 14,
+      "y": 8,
+      "exclusive_group": "capstone.doctrine",
+      "bonuses": { "max_health": 0, "attack": 2, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 1 }
+    },
+    {
+      "id": "node.wardpath",
+      "display_name": "Wardpath",
+      "description": "+6 maximum health, +2 physical defense.",
+      "next": [],
+      "x": 40,
+      "y": 8,
+      "exclusive_group": "capstone.doctrine",
+      "bonuses": { "max_health": 6, "attack": 0, "magic_attack": 0, "defense": 2, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.tempered",
+      "display_name": "Tempered",
+      "description": "+2 maximum health (repeatable, up to 5 ranks).",
+      "next": [],
+      "x": 58,
+      "y": 8,
+      "max_ranks": 5,
+      "bonuses": { "max_health": 2, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 0, "speed": 0 }
+    },
+    {
+      "id": "node.attunement",
+      "display_name": "Attunement",
+      "description": "+1 magical defense.",
+      "next": [],
+      "x": 86,
+      "y": 8,
+      "bonuses": { "max_health": 0, "attack": 0, "magic_attack": 0, "defense": 0, "magic_defense": 1, "speed": 0 }
+    }
+  ]
+}

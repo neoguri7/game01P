@@ -1,0 +1,33 @@
+# EditorConfig — https://editorconfig.org
+# Enforces consistent basic formatting across editors and AI tools.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+max_line_length = 120
+
+# C / C++ sources: 4-space, matches .clang-format.
+[*.{c,cc,cpp,cxx,h,hh,hpp,hxx}]
+indent_size = 4
+
+# CMake: 4-space (matches CMakeLists.txt), tabs never.
+[{CMakeLists.txt,*.cmake,CMakePresets.json,CMakeUserPresets.json}]
+indent_size = 4
+
+# JSON / YAML / shell / docs: 2-space.
+[*.{json,yaml,yml,sh}]
+indent_size = 2
+
+# Markdown: do not trim trailing whitespace (two-trailing-space line breaks).
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = off
+indent_size = 2
+
+# Makefiles require tabs.
+[Makefile]
+indent_style = tab

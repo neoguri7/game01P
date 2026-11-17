@@ -1,0 +1,14 @@
+{
+  "_comment": "Frozen fixture copy of the shipped WP-20 L3 unlock catalog (critic F1). It exists so a boot on the frozen fixture never reads the SHIPPED unlocks.json: a change to shipped balance data must never move a fixture test's expectations. rune.inferno is deliberately absent - the only shipped row whose target rune the fixture carries, and a kind=rune row would remove that rune from the fixture's rune-offer pool. The remaining rows touch neither a fixture rune (rune.chain is not a fixture rune) nor any fixture unit pool (skill.hook/bash/mark/pin/storm are not fixture skills; skill.shackle is a fixture skill but in no fixture pool), so the fixture offer/roster behaviour stays exactly what it was before WP-21.",
+  "schema_version": 1,
+  "unlocks": [
+    {"id": "skill.hook", "kind": "skill", "cost": 2, "seal_gate": 2},
+    {"id": "skill.bash", "kind": "skill", "cost": 3, "seal_gate": 3},
+    {"id": "skill.mark", "kind": "skill", "cost": 2, "seal_gate": 2},
+    {"id": "skill.pin", "kind": "skill", "cost": 3, "seal_gate": 4},
+    {"id": "skill.storm", "kind": "skill", "cost": 5, "seal_gate": 6},
+    {"id": "skill.shackle", "kind": "skill", "cost": 4, "seal_gate": 5},
+    {"id": "rune.chain", "kind": "rune", "cost": 4, "seal_gate": 5},
+    {"id": "party.rogue_stub", "kind": "roster", "cost": 8, "seal_gate": 8}
+  ]
+}

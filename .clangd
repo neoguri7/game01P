@@ -1,0 +1,6 @@
+CompileFlags:
+  Add:
+    - -Isrc
+
+Index:
+  Background: Build

@@ -1,0 +1,45 @@
+name: macOS package
+
+on:
+  push:
+    branches: [release, 'ci/**']
+  workflow_dispatch:
+
+jobs:
+  package:
+    name: EmberDungeon.app (arm64)
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      VCPKG_ROOT: ''
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/out/vcpkg-bincache
+    steps:
+      - uses: actions/checkout@v4
+      - name: Host tools
+        run: command -v ninja >/dev/null || brew install ninja
+      - name: Restore vcpkg binary cache
+        uses: actions/cache/restore@v4
+        with:
+          path: out/vcpkg-bincache
+          key: vcpkg-arm64-osx-13.3-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}-${{ github.run_id }}
+          restore-keys: |
+            vcpkg-arm64-osx-13.3-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}-
+      - name: Package
+        run: |
+          mkdir -p out/vcpkg-bincache
+          /bin/bash --version | head -n 1
+          /bin/bash package/macos/package.sh
+      - name: Save vcpkg binary cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: out/vcpkg-bincache
+          key: vcpkg-arm64-osx-13.3-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}-${{ github.run_id }}
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmberDungeon-macos-arm64
+          path: |
+            out/package/EmberDungeon-macos-arm64.zip
+            out/package/macos-package-evidence.json
+          if-no-files-found: error

@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "_comment": [
+    "Layout of the floating combat HUD. Every number is in design pixels on a 1280x800 canvas.",
+    "The world is drawn to every window edge and no frame is drawn. bands: strips kept clear of the arena for the HUD",
+    "clusters; nothing paints them. The rest is the viewport the isometric arena is fitted into.",
+    "zones: [x, y, w, h] on the design canvas. The anchor names the screen edge a zone keeps its distance from",
+    "when the window is not exactly 16:10 (center = stays centered, right/bottom = moves with that edge).",
+    "Keep (1280 - min_width) / 2 design px of clearance between a center zone and its left/right neighbours:",
+    "narrowing the window moves right-anchored zones twice as far as centered ones.",
+    "turn_order, skills and end_turn are sized to their native art (hud_turnbar, hud_bar, hud_button)."
+  ],
+  "design": { "width": 1280, "height": 800, "min_width": 1160 },
+  "bands": { "left": 0, "right": 0, "top": 40, "bottom": 96 },
+  "combat": { "intent_compact_threshold": 12 },
+  "onboarding": {
+    "_comment": "WP-24b first-run hint card. strip = battle hint (top-centre under the top band); side = reward/camp hint, placed in the right margin beside the centred run-phase modal; modal_clearance_width is the SCREEN-pixel width of FDungeonRewardView / FDungeonCampView / FDungeonEventView (all centred and unscaled) — keep it in sync with those views.",
+    "strip_width": 560,
+    "side_width": 340,
+    "top_margin": 6,
+    "side_margin": 16,
+    "padding": 12,
+    "modal_clearance_width": 580
+  },
+  "zones": {
+    "title":      { "anchor": "top-left",      "rect": [12, 6, 200, 30] },
+    "turn_order": { "anchor": "top-center",    "rect": [480, 4, 320, 36] },
+    "status":     { "anchor": "top-right",     "rect": [1008, 6, 260, 30] },
+    "party":      { "anchor": "bottom-left",   "rect": [12, 708, 336, 84] },
+    "skills":     { "anchor": "bottom-center", "rect": [430, 708, 420, 84] },
+    "unit":       { "anchor": "bottom-center", "rect": [858, 706, 150, 94] },
+    "journal":    { "anchor": "bottom-right",  "rect": [1068, 706, 200, 34] },
+    "hints":      { "anchor": "bottom-right",  "rect": [1068, 744, 56, 44] },
+    "end_turn":   { "anchor": "bottom-right",  "rect": [1132, 740, 136, 56] },
+    "targets":    { "anchor": "top-left",      "rect": [12, 48, 240, 120] }
+  }
+}

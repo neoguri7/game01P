@@ -1,0 +1,5 @@
+{
+  "_comment": "The fixture keeps the legacy generation.enemies path: the ship root is an overlay fallback in TestAssetRoots(), so an ABSENT fixture file would load the shipped encounters against the frozen fixture units. Frozen like the other fixture files; encounter tests author their own temp assets.",
+  "schema_version": 1,
+  "encounters": []
+}

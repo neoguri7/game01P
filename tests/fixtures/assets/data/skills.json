@@ -1,0 +1,287 @@
+{
+  "_comment": "개편 3차: 클래스별 베이스 스킬 9종과 숲 확장 스킬 3종. damage_type(physical/magical)과 rune_sockets(PoE 소켓)가 추가되었다. 태그는 룬 장착 조건(정본 §3.2)의 입력이며 수치는 잠정값이다. Shared IDs use forest display names; original Ember names: Strike, Cleave, Arrow, Volley, Bolt, Weakening fog, Heal, Battle blessing, Curse.",
+  "schema_version": 1,
+  "skills": [
+    {
+      "id": "skill.strike",
+      "display_name": "Heavy Strike",
+      "ap_cost": 2,
+      "power": 4,
+      "range": 1,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 3,
+      "tags": [
+        "Melee",
+        "Attack"
+      ]
+    },
+    {
+      "id": "skill.cleave",
+      "display_name": "Cleave",
+      "ap_cost": 2,
+      "power": 3,
+      "range": 1,
+      "shape": "spread",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 3,
+      "tags": [
+        "Melee",
+        "Attack",
+        "AoE"
+      ]
+    },
+    {
+      "id": "skill.arrow",
+      "display_name": "Quick Shot",
+      "ap_cost": 2,
+      "power": 3,
+      "range": 4,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 3,
+      "tags": [
+        "Bow",
+        "Attack",
+        "Projectile"
+      ]
+    },
+    {
+      "id": "skill.volley",
+      "display_name": "Rain of Arrows",
+      "ap_cost": 2,
+      "power": 2,
+      "range": 3,
+      "shape": "spread",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 3,
+      "tags": [
+        "Bow",
+        "Attack",
+        "Projectile"
+      ]
+    },
+    {
+      "id": "skill.bolt",
+      "display_name": "Arcane Bolt",
+      "ap_cost": 2,
+      "power": 3,
+      "range": 3,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "magical",
+      "rune_sockets": 3,
+      "tags": [
+        "Spell",
+        "Projectile"
+      ]
+    },
+    {
+      "id": "skill.fog",
+      "display_name": "Choking Fog",
+      "ap_cost": 2,
+      "power": 0,
+      "range": 3,
+      "shape": "zone",
+      "area_radius": 1,
+      "target": "cell",
+      "applies_status": "status.debuff",
+      "damage_type": "magical",
+      "rune_sockets": 3,
+      "tags": [
+        "Spell",
+        "AoE",
+        "Duration",
+        "Zone"
+      ]
+    },
+    {
+      "id": "skill.heal",
+      "display_name": "Mending Light",
+      "ap_cost": 2,
+      "power": 4,
+      "range": 3,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "ally",
+      "damage_type": "magical",
+      "rune_sockets": 3,
+      "tags": [
+        "Spell",
+        "Heal"
+      ]
+    },
+    {
+      "id": "skill.buff",
+      "display_name": "War Cry",
+      "ap_cost": 2,
+      "power": 0,
+      "range": 3,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "ally",
+      "applies_status": "status.buff",
+      "rune_sockets": 3,
+      "tags": [
+        "Support",
+        "Duration"
+      ]
+    },
+    {
+      "id": "skill.debuff",
+      "display_name": "Enfeeble",
+      "ap_cost": 2,
+      "power": 0,
+      "range": 3,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "applies_status": "status.debuff",
+      "damage_type": "magical",
+      "rune_sockets": 3,
+      "tags": [
+        "Spell",
+        "Curse",
+        "Support"
+      ]
+    },
+    {
+      "id": "skill.lunge",
+      "display_name": "Lunge",
+      "ap_cost": 2,
+      "power": 5,
+      "range": 2,
+      "shape": "pierce",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 3,
+      "tags": [
+        "Melee",
+        "Attack"
+      ]
+    },
+    {
+      "id": "skill.snipe",
+      "display_name": "Snipe",
+      "ap_cost": 2,
+      "power": 5,
+      "range": 5,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 3,
+      "tags": [
+        "Bow",
+        "Attack",
+        "Projectile"
+      ]
+    },
+    {
+      "id": "skill.firebolt",
+      "display_name": "Firebolt",
+      "ap_cost": 2,
+      "power": 3,
+      "range": 3,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "magical",
+      "applies_status": "status.burn",
+      "rune_sockets": 3,
+      "tags": [
+        "Spell",
+        "Projectile",
+        "Fire"
+      ]
+    },
+    {
+      "id": "skill.shove",
+      "display_name": "Shove",
+      "ap_cost": 1,
+      "power": 1,
+      "range": 1,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 1,
+      "tags": [
+        "Melee",
+        "Attack"
+      ],
+      "hooks": [
+        {
+          "id": "hook.shove_push",
+          "event": "on_hit",
+          "effect": {
+            "kind": "push",
+            "from": "caster",
+            "distance": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "skill.barrage",
+      "display_name": "Barrage",
+      "ap_cost": 1,
+      "power": 2,
+      "range": 2,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "damage_type": "physical",
+      "rune_sockets": 1,
+      "tags": [
+        "Bow",
+        "Attack",
+        "Projectile"
+      ]
+    },
+    {
+      "id": "skill.shackle",
+      "display_name": "Shackle",
+      "ap_cost": 2,
+      "power": 0,
+      "range": 2,
+      "shape": "single",
+      "area_radius": 0,
+      "target": "enemy",
+      "applies_status": "status.locked_move",
+      "damage_type": "magical",
+      "rune_sockets": 2,
+      "tags": [
+        "Spell",
+        "Curse"
+      ]
+    },
+    {
+      "id": "skill.imp_firebomb",
+      "display_name": "Firebomb",
+      "ap_cost": 2,
+      "power": 2,
+      "range": 3,
+      "shape": "zone",
+      "area_radius": 1,
+      "target": "cell",
+      "damage_type": "magical",
+      "rune_sockets": 2,
+      "tags": [
+        "Spell",
+        "AoE",
+        "Zone"
+      ]
+    }
+  ]
+}

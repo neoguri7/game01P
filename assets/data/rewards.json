@@ -1,0 +1,19 @@
+{
+  "_comment": "WP-17: reward offer settings only (D-2/D-15). Materials/EXP payouts stay in data/dungeon.json balance — this file never pays them. chance: 0..1 per monster room, pity_threshold: 0 disables pity, boss_offer: guaranteed | extra | none, duplicate_policy: refund | allow.",
+  "schema_version": 1,
+  "rune_offer": {
+    "count": 3,
+    "chance": 0.7,
+    "pity_threshold": 2,
+    "min_legal_candidates": 2,
+    "skip_refund_materials": 1,
+    "duplicate_refund_materials": 1,
+    "duplicate_policy": "refund"
+  },
+  "boss_offer": "guaranteed",
+  "rarity_tables": {
+    "normal": {"common": 60, "uncommon": 30, "rare": 10},
+    "boosted": {"common": 30, "uncommon": 50, "rare": 20},
+    "boss": {"common": 0, "uncommon": 60, "rare": 40}
+  }
+}

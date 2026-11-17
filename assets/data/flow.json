@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "_comment": "WP-50 run-flow presentation. boss_intro: the boss name plate shown when a boss battle begins - hold_seconds at full opacity, then fade_seconds to transparent. Presentation only: it never gates input, turns or autoplay.",
+  "boss_intro": { "hold_seconds": 2.0, "fade_seconds": 0.6 }
+}
