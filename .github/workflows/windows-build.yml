@@ -1,0 +1,73 @@
+name: Windows Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-windows:
+    name: Build Windows ${{ matrix.configuration }}
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}\vcpkg
+      VCPKG_TARGET_TRIPLET: x64-windows
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout vcpkg
+        uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          path: vcpkg
+          fetch-depth: 0
+
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: .\vcpkg\bootstrap-vcpkg.bat
+
+      - name: Install vcpkg dependencies
+        shell: pwsh
+        run: .\vcpkg\vcpkg.exe install --triplet $env:VCPKG_TARGET_TRIPLET
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build/windows -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build ${{ matrix.configuration }}
+        shell: pwsh
+        run: |
+          cmake --build build/windows --config ${{ matrix.configuration }} --parallel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          ctest --test-dir build/windows -C ${{ matrix.configuration }} --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Stage build artifacts
+        shell: pwsh
+        run: |
+          $artifactDir = "artifacts/windows-${{ matrix.configuration }}"
+          New-Item -ItemType Directory -Force -Path $artifactDir | Out-Null
+          Copy-Item -Path "build/windows/${{ matrix.configuration }}/game01P.exe" -Destination $artifactDir -ErrorAction Stop
+          Copy-Item -Path "build/windows/${{ matrix.configuration }}/*.dll" -Destination $artifactDir -ErrorAction SilentlyContinue
+          Copy-Item -Path "build/windows/${{ matrix.configuration }}/assets" -Destination $artifactDir -Recurse -ErrorAction Stop
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: game01P-windows-${{ matrix.configuration }}
+          path: artifacts/windows-${{ matrix.configuration }}/
+          if-no-files-found: error

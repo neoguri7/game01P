@@ -1,0 +1,34 @@
+{
+  "_comment": "WP-00d 검증용 고정 사본(리뷰 P6): 출하 assets/data/engine_ignition.json의 4행을 그대로 동결했다. TestAssetRoots() = {fixture, ship}이므로 이 파일이 없으면 출하 엔진 테이블이 조용히 로드되어, 출하 엔진이 바뀌면 테스트 기대가 같이 움직인다. 행은 출하와 동일하게 유지한다(fixture_guard_tests의 subset 확인 + headless_tools_tests의 엔진 정책 테스트가 이 사본 위에서 돈다).",
+  "schema_version": 1,
+  "engines": [
+    {
+      "id": "engine.ember",
+      "name": "Ember ignition",
+      "requires_runes": ["rune.fire", "rune.ember"],
+      "trigger": { "kind": "status_on_target", "status_id": "status.burn" },
+      "log": "Ember ignition! Fire and ember runes catch together."
+    },
+    {
+      "id": "engine.frost",
+      "name": "Frost ignition",
+      "requires_runes": ["rune.cold", "rune.frostbite"],
+      "trigger": { "kind": "status_on_target", "status_id": "status.freeze" },
+      "log": "Frost ignition! Cold and frostbite runes lock together."
+    },
+    {
+      "id": "engine.shock",
+      "name": "Shock ignition",
+      "requires_runes": ["rune.lightning", "rune.shock"],
+      "trigger": { "kind": "status_on_target", "status_id": "status.paralyze" },
+      "log": "Shock ignition! Lightning and shock runes arc together."
+    },
+    {
+      "id": "engine.ember_kindled",
+      "name": "Kindled ignition",
+      "requires_runes": ["rune.fire", "rune.duration"],
+      "trigger": { "kind": "status_on_target", "status_id": "status.burn" },
+      "log": "Kindled ignition! Fire and persistence runes keep the burn alive."
+    }
+  ]
+}

@@ -1,0 +1,297 @@
+{
+  "schema_version": 2,
+  "style_source": "style.md",
+  "style_version": 3,
+  "generator": "PixelLab MCP",
+  "native_size": [
+    64,
+    64
+  ],
+  "references": [],
+  "settings": {
+    "characters": {
+      "outline": "single color black outline",
+      "detail": "medium detail",
+      "shading": "medium shading"
+    },
+    "tiles": {
+      "outline": "lineless",
+      "detail": "highly detailed",
+      "shading": "detailed shading"
+    }
+  },
+  "review": {
+    "status": "prototype candidates reviewed against style v3, not user-approved reference images",
+    "characters": "Native 64x64 front-facing units, medium detail. Human party members are faceless (visor / hood / hat brim void); monsters keep faces. Mage and healer were regenerated because the first candidates showed faces.",
+    "tiles": "High-detail opaque 64x64 tiles. Floors are cool blue flagstone, walls warm/dark masonry for contrast; floor_c is floor.png rotated 180 degrees for variation. Rejected: framed bevel floor, doorway wall candidates, non-tiling backdrop candidates.",
+    "rejected_jobs": [
+      "992b55ba-b9e5-424a-aa3f-7e3b0f9a4a15",
+      "2cddcfcc-7a74-438d-8d3a-b3eed5360236",
+      "b78c243d-5180-4fc5-979e-2f74309985fb",
+      "6080464c-0220-4c1f-9e4c-6fba6091d991",
+      "b7ba22d9-3cfa-4afe-a9ce-cf4bbd669441",
+      "451bb076-f1cd-49d8-8607-f5f457ade38e",
+      "9dafc5ab-8d7d-49bc-b59a-74804a9e128d",
+      "afd4caac-c13a-4a59-af45-9c5d4f6bd400",
+      "32704f46-acb0-469f-babb-f4c48cb0765e",
+      "5821834b-7b5e-4775-a78d-911b5f9b9274"
+    ],
+    "theme": "Dark fantasy forest (style v4): near-black green walls of roots and mossy boulders, mossy fern/grass floors, thorn traps, canopy backdrop. UI uses a Diablo-like stone/bronze/gold treatment with Cinzel headings and Alegreya Sans body (OFL fonts in assets/fonts).",
+    "iso": "Ember battles render on an isometric projection (presentation/FIsoView.h; logic stays orthogonal): dark-forest ground blocks, tree/boulder/thorn obstacles, a wider forest floor beyond the arena. UI follows Pillars of Eternity 2 (carved bronze/gunmetal plaques, parchment panels, slot frames).",
+    "tiles_v4_rejected": [
+      "c5e33797-9c34-456f-bb85-4bf51fc86fa8",
+      "4be50375-80a8-46f8-bb9c-9471534dc7b8",
+      "d9d376c8-c485-4330-8e59-c064fee5be68",
+      "a16677d9-decd-4038-829d-2c6710abf3f0",
+      "4d443f2a-fcd9-42ed-8079-3ec52c26063a",
+      "78be0081-8bd4-4bba-9862-25dbb2a26cd4",
+      "e8ac0f04-4cce-4fc7-a604-b7a356ea4a40",
+      "2b1cd302-0860-44fd-8c63-e6450efab7ab",
+      "6b068f5d-d56c-4e58-9eb8-c165f9577a63",
+      "a39754b2-7d78-4ea5-966b-d1c1c1d14a85",
+      "762e3913-fce7-4731-a83a-75ef4cdfbda8"
+    ],
+    "ui_frame": "Full-screen HUD frame (320x200 RGBA, viewport x8-311/y14-147 fully transparent, cut lines cols 115/205 rows 14/148). One-shot candidates did not work: text-only layouts ignored the dock, and img2img from a layout guide either copied the guide (strength 250-350) or lost slots (150). Final is a composite of two generated pieces (stone texture, corner filigree) with the viewport lip, rivets, bezels and well rectangles placed at exact coordinates.",
+    "ui_frame_rejected": [
+      "1735ca05-f595-4ca4-91c2-7a197de018a8",
+      "f7685c54-e6e0-4511-8874-41d937aaf01e",
+      "db47e483-fab6-4be9-b021-b2d7d0b267a6",
+      "f8310042-7767-471a-98f0-163634f81d68",
+      "524f043c-38f6-4140-8b92-1db5728ec971",
+      "e7274365-722a-4057-9340-cd019ef94292",
+      "7cdfff4d-56f7-42ea-8713-5374b56b8bd6",
+      "d1d9280e-ed2e-4e5e-b16e-5bb7b5da53cd",
+      "1aeccb51-dcbe-423b-9ea3-da39fb2285e6",
+      "4d96f2b0-a126-4a29-a3e0-da671e2bfd25",
+      "1cd3405d-4006-4c61-a78e-4b790342403b",
+      "3fbe4c63-5368-4e4c-8b85-2a19ce11381d",
+      "ec8be229-bd35-4a7c-9334-7ed2736cdd2a",
+      "9bd53b3b-1d8d-4320-ba34-d9bdd7742498",
+      "e283f200-b6ea-4d6b-9b8c-61ffbf071ec4",
+      "4108843d-12c0-4668-8c28-661e61e27b08",
+      "f90e31ef-c9d3-444e-b23f-dcb3b223f806",
+      "60a07b90-a8e0-48c1-8b76-2f473804e125"
+    ]
+  },
+  "assets": [
+    {
+      "file": "warrior.png",
+      "job_id": "db19a6f1-f02c-4ab3-8bd6-f35aa3a9946c",
+      "seed": 1101,
+      "tool": "create_image_pixflux",
+      "transparent": true
+    },
+    {
+      "file": "archer.png",
+      "job_id": "b40b3cc3-0ada-4fef-822e-2a34fcbdf46b",
+      "seed": 1102,
+      "tool": "create_image_pixflux",
+      "transparent": true
+    },
+    {
+      "file": "mage.png",
+      "job_id": "861acb9e-aa4f-4a74-b562-3d0c7c7c6ed6",
+      "seed": 1113,
+      "tool": "create_image_pixflux",
+      "transparent": true
+    },
+    {
+      "file": "healer.png",
+      "job_id": "d21d1466-6f7f-4e2b-944e-8aea070fd438",
+      "seed": 1114,
+      "tool": "create_image_pixflux",
+      "transparent": true
+    },
+    {
+      "file": "imp.png",
+      "job_id": "84854592-3b19-4fea-9a14-49c3acb06231",
+      "seed": 1105,
+      "tool": "create_image_pixflux",
+      "transparent": true
+    },
+    {
+      "file": "imp_archer.png",
+      "job_id": "eb9e01b7-0437-4252-80ff-e44aac3fe6a1",
+      "seed": 1106,
+      "tool": "create_image_pixflux",
+      "transparent": true
+    },
+    {
+      "file": "imp_shaman.png",
+      "job_id": "d5d5e24b-64b6-4a98-90cd-d81a5c3b3792",
+      "seed": 1107,
+      "tool": "create_image_pixflux",
+      "transparent": true
+    },
+    {
+      "file": "guardian.png",
+      "job_id": "4827218c-a51f-4b6e-92d0-7e684c3c09fe",
+      "seed": 1108,
+      "tool": "create_image_pixflux",
+      "transparent": true
+    },
+    {
+      "file": "floor.png",
+      "tool": "create_image_pixflux",
+      "transparent": false,
+      "job_id": "d7180cb8-3f2e-4b20-8836-ac6184aa5aa3",
+      "seed": 4301,
+      "note": "ferns undergrowth, graded sat 0.7 / val 0.8"
+    },
+    {
+      "file": "floor_b.png",
+      "tool": "create_image_pixflux",
+      "transparent": false,
+      "job_id": "5fb81cc0-fee0-4530-9cde-21da686127f3",
+      "seed": 4303,
+      "note": "short grass, graded"
+    },
+    {
+      "file": "floor_c.png",
+      "transparent": false,
+      "derived_from": "floor.png",
+      "note": "rotated 90 degrees, graded"
+    },
+    {
+      "file": "wall.png",
+      "tool": "create_image_pixflux",
+      "transparent": false,
+      "job_id": "8cd92c8c-887f-4a24-a101-055cdd69b359",
+      "seed": 4111,
+      "note": "black roots and thorns, graded"
+    },
+    {
+      "file": "wall_b.png",
+      "tool": "create_image_pixflux",
+      "transparent": false,
+      "job_id": "ebcb9bcf-3d40-4463-9555-5625514df910",
+      "seed": 4112,
+      "note": "mossy boulders"
+    },
+    {
+      "file": "backdrop.png",
+      "tool": "create_image_pixflux",
+      "transparent": false,
+      "job_id": "15756dee-c0a2-4fcc-bfc2-6243a08a63b8",
+      "seed": 4141
+    },
+    {
+      "file": "spikes.png",
+      "tool": "create_image_pixflux",
+      "transparent": false,
+      "job_id": "c8166800-0d18-4611-a2e5-287b81d89a88",
+      "seed": 4131,
+      "note": "thorn ring trap"
+    },
+    {
+      "file": "chest.png",
+      "job_id": "e05b03a0-be3f-4683-8d47-cd6c88eacb10",
+      "seed": 2302,
+      "tool": "create_image_pixflux",
+      "transparent": true
+    },
+    {
+      "file": "stairs.png",
+      "job_id": "b2c02cf3-49bc-4041-91fb-61c579f90637",
+      "seed": 2303,
+      "tool": "create_image_pixflux",
+      "transparent": true
+    },
+    {
+      "file": "shrine.png",
+      "job_id": "fda8ebb6-3356-4404-a493-0502af7be183",
+      "seed": 2304,
+      "tool": "create_image_pixflux",
+      "transparent": true
+    },
+    {
+      "file": "icon_sword.png",
+      "job_id": "2e47ca7b-2720-494e-8cae-ca316915a0fd",
+      "transparent": true,
+      "seed": 3201,
+      "tool": "create_image_pixflux"
+    },
+    {
+      "file": "icon_bow.png",
+      "job_id": "d9434afa-edde-49b6-9404-7a59b98658b8",
+      "transparent": true,
+      "seed": 3212,
+      "tool": "create_image_pixflux"
+    },
+    {
+      "file": "icon_spell.png",
+      "job_id": "9ce47301-6b7a-4a44-973f-b1695c3649b9",
+      "transparent": true,
+      "seed": 3203,
+      "tool": "create_image_pixflux"
+    },
+    {
+      "file": "icon_boots.png",
+      "job_id": "9cdd906b-8ceb-4090-97ea-f7518807f867",
+      "transparent": true,
+      "seed": 3204,
+      "tool": "create_image_pixflux"
+    },
+    {
+      "file": "iso_floor_0.png .. iso_floor_7.png, iso_trap.png, iso_root.png",
+      "tool": "create_tiles_pro",
+      "job_id": "8be8eb13-ae10-4991-b0ad-75d1059fcf7b",
+      "seed": 5101,
+      "transparent": true,
+      "note": "isometric 64x64 dark-forest ground blocks (diamond face 64x34, 12px thickness); tile_0-3 -> floor_0-3, tile_10/11 -> floor_4/5, tile_4/5 -> floor_6/7, tile_12 -> trap, tile_14 -> root"
+    },
+    {
+      "file": "iso_tree.png (64x96), iso_boulders.png, iso_thorns.png",
+      "tool": "create_object_pro_flash",
+      "job_ids": [
+        "c628883e-c76e-48d7-ba03-30c157891c6d",
+        "0f51192d-cdab-4624-9895-c1f9c18ea35f",
+        "45ed3d9d-3133-41c4-908f-9caded5c5705"
+      ],
+      "seeds": [7101, 7102, 7103],
+      "transparent": true,
+      "note": "obstacles drawn on Wall cells of the isometric battlefield"
+    },
+    {
+      "file": "ui_panel.png, ui_plaque.png, ui_slot.png",
+      "tool": "create_ui_asset",
+      "job_ids": [
+        "9405926a-199e-40f1-ad21-a6c35b144971",
+        "32f9ea35-36f4-477c-bf60-6eecc08014b6"
+      ],
+      "seeds": [6102, 6101],
+      "transparent": true,
+      "note": "UI skin cropped from the generated panel/action-bar atlases: parchment panel (9-slice, 16px corners), bronze plaque frame (hollow), bronze square slot. Installed via ui::InstallSkin."
+    },
+    {
+      "file": "ui_frame.png",
+      "tool": "create_image_pixflux",
+      "job_ids": [
+        "48e53167-75fe-455b-88b4-b21641b530ad",
+        "a6c90304-faf3-4aa3-840d-73adea474e97"
+      ],
+      "seeds": [8301, 8311],
+      "transparent": true,
+      "native_size": [320, 200],
+      "settings": {
+        "outline": "single color outline",
+        "detail": "medium detail",
+        "palette": "20-colour Ember palette (stone ramp, bronze ramp, gold, moss, blood accent) forced through color_image_base64",
+        "pieces": "64x64 stone texture (job 48e53167, seed 8301, opaque) and 48x48 corner filigree (job a6c90304, seed 8311, no_background)"
+      },
+      "note": "Full-screen HUD frame, 320x200 native RGBA, nearest-neighbor, no upscaling. Composite of the two generated pieces: the stone is re-mapped inside the palette to a darker value per band (top bar, rails, dock, dock middle) so HUD text stays legible, and the filigree's corner clusters are cut to 8x8 for the four outer corners (clear of the title/status text and the button plate). The viewport lip, rail rivets, well bezels and the portrait/skill/journal/button rectangles are drawn at exact art coordinates, not generated. Viewport (x8-311, y14-147) is alpha 0 by construction; no magenta key pass was needed. Cut lines: columns 115/205, rows 14/148 (see data/ui_layout.json). Fits assets/data/ui_layout.json."
+    }
+  ],
+  "fonts": [
+    {
+      "use": "headings",
+      "file": "fonts/Cinzel.ttf",
+      "license": "SIL OFL 1.1 (assets/fonts/OFL-Cinzel.txt)"
+    },
+    {
+      "use": "body (Alegreya Sans Medium)",
+      "file": "fonts/Alegreya.ttf",
+      "license": "SIL OFL 1.1 (assets/fonts/OFL-Alegreya.txt)"
+    }
+  ]
+}

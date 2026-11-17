@@ -1,0 +1,132 @@
+---
+# game01P C++ formatting standard.
+#
+# Tailored (not copied). Design goals:
+#   * Allman braces, 4-space indentation, 120-char limit.
+#   * Minimize noisy diffs during code review and AI-assisted refactors.
+#   * clang-format / clangd / Copilot / Claude Code friendly.
+#
+# Lineage: Microsoft is the closest *published* base (Allman + 4-space),
+# then heavily overridden to match this project's conventions.
+
+BasedOnStyle: Microsoft
+
+Language: Cpp
+Standard: Latest
+DerivePointerAlignment: false
+
+# --- Indentation -------------------------------------------------------------
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+IndentCaseLabels: true
+IndentCaseBlocks: false
+IndentGotoLabels: false
+IndentPPDirectives: None
+NamespaceIndentation: None
+IndentWrappedFunctionNames: false
+ConstructorInitializerIndentWidth: 4
+
+ColumnLimit: 120
+
+# --- Braces (Allman) ---------------------------------------------------------
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterControlStatement: Always
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: true
+  AfterStruct: true
+  AfterUnion: true
+  AfterExternBlock: true
+  BeforeCatch: true
+  BeforeElse: true
+  BeforeWhile: false
+  IndentBraces: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
+
+# --- Pointers / references ---------------------------------------------------
+# Binds right: `SDL_Renderer* r` not `SDL_Renderer *r` (matches existing code).
+PointerAlignment: Right
+ReferenceAlignment: Right
+
+# --- Spacing -----------------------------------------------------------------
+SpaceBeforeParens: ControlStatements
+SpaceBeforeSquareBrackets: false
+SpaceAroundPointerQualifiers: Default
+SpaceInEmptyBlock: false
+SpaceInEmptyParentheses: false
+SpacesInCStyleCastParentheses: false
+SpacesInConditionalStatement: false
+SpacesInAngles: Never
+SpacesInContainerLiterals: true
+SpacesInLineCommentPrefix:
+  Minimum: 1
+  Maximum: -1
+SpaceAfterCStyleCast: false
+SpaceAfterTemplateKeyword: true
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeRangeBasedForLoopColon: true
+
+# --- Short forms (favor readability, not compactness) ------------------------
+AllowShortBlocksOnASingleLine: Empty
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortLambdasOnASingleLine: All
+AllowShortEnumsOnASingleLine: false
+
+# --- Line breaking / alignment ----------------------------------------------
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: Consecutive
+AlignConsecutiveBitFields: Consecutive
+AlignConsecutiveMacros: Consecutive
+AlignConsecutiveDeclarations: false
+AlignArrayOfStructures: Left
+AlignEscapedNewlines: Left
+AlignOperands: Align
+AlignTrailingComments: true
+BinPackArguments: false
+BinPackParameters: false
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+BreakConstructorInitializers: BeforeColon
+BreakStringLiterals: true
+AlwaysBreakBeforeMultilineStrings: false
+AlwaysBreakTemplateDeclarations: Yes
+CompactNamespaces: false
+EmptyLineAfterAccessModifier: Never
+EmptyLineBeforeAccessModifier: LogicalBlock
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 2
+ReflowComments: true
+
+# --- Includes ---------------------------------------------------------------
+# Regroup into: (1) project/quoted, (2) known third-party, (3) other third-party
+# with a path, (4) system headers (no slash). Sorted case-sensitively within
+# each group. This enforces one stable ordering and keeps review diffs small.
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^".*"'
+    Priority: 1
+  - Regex: '^<(SDL3|SDL3/.*|entt|imgui|tracy|spdlog|glm|miniaudio|c2)/'
+    Priority: 2
+  - Regex: '^<.*/.*>'
+    Priority: 3
+  - Regex: '^<[^/]*>$'
+    Priority: 4
+
+# --- Misc -------------------------------------------------------------------
+Cpp11BracedListStyle: true
+FixNamespaceComments: true
+InsertNewlineAtEOF: true
+InsertBraces: false

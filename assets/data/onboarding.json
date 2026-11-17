@@ -1,0 +1,18 @@
+{
+  "_comment": "WP-24b first-run hints. On-screen text is English: the body font (Alegreya) has no Hangul glyphs. The triggers are battle_first (depth 1, room 0), reward_first and camp_first; a step's order here is the tutorial order.",
+  "schema_version": 1,
+  "steps": [
+    {
+      "at": "battle_first",
+      "text": "Move: 1 AP for up to 2 cells, and you can still use a skill after moving."
+    },
+    {
+      "at": "reward_first",
+      "text": "After a room: when a rune is offered, take one or skip the offer."
+    },
+    {
+      "at": "camp_first",
+      "text": "At camp, spend passive node points and fit or swap runes before you descend."
+    }
+  ]
+}

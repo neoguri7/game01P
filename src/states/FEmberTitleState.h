@@ -1,0 +1,21 @@
+#pragma once
+
+/// High-level app-flow state for the title screen only.
+/// Do not add entity gameplay state here; gameplay transitions belong in ECS
+/// tag components and FEventBus-driven systems.
+#include "FBaseState.h"
+#include <string_view>
+
+/// Catalog id owned by this state (WP-01). FStateCatalog registers under this name; nobody assembles ids.
+inline constexpr std::string_view kEmberTitleId = "ember.title";
+
+class FEmberTitleState : public FBaseState
+{
+public:
+    FEmberTitleState() = default;
+    ~FEmberTitleState() override = default;
+
+    FStateTransition Update(entt::registry& Registry, float DeltaTime) override;
+    void Render(entt::registry& Registry) override;
+    [[nodiscard]] std::string_view GetName() const noexcept override { return "Title"; }
+};

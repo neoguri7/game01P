@@ -1,0 +1,51 @@
+#pragma once
+
+#include <glm/vec2.hpp>
+
+#include "gameplay/grid/FGridTypes.h"
+
+namespace game {
+
+/// Isometric projection of the battle grid. Logic stays on the orthogonal grid; only the Ember presentation
+/// and mouse picking go through this view. One cell is a 64x32 diamond at scale 1.
+inline constexpr float kIsoHalfWidth = 32.f;
+inline constexpr float kIsoHalfHeight = 16.f;
+
+/// A standing unit's picture and health bar (EmberGridRenderSystem's DrawUnit). The picture is a design-px
+/// square whose top sits kUnitHeadAboveFeet above the cell centre; the health bar hugs that top edge. HUD
+/// overlays anchor above the bar from these numbers so they never cover the body.
+inline constexpr float kUnitSpriteSize = 64.f;
+inline constexpr float kUnitHeadAboveFeet = 52.f;
+inline constexpr float kUnitHealthBarWidth = 34.f;
+inline constexpr float kUnitHealthBarInset = 2.f;
+inline constexpr float kUnitHealthBarHeight = 4.f;
+
+struct FIsoView {
+    glm::vec2 origin{};  // screen position of grid corner (0, 0): the top vertex of cell (0, 0)
+    float scale{1.f};
+
+    /// Screen position of a continuous grid coordinate (cell corners are whole numbers).
+    [[nodiscard]] glm::vec2 corner(float gridX, float gridY) const noexcept {
+        return {origin.x + (gridX - gridY) * kIsoHalfWidth * scale, origin.y + (gridX + gridY) * kIsoHalfHeight * scale};
+    }
+    [[nodiscard]] glm::vec2 cellCenter(int x, int y) const noexcept {
+        return corner(static_cast<float>(x) + .5f, static_cast<float>(y) + .5f);
+    }
+};
+
+/// Screen rectangle the arena may occupy: the part of the window clear of the HUD clusters.
+struct FIsoViewport {
+    float x{0.f};
+    float y{0.f};
+    float width{0.f};
+    float height{0.f};
+};
+
+/// Fits the grid inside the viewport, centered, at a 0.5-step scale so pixel art stays even.
+[[nodiscard]] FIsoView MakeIsoView(const FGridMetrics& metrics, const FIsoViewport& viewport) noexcept;
+
+/// Cell under a screen point; false when the point lies outside the grid.
+[[nodiscard]] bool IsoScreenToCell(const FIsoView& view, const FGridMetrics& metrics, glm::vec2 screen,
+                                   int& outX, int& outY) noexcept;
+
+} // namespace game

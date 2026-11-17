@@ -1,0 +1,202 @@
+{
+  "_comment": "Enemy/ally behavior trees (docs/design/enemy-ai.md). A unit picks a profile with the 'ai' key in units.json; no key = ai.default, which plays any loadout from its skill roles. Scores are expected HP swing. All numbers are provisional and retuned here, never in code.",
+  "schema_version": 1,
+  "tuning": {
+    "kill_horizon_turns": 2,
+    "focus_percent": 50,
+    "focus_stickiness": 3,
+    "heal_percent": 100,
+    "status_percent": 100,
+    "support_min_value": 3,
+    "danger_percent": 50,
+    "trap_percent": 100,
+    "range_keep_points": 2,
+    "progress_points": 20,
+    "move_hysteresis": 3
+  },
+  "fragments": [
+    {
+      "id": "fragment.fight",
+      "_comment": "Take the best firing position (close in, keep range, avoid spikes), then use whichever skill is worth the most AP: attack, heal, buff or debuff compete on one scale.",
+      "node": {
+        "type": "Sequence",
+        "children": [
+          {"type": "Succeeder", "children": [{"type": "Engage", "role": "hostile"}]},
+          {"type": "UseSkill", "role": "any"}
+        ]
+      }
+    },
+    {
+      "id": "fragment.tend_allies",
+      "_comment": "Nothing to attack: walk toward a wounded ally and heal it.",
+      "node": {
+        "type": "Sequence",
+        "children": [
+          {"type": "Succeeder", "children": [{"type": "Engage", "role": "heal"}]},
+          {"type": "UseSkill", "role": "any"}
+        ]
+      }
+    },
+    {
+      "id": "fragment.enrage",
+      "_comment": "Phase change: below half health the unit uses a buff skill on itself, once per battle. Does nothing for a unit that has no buff skill.",
+      "node": {
+        "type": "Sequence",
+        "children": [
+          {"type": "SelfHpBelow", "pct": 50},
+          {"type": "Once", "key": "enrage", "children": [{"type": "UseSkill", "role": "buff", "self_only": true}]}
+        ]
+      }
+    },
+    {
+      "id": "fragment.boss_phase",
+      "_comment": "Boss phase rule: once the action phase reaches 2 (the core is exposed), the boss closes in and commits to its area skill. The condition is false for a unit without FBossGoals, so the single-phase fallback guardian is unchanged.",
+      "node": {
+        "type": "Sequence",
+        "children": [
+          {"type": "BossPhaseAtLeast", "phase": 2},
+          {"type": "Succeeder", "children": [{"type": "Engage", "skills": ["skill.cleave"]}]},
+          {"type": "UseSkill", "skills": ["skill.cleave"]}
+        ]
+      }
+    },
+    {
+      "id": "fragment.cinder_phase",
+      "_comment": "Cinder Warden phase rule: once the action phase reaches 2 (Wildfire) it closes in and drops its burning field every turn.",
+      "node": {
+        "type": "Sequence",
+        "children": [
+          {"type": "BossPhaseAtLeast", "phase": 2},
+          {"type": "Succeeder", "children": [{"type": "Engage", "skills": ["skill.flame_field"]}]},
+          {"type": "UseSkill", "skills": ["skill.flame_field"]}
+        ]
+      }
+    },
+    {
+      "id": "fragment.cinder_cycle",
+      "_comment": "Cinder Warden cycle: on its 3rd, 6th, 9th... turn it drops its burning field even in phase 1 (TurnIs every 3 offset 2 is true on the unit's 3rd turn).",
+      "node": {
+        "type": "Sequence",
+        "children": [
+          {"type": "TurnIs", "every": 3, "offset": 2},
+          {"type": "Succeeder", "children": [{"type": "Engage", "skills": ["skill.flame_field"]}]},
+          {"type": "UseSkill", "skills": ["skill.flame_field"]}
+        ]
+      }
+    },
+    {
+      "id": "fragment.chain_phase",
+      "_comment": "Chain Warden phase rule: once the action phase reaches 2 (Unchained) it commits to charging through the line.",
+      "node": {
+        "type": "Sequence",
+        "children": [
+          {"type": "BossPhaseAtLeast", "phase": 2},
+          {"type": "Succeeder", "children": [{"type": "Engage", "skills": ["skill.charge"]}]},
+          {"type": "UseSkill", "skills": ["skill.charge"]}
+        ]
+      }
+    },
+    {
+      "id": "fragment.hierophant_phase",
+      "_comment": "Ash Hierophant phase rule: once the action phase reaches 2 (the chanters are dead) it commits to raining fire over an area (imp_firebomb: magical, follows its magic attack).",
+      "node": {
+        "type": "Sequence",
+        "children": [
+          {"type": "BossPhaseAtLeast", "phase": 2},
+          {"type": "Succeeder", "children": [{"type": "Engage", "skills": ["skill.imp_firebomb"]}]},
+          {"type": "UseSkill", "skills": ["skill.imp_firebomb"]}
+        ]
+      }
+    }
+  ],
+  "profiles": [
+    {
+      "id": "ai.default",
+      "tree": {
+        "type": "ActiveSelector",
+        "children": [
+          {"type": "Ref", "id": "fragment.fight"},
+          {"type": "Ref", "id": "fragment.tend_allies"}
+        ]
+      }
+    },
+    {
+      "id": "ai.boss",
+      "_comment": "Boss: the default behavior plus phase rules. Skills added to a boss are picked up by role; a phase rule needs only a skill of the right role in its loadout. intent_mode overrides the hybrid intent rule (hybrid = the default rule; tile/unit force it for debugging).",
+      "intent_mode": "hybrid",
+      "tree": {
+        "type": "ActiveSelector",
+        "children": [
+          {"type": "Ref", "id": "fragment.enrage"},
+          {"type": "Ref", "id": "fragment.boss_phase"},
+          {"type": "Ref", "id": "fragment.fight"},
+          {"type": "Ref", "id": "fragment.tend_allies"}
+        ]
+      }
+    },
+    {
+      "id": "ai.part",
+      "_comment": "Boss part (the guardian's hearts): a stationary turret. It never repositions (no Engage), it fires the best skill from where it stands, else it waits. Authored with move_ap 0, so the fix is the profile, not the AP value.",
+      "tree": {
+        "type": "ActiveSelector",
+        "children": [
+          {"type": "UseSkill", "role": "any"},
+          {"type": "Wait"}
+        ]
+      }
+    },
+    {
+      "id": "ai.boss_cinder",
+      "_comment": "Cinder Warden: burning field every third turn, every turn in phase 2, else the default fight.",
+      "intent_mode": "hybrid",
+      "tree": {
+        "type": "ActiveSelector",
+        "children": [
+          {"type": "Ref", "id": "fragment.cinder_phase"},
+          {"type": "Ref", "id": "fragment.cinder_cycle"},
+          {"type": "Ref", "id": "fragment.fight"},
+          {"type": "Ref", "id": "fragment.tend_allies"}
+        ]
+      }
+    },
+    {
+      "id": "ai.boss_chain",
+      "_comment": "Chain Warden: the default fight (hook and shackle score by value) plus a phase-2 charge.",
+      "intent_mode": "hybrid",
+      "tree": {
+        "type": "ActiveSelector",
+        "children": [
+          {"type": "Ref", "id": "fragment.chain_phase"},
+          {"type": "Ref", "id": "fragment.fight"},
+          {"type": "Ref", "id": "fragment.tend_allies"}
+        ]
+      }
+    },
+    {
+      "id": "ai.boss_hierophant",
+      "_comment": "Ash Hierophant: the default fight while its chanters live, a phase-2 fire rain after.",
+      "intent_mode": "hybrid",
+      "tree": {
+        "type": "ActiveSelector",
+        "children": [
+          {"type": "Ref", "id": "fragment.hierophant_phase"},
+          {"type": "Ref", "id": "fragment.fight"},
+          {"type": "Ref", "id": "fragment.tend_allies"}
+        ]
+      }
+    },
+    {
+      "id": "ai.bomber",
+      "_comment": "Powder Imp: it only closes in. It has no UseSkill node, so its blast can only come from the tile intent it commits at round start — always telegraphed.",
+      "tree": {
+        "type": "Succeeder",
+        "children": [
+          {
+            "type": "Engage",
+            "role": "hostile"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,1281 @@
+// WP-27: reward-time rune equip — the {Camp, Reward} loadout window, the fit-on-the-spot block in the
+// reward modal, the `loadout` run-log line and the display-name/hook card text. The offer economy itself
+// (WP-17) is untouched; these tests drive the real composition root against the frozen fixture.
+//
+// Every save and run-log file this suite writes stays under `out/` (the per-test checkpoint stems), never
+// %APPDATA%\Game01P\EmberDungeon.
+
+#define GAME01P_TEST_SUPPORT_CHECK
+#include "../TestSupport.h"
+
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <initializer_list>
+#include <iterator>
+#include <memory>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <utility>
+#include <vector>
+
+#include <SDL3/SDL.h>
+#include <imgui.h>
+#include <imgui_internal.h>
+#include <nlohmann/json.hpp>
+
+#include "core/EngineState.h"
+#include "core/ResourceManager.h"
+#include "core/SDLDeleter.h"
+#include "ecs/components/FFaction.h"
+#include "ecs/components/FHealth.h"
+#include "ecs/components/FSkillLoadout.h"
+#include "ecs/components/FStats.h"
+#include "gameplay/battle/FBattleSetup.h"
+#include "gameplay/combat/FCombatSheet.h"
+#include "gameplay/data/FContentRegistry.h"
+#include "gameplay/dungeon/FDungeonRun.h"
+#include "gameplay/dungeon/FDungeonSave.h"
+#include "gameplay/dungeon/FRewards.h"
+#include "gameplay/dungeon/FRunEventLog.h"
+#include "gameplay/dungeon/FRunFlow.h"
+#include "gameplay/dungeon/FRunLog.h"
+#include "gameplay/factory/FEntityDefinitions.h"
+#include "gameplay/factory/FEntityFactory.h"
+#include "gameplay/factory/FScene.h"
+#include "presentation/FDungeonArt.h"
+#include "presentation/FDungeonOverlay.h"
+#include "presentation/FDungeonViews.h"
+#include "presentation/FModalViewRegistry.h"
+
+namespace {
+
+using nlohmann::json;
+
+constexpr std::uint32_t kSeed = 4242;
+
+/// The one window sentence (WP-27 §2). Verbatim: the rules own this text, the tests never paraphrase it.
+constexpr const char* kWindowMessage = "Runes can be changed between rooms, not in battle.";
+
+/// The test rune: no tag requirements, so it is a legal socket on every party skill.
+constexpr const char* kRune = "rune.power";
+
+/// A rune the zero-legal fit block must refuse once the whole party runs a Support/Duration skill:
+/// "rune.leech" requires_any ["Attack"] while `skill.buff` carries the tags Support, Duration.
+constexpr const char* kUnfittableRune = "rune.leech";
+
+std::string UniqueStem(const char* stem) {
+    static std::uint32_t serial = 0;
+    std::filesystem::create_directories("out");
+    return std::string(stem) + "-" + std::to_string(++serial) + "-" +
+           std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+}
+
+std::string UniquePath(const char* stem) {
+    return "out/" + UniqueStem(stem) + ".json";
+}
+
+json ReadJsonFile(const std::string& path) {
+    std::ifstream file(path);
+    CHECK(file.good());
+    json document;
+    file >> document;
+    return document;
+}
+
+std::string ReadBytes(const std::string& path) {
+    std::ifstream file(path, std::ios::binary);
+    CHECK(file.good());
+    return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+}
+
+void WriteJsonFile(const std::string& path, const json& document) {
+    std::ofstream file(path, std::ios::trunc);
+    CHECK(file.good());
+    file << document.dump(2);
+}
+
+// --- a booted registry with its own checkpoint and save slot -----------------------------------
+
+struct FBoot {
+    std::string checkpoint;
+    entt::registry registry;
+    std::string runSave;
+    // WP-27: the fielded room's scene owns its entities (FScene::~FScene destroys them) — it must outlive
+    // the fielding call for CaptureRunParty/ApplyBattleStart to see the party.
+    std::unique_ptr<game::FScene> fieldScene;
+
+    explicit FBoot(std::string path, std::vector<std::string> roots = TestAssetRoots())
+        : checkpoint(std::move(path)) {
+        game::FAssetManager::Initialize(registry, std::move(roots));
+        CHECK(game::gameplay::FGameplayServices::Initialize(registry));
+        CHECK(game::InitializeDungeon(registry, checkpoint));
+        runSave = registry.ctx().get<game::FDungeonSave>().path;
+    }
+
+    ~FBoot() {
+        std::error_code error;
+        std::filesystem::remove(checkpoint, error);
+        std::filesystem::remove(runSave, error);
+        std::filesystem::remove(runSave + ".tmp", error);
+    }
+
+    FBoot(const FBoot&) = delete;
+    FBoot& operator=(const FBoot&) = delete;
+
+    game::FRewards& rewards() { return registry.ctx().get<game::FRewards>(); }
+    game::FDungeonRun& run() { return registry.ctx().get<game::FDungeonRun>(); }
+    game::FRunLog& runLog() { return registry.ctx().get<game::FRunLog>(); }
+};
+
+// --- a temporary asset root (the hook-rune cards) ----------------------------------------------
+
+struct FTempAssets {
+    std::filesystem::path root;
+
+    explicit FTempAssets(const char* stem) {
+        root = std::filesystem::path("out") / UniqueStem(stem);
+        std::filesystem::create_directories(root / "data");
+    }
+
+    ~FTempAssets() {
+        std::error_code error;
+        std::filesystem::remove_all(root, error);
+    }
+
+    FTempAssets(const FTempAssets&) = delete;
+    FTempAssets& operator=(const FTempAssets&) = delete;
+
+    void Copy(const std::string& file) {
+        std::error_code error;
+        std::filesystem::copy_file(
+            FixtureDataPath(file), root / "data" / file, std::filesystem::copy_options::overwrite_existing, error);
+        CHECK(!error);
+    }
+
+    void CopyGameplayData(bool withDungeon = false) {
+        // WP-14a: else the shipped encounters.json falls through the temp root and is validated against the
+        // frozen fixture units (the six new enemies are absent there) — the empty fixture table keeps these
+        // boots on the legacy generation path.
+        for (const char* file : {"units.json", "skills.json", "runes.json", "statuses.json", "ai.json",
+                                 "encounters.json"}) {
+            Copy(file);
+        }
+        if (withDungeon) {
+            Copy("dungeon.json");
+            Copy("passive-tree.json");
+            Copy("bosses.json");  // WP-15: else the shipped bosses.json is validated against fixture units
+        }
+    }
+
+    void Write(const std::string& file, const json& document) {
+        std::ofstream out(root / "data" / file, std::ios::trunc);
+        CHECK(out.good());
+        out << document.dump(2);
+    }
+};
+
+// --- shared steps ------------------------------------------------------------------------------
+
+void StartFresh(FBoot& boot) {
+    game::StartRun(boot.registry, kSeed, true);
+}
+
+/// Fields the current room the way the battle state does — document -> factory -> combat units -> run
+/// party — so CaptureRunParty reads a real loadout. The scene is kept on the boot: FScene destroys its
+/// entities on scope exit, and the later steps still need the fielded party.
+void FieldRoom(FBoot& boot) {
+    auto& registry = boot.registry;
+    const auto document = game::BuildDungeonBattlefield(registry);
+    auto scene = std::make_unique<game::FScene>(registry, "RewardEquipTest");
+    scene->Load();
+    const auto battlefield = game::FEntityFactory::CreateBattlefield(*scene, document);
+    CHECK(battlefield.has_value());
+    const auto& content = registry.ctx().get<game::gameplay::FContentRegistry>();
+    CHECK(game::SetupCombatUnits(registry, *battlefield, content));
+    game::ApplyRunParty(registry);
+    boot.fieldScene = std::move(scene);
+}
+
+/// The run party's skill slots come from the fielded units; a win captures them (the reward step's first act).
+void CaptureLoadout(FBoot& boot) {
+    FieldRoom(boot);
+    game::CaptureRunParty(boot.registry);
+}
+
+void WinRoom(FBoot& boot) {
+    CHECK(game::ResolveRoomVictory(boot.registry, true).has_value());
+    CHECK(boot.run().phase == game::EDungeonPhase::Reward);
+}
+
+/// A reward-phase run with the party loadout already captured.
+void RewardWithLoadout(FBoot& boot) {
+    StartFresh(boot);
+    CaptureLoadout(boot);
+    WinRoom(boot);
+}
+
+/// Pushes `runeId` into the collected pool and returns its index.
+std::size_t CollectRune(FBoot& boot, const std::string& runeId) {
+    boot.run().runes.push_back(runeId);
+    const auto found = std::ranges::find(boot.run().runes, runeId);
+    CHECK(found != boot.run().runes.end());
+    return static_cast<std::size_t>(found - boot.run().runes.begin());
+}
+
+/// The deterministic first (member, slot) the rules accept for a collected rune.
+struct FEquipSite {
+    std::size_t member{0};
+    std::size_t slot{0};
+};
+
+bool FindEquipSite(FBoot& boot, std::size_t runeIndex, FEquipSite& site) {
+    for (std::size_t member = 0; member < boot.run().party.size(); ++member) {
+        for (std::size_t slot = 0; slot < boot.run().party[member].skills.size(); ++slot) {
+            if (!game::ValidateDungeonRuneEquip(boot.registry, member, slot, runeIndex)) {
+                site = {member, slot};
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// True when any party skill slot carries the rune.
+bool AnySlotCarries(FBoot& boot, const std::string& runeId) {
+    for (const auto& member : boot.run().party) {
+        for (const auto& slot : member.skills) {
+            if (std::ranges::find(slot.runeIds, runeId) != slot.runeIds.end()) return true;
+        }
+    }
+    return false;
+}
+
+/// The number of party skill slots carrying the rune (the equipped-copy count).
+int CarriedCopies(FBoot& boot, const std::string& runeId) {
+    int carried = 0;
+    for (const auto& member : boot.run().party) {
+        for (const auto& slot : member.skills) {
+            if (std::ranges::find(slot.runeIds, runeId) != slot.runeIds.end()) ++carried;
+        }
+    }
+    return carried;
+}
+
+entt::entity FindPartyEntity(entt::registry& registry, const std::string& id) {
+    for (const auto entity : registry.view<game::FPartyMember, game::FUnitData>()) {
+        if (registry.get<game::FUnitData>(entity).definition.id == id) return entity;
+    }
+    return entt::null;
+}
+
+/// The run-log JSONL lines whose `t` equals `type`, in file order.
+std::vector<json> RunLogLines(const game::FRunLog& log, const std::string& type) {
+    CHECK(!log.path.empty());
+    std::ifstream file(log.path);
+    CHECK(file.good());
+    std::vector<json> lines;
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.empty()) continue;
+        const json parsed = json::parse(line);
+        if (parsed.is_object() && parsed.value("t", std::string{}) == type) lines.push_back(parsed);
+    }
+    return lines;
+}
+
+// --- UI capture ---------------------------------------------------------------------------------
+
+/// Renders one modal view into an ImGui log (3 frames; the last frame logs) and returns the captured text.
+/// `beforeRender` runs after the UI state exists and before the frames — it seeds the view state a real
+/// click would have set. `autoOpenDepth` is ImGui's log depth: -1 (the default of 2) expands tree nodes
+/// while logging, so the camp screen's nested loadout block is captured.
+std::string RenderModalLog(entt::registry& registry, const std::string& modalId,
+                           const std::function<void()>& beforeRender = {}, int autoOpenDepth = 0) {
+    std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> surface(
+        SDL_CreateSurface(1280, 800, SDL_PIXELFORMAT_RGBA8888), &SDL_DestroySurface);
+    CHECK(surface != nullptr);
+    FRendererPtr renderer{SDL_CreateSoftwareRenderer(surface.get())};
+    CHECK(renderer != nullptr);
+
+    auto* window = registry.ctx().find<game::FEngineWindowState>();
+    if (window == nullptr) window = &registry.ctx().emplace<game::FEngineWindowState>();
+    window->width = 1280;
+    window->height = 800;
+    auto* resources = registry.ctx().find<game::FResourceManager>();
+    if (resources == nullptr) resources = &registry.ctx().emplace<game::FResourceManager>();
+    resources->init(renderer.get());
+    CHECK(game::InitializeDungeonArt(registry));
+
+    std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> context(
+        ImGui::CreateContext(), &ImGui::DestroyContext);
+    auto& io = ImGui::GetIO();
+    io.DisplaySize = {1280, 800};
+    io.DeltaTime = 1.f / 60.f;
+    io.Fonts->Build();
+    if (registry.ctx().find<game::FDungeonUiState>() == nullptr) game::InitializeDungeonUi(registry);
+    if (beforeRender) beforeRender();
+
+    const std::string logPath = UniquePath("reward-equip-ui") + ".log";
+    for (int frame = 0; frame < 3; ++frame) {
+        ImGui::NewFrame();
+        if (frame == 2) ImGui::LogToFile(autoOpenDepth, logPath.c_str());
+        const auto* view = game::FindModalView(registry, modalId);
+        CHECK(view != nullptr);
+        view->render(registry);
+        if (frame == 2) ImGui::LogFinish();
+        ImGui::Render();
+    }
+    std::string captured = ReadBytes(logPath);
+    std::error_code error;
+    std::filesystem::remove(logPath, error);
+    return captured;
+}
+
+/// The FitsLineWraps probe: one ImGui context renders the reward modal twice — with a long Fits line and a
+/// short one — and measures the modal's auto-fitted height plus the Fits item's own rect (rendered through
+/// the same TextWrapped call at the same width in a probe window; the view's item rect is not reachable from
+/// outside). The text log stores the raw string even when a line is clipped, so log substrings prove nothing
+/// about wrapping; geometry does: the two cards differ only in the Fits item, and the modal delta must
+/// reproduce the item delta. A TextDisabled revert would clip the line (modal delta ~0) and fail the match.
+struct FWrapProbe {
+    float longHeight{0.f};
+    float shortHeight{0.f};
+    float longFitsItemHeight{0.f};
+    float shortFitsItemHeight{0.f};
+    float lineHeight{0.f};
+    std::string longLog;
+    std::string shortLog;
+};
+
+FWrapProbe MeasureFitsWrap(entt::registry& registry, const std::string& longRune, const std::string& shortRune) {
+    std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> surface(
+        SDL_CreateSurface(1280, 800, SDL_PIXELFORMAT_RGBA8888), &SDL_DestroySurface);
+    CHECK(surface != nullptr);
+    FRendererPtr renderer{SDL_CreateSoftwareRenderer(surface.get())};
+    CHECK(renderer != nullptr);
+
+    auto* window = registry.ctx().find<game::FEngineWindowState>();
+    if (window == nullptr) window = &registry.ctx().emplace<game::FEngineWindowState>();
+    window->width = 1280;
+    window->height = 800;
+    auto* resources = registry.ctx().find<game::FResourceManager>();
+    if (resources == nullptr) resources = &registry.ctx().emplace<game::FResourceManager>();
+    resources->init(renderer.get());
+    CHECK(game::InitializeDungeonArt(registry));
+
+    std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> context(
+        ImGui::CreateContext(), &ImGui::DestroyContext);
+    auto& io = ImGui::GetIO();
+    io.DisplaySize = {1280, 800};
+    io.DeltaTime = 1.f / 60.f;
+    io.Fonts->Build();
+    if (registry.ctx().find<game::FDungeonUiState>() == nullptr) game::InitializeDungeonUi(registry);
+
+    auto& rewards = registry.ctx().get<game::FRewards>();
+    const auto render = [&](const std::string& runeId, const std::string& logSuffix) {
+        rewards.offer.active = true;
+        rewards.offer.candidates = {runeId};
+        const std::string logPath = logSuffix.empty() ? std::string{} : UniquePath("reward-fits") + logSuffix;
+        for (int frame = 0; frame < 3; ++frame) {
+            ImGui::NewFrame();
+            if (!logPath.empty() && frame == 2) ImGui::LogToFile(0, logPath.c_str());
+            const auto* view = game::FindModalView(registry, game::kRunModalReward);
+            CHECK(view != nullptr);
+            view->render(registry);
+            if (!logPath.empty() && frame == 2) ImGui::LogFinish();
+            ImGui::Render();
+        }
+        const ImGuiWindow* modal = ImGui::FindWindowByName("Expedition choice");
+        CHECK(modal != nullptr);
+        if (!logPath.empty()) {
+            const std::string captured = ReadBytes(logPath);
+            std::error_code error;
+            std::filesystem::remove(logPath, error);
+            return std::pair{modal->Size.y, captured};
+        }
+        return std::pair{modal->Size.y, std::string{}};
+    };
+
+    FWrapProbe probe;
+    std::tie(probe.longHeight, probe.longLog) = render(longRune, ".log");
+    std::tie(probe.shortHeight, probe.shortLog) = render(shortRune, ".short.log");
+    probe.lineHeight = ImGui::GetTextLineHeight();
+
+    // The Fits item's own rect cannot be read from inside the view, so the test renders the identical string
+    // through the identical call — ImGui::TextWrapped at the modal's fixed 580px width — in a probe window
+    // and reads the item rect. The two offer cards differ only in the Fits item, so the real modal's
+    // auto-fit height delta must equal this item's height delta; a TextDisabled revert in the view would
+    // leave the modal delta near zero while the probe still measures the wrapped height.
+    // WP-40: the Fits content is now a group of items (a header plus one wrapped line per fitting skill);
+    // the probe issues the same items as the view and reads the group's rect.
+    const auto* content = registry.ctx().find<game::gameplay::FContentRegistry>();
+    const auto drawFits = [&](const std::string& runeId) {
+        ImGui::BeginGroup();
+        const auto previews = game::RuneFitPreviews(registry, runeId);
+        const auto* rune = content != nullptr ? content->runes.find(runeId) : nullptr;
+        if (previews.empty() || rune == nullptr) {
+            ImGui::TextWrapped("Fits: no current party skill");
+        } else {
+            std::vector<std::string> lines;
+            for (const auto& preview : previews) lines.push_back(game::RuneFitPreviewLine(preview, *rune, content));
+            ImGui::TextWrapped("Fits: %s", game::RuneFitInline(lines).c_str());
+        }
+        ImGui::EndGroup();
+    };
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({0, 0});
+    ImGui::SetNextWindowSize({580, 0}, ImGuiCond_Always);
+    ImGui::Begin("fit-wrap-probe", nullptr,
+                 ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
+    drawFits(longRune);
+    probe.longFitsItemHeight = ImGui::GetItemRectSize().y;
+    drawFits(shortRune);
+    probe.shortFitsItemHeight = ImGui::GetItemRectSize().y;
+    ImGui::End();
+    ImGui::Render();
+    return probe;
+}
+
+// --- the real-frame click driver (the ClickSelectsSkill pattern) ---------------------------------
+
+/// The ImGui ID the reward modal gives a button with no intervening PushID: a window's ID stack starts at
+/// its root ID (imgui.cpp: `window->IDStack.push_back(window->ID)`), and GetID(str) is ImHashStr(str, 0,
+/// seed) (imgui.cpp `ImGuiWindow::GetID`). GetIDWithSeed is the window-free spelling of that hash;
+/// locating the button on screen with DebugLocateItem then proves the ID really resolved to the item.
+ImGuiID ModalButtonId(const ImGuiWindow& window, const char* label) {
+    return ImGui::GetIDWithSeed(label, nullptr, window.ID);
+}
+
+/// The same for a card button: DrawRuneOfferCard wraps its widgets in PushID(index), which is
+/// ImHashData(&index, sizeof(int), seed) (imgui.cpp `ImGuiWindow::GetID(int)`).
+ImGuiID CardButtonId(const ImGuiWindow& window, int index, const char* label) {
+    const ImGuiID cardSeed = ImGui::GetIDWithSeed(index, window.ID);
+    return ImGui::GetIDWithSeed(label, nullptr, cardSeed);
+}
+
+/// Renders the reward modal through ONE persistent ImGui context, frame by frame, and presses buttons with
+/// real ImGui mouse input events. The trickle sequence (position frame, press frame, release frame, settle
+/// frame) is ClickSelectsSkill's proven pattern (hud_legibility_tests.cpp:644): queued events are applied
+/// over different frames, and the hovered window is decided from the previous frame's window list. The
+/// button's geometry comes from ImGui itself, never from production code: DebugLocateItem makes the next
+/// frame's ItemAdd draw the located item's rect — expanded by 3px, DEBUG_LOCATE_ITEM_COLOR green — into
+/// the frame's foreground draw list (imgui.cpp `DebugLocateItemResolveWithLastItem`), and the test reads
+/// those vertices back so the click lands on the item's centre.
+struct FRewardModalDriver {
+    explicit FRewardModalDriver(entt::registry& registryRef) : registry(registryRef) {
+        surface.reset(SDL_CreateSurface(1280, 800, SDL_PIXELFORMAT_RGBA8888));
+        CHECK(surface != nullptr);
+        renderer.reset(SDL_CreateSoftwareRenderer(surface.get()));
+        CHECK(renderer != nullptr);
+
+        auto* window = registry.ctx().find<game::FEngineWindowState>();
+        if (window == nullptr) window = &registry.ctx().emplace<game::FEngineWindowState>();
+        window->width = 1280;
+        window->height = 800;
+        auto* resources = registry.ctx().find<game::FResourceManager>();
+        if (resources == nullptr) resources = &registry.ctx().emplace<game::FResourceManager>();
+        resources->init(renderer.get());
+        CHECK(game::InitializeDungeonArt(registry));
+
+        context.reset(ImGui::CreateContext());
+        auto& io = ImGui::GetIO();
+        io.DisplaySize = {1280, 800};
+        io.DeltaTime = 1.f / 60.f;
+        io.Fonts->Build();
+        if (registry.ctx().find<game::FDungeonUiState>() == nullptr) game::InitializeDungeonUi(registry);
+    }
+
+    ~FRewardModalDriver() { context.reset(); }
+
+    FRewardModalDriver(const FRewardModalDriver&) = delete;
+    FRewardModalDriver& operator=(const FRewardModalDriver&) = delete;
+
+    void Frame() {
+        ImGui::NewFrame();
+        const auto* view = game::FindModalView(registry, game::kRunModalReward);
+        CHECK(view != nullptr);
+        view->render(registry);
+        ImGui::Render();
+    }
+
+    void Warmup(int frames) {
+        for (int frame = 0; frame < frames; ++frame) Frame();
+    }
+
+    /// One frame that also logs its rendered text (the RenderModalLog frame-2 pattern).
+    std::string CaptureFrame() {
+        const std::string logPath = UniquePath("reward-equip-click") + ".log";
+        ImGui::NewFrame();
+        ImGui::LogToFile(0, logPath.c_str());
+        const auto* view = game::FindModalView(registry, game::kRunModalReward);
+        CHECK(view != nullptr);
+        view->render(registry);
+        ImGui::LogFinish();
+        ImGui::Render();
+        const std::string captured = ReadBytes(logPath);
+        std::error_code error;
+        std::filesystem::remove(logPath, error);
+        return captured;
+    }
+
+    /// The reward popup window. BeginPopupModal calls Begin with the real name — the "##Popup_%08x" mangled
+    /// name only applies to the non-modal BeginPopup — so the name lookup is exact.
+    ImGuiWindow* ModalWindow() {
+        ImGuiWindow* window = ImGui::FindWindowByName("Expedition choice");
+        CHECK(window != nullptr);
+        return window;
+    }
+
+    /// Puts the mouse on the centre of the item `id` and presses it (the ClickSelectsSkill sequence).
+    void Click(ImGuiID id) {
+        ImGui::DebugLocateItem(id);
+        ImGui::NewFrame();
+        ImDrawList* foreground = ImGui::GetForegroundDrawList();  // this call resets the list for the frame
+        const int firstNew = foreground->VtxBuffer.Size;
+        const auto* view = game::FindModalView(registry, game::kRunModalReward);
+        CHECK(view != nullptr);
+        view->render(registry);
+        ImGui::Render();
+
+        // The locate rect is an AA-stroked 4-point closed path: the texture-based line path emits two opaque
+        // vertices per corner, the non-texture path one (its fringe vertices carry alpha 0), and the mouse
+        // line follows after the rect (imgui_draw.cpp `AddPolyline`) — so the first corner vertices are the
+        // rect's. The centre is click-safe either way.
+        const bool textured = (foreground->Flags & ImDrawListFlags_AntiAliasedLinesUseTex) != 0 &&
+                              foreground->_FringeScale == 1.f;
+        const int wanted = textured ? 8 : 4;
+        std::vector<ImVec2> corners;
+        for (int at = firstNew; at < foreground->VtxBuffer.Size && static_cast<int>(corners.size()) < wanted; ++at) {
+            const ImDrawVert& vertex = foreground->VtxBuffer[at];
+            if (vertex.col == IM_COL32(0, 255, 0, 255)) corners.push_back(vertex.pos);
+        }
+        // The id matched a visible item — otherwise the locate never resolved and the click below can only miss.
+        CHECK(static_cast<int>(corners.size()) == wanted);
+        ImVec2 min = corners[0];
+        ImVec2 max = corners[0];
+        for (const ImVec2& corner : corners) {
+            min.x = std::min(min.x, corner.x);
+            min.y = std::min(min.y, corner.y);
+            max.x = std::max(max.x, corner.x);
+            max.y = std::max(max.y, corner.y);
+        }
+
+        ImGuiIO& io = ImGui::GetIO();
+        io.AddMousePosEvent((min.x + max.x) * .5f, (min.y + max.y) * .5f);
+        Frame();  // A: the mouse arrives
+        io.AddMouseButtonEvent(0, true);
+        Frame();  // B: press
+        io.AddMouseButtonEvent(0, false);
+        Frame();  // C: release — the click fires here
+        Frame();  // D: idle settle
+    }
+
+    entt::registry& registry;
+    std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> surface{nullptr, &SDL_DestroySurface};
+    FRendererPtr renderer;
+    std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> context{nullptr, &ImGui::DestroyContext};
+};
+
+// ------------------------------------------------------------------------------------------------
+// The equip window (WP-27 §2)
+// ------------------------------------------------------------------------------------------------
+
+void EquipAllowedInRewardPhase() {
+    FBoot boot(UniquePath("equip-reward"));
+    RewardWithLoadout(boot);
+    const std::size_t index = CollectRune(boot, kRune);
+    FEquipSite site;
+    CHECK(FindEquipSite(boot, index, site));
+
+    CHECK(!game::ValidateDungeonRuneEquip(boot.registry, site.member, site.slot, index));
+    CHECK(!game::EquipDungeonRune(boot.registry, site.member, site.slot, index));
+    CHECK(boot.run().party[site.member].skills[site.slot].runeIds == std::vector<std::string>{kRune});
+    CHECK(std::ranges::find(boot.run().runes, std::string(kRune)) == boot.run().runes.end());
+    CHECK(boot.run().phase == game::EDungeonPhase::Reward);
+}
+
+void EquipRejectedInBattleDefeatAndEvent() {
+    FBoot boot(UniquePath("equip-window"));
+    RewardWithLoadout(boot);
+    CollectRune(boot, kRune);
+    const std::size_t runes = boot.run().runes.size();
+
+    for (const auto phase :
+         {game::EDungeonPhase::Battle, game::EDungeonPhase::Defeat, game::EDungeonPhase::Event}) {
+        boot.run().phase = phase;
+        const auto validate = game::ValidateDungeonRuneEquip(boot.registry, 0, 0, 0);
+        CHECK(validate.has_value());
+        CHECK(*validate == kWindowMessage);
+        const auto equip = game::EquipDungeonRune(boot.registry, 0, 0, 0);
+        CHECK(equip.has_value());
+        CHECK(*equip == kWindowMessage);
+        const auto remove = game::RemoveDungeonRune(boot.registry, 0, 0, 0);
+        CHECK(remove.has_value());
+        CHECK(*remove == kWindowMessage);
+    }
+    CHECK(boot.run().runes.size() == runes);
+    CHECK(!AnySlotCarries(boot, kRune));
+    CHECK(RunLogLines(boot.runLog(), "loadout").empty());  // a rejected edit never logs (success path only)
+}
+
+void EquipStillAllowedAtCamp() {
+    FBoot boot(UniquePath("equip-camp"));
+    StartFresh(boot);
+    CaptureLoadout(boot);
+    boot.run().phase = game::EDungeonPhase::Camp;
+    const std::size_t index = CollectRune(boot, kRune);
+    FEquipSite site;
+    CHECK(FindEquipSite(boot, index, site));
+    CHECK(!game::EquipDungeonRune(boot.registry, site.member, site.slot, index));
+    CHECK(boot.run().party[site.member].skills[site.slot].runeIds == std::vector<std::string>{kRune});
+}
+
+// ------------------------------------------------------------------------------------------------
+// Pick -> fit -> the next battle (WP-27 §1)
+// ------------------------------------------------------------------------------------------------
+
+void FitAtPickAppliesNextBattle() {
+    FBoot boot(UniquePath("equip-next-battle"));
+    RewardWithLoadout(boot);
+    CHECK(boot.rewards().offer.active);
+    const std::string picked = boot.rewards().offer.candidates.front();
+    CHECK(game::ResolveRuneOffer(boot.registry, 0));
+    const auto found = std::ranges::find(boot.run().runes, picked);
+    CHECK(found != boot.run().runes.end());
+    const std::size_t index = static_cast<std::size_t>(found - boot.run().runes.begin());
+    FEquipSite site;
+    CHECK(FindEquipSite(boot, index, site));
+    CHECK(!game::EquipDungeonRune(boot.registry, site.member, site.slot, index));
+
+    // Fitting is a choice, not a condition: Continue moves on immediately, and the fixture's first dungeon
+    // has an event gap between room 0 and the next battle.
+    CHECK(game::ApplyRunIntent(boot.registry, game::ERunIntent::ContinueReward).has_value());
+    CHECK(boot.run().phase == game::EDungeonPhase::Event);
+    CHECK(game::ApplyRunIntent(boot.registry, game::ERunIntent::ChooseEventRest).has_value());
+    CHECK(boot.run().phase == game::EDungeonPhase::Battle);
+
+    // The next battle fields a fresh room exactly like FEmberBattleState::OnEnter: the cleared room's scene
+    // is gone, the new room document builds new units, and the run loadout lands on them through
+    // ApplyBattleStart. Reading the unit's FSkillLoadout is battle-side state — not just run bookkeeping.
+    boot.fieldScene.reset();
+    game::FScene nextScene(boot.registry, "RewardEquipNextBattle");
+    nextScene.Load();
+    const auto nextDocument = game::BuildDungeonBattlefield(boot.registry);
+    const auto nextBattlefield = game::FEntityFactory::CreateBattlefield(nextScene, nextDocument);
+    CHECK(nextBattlefield.has_value());
+    const auto& nextContent = boot.registry.ctx().get<game::gameplay::FContentRegistry>();
+    CHECK(game::SetupCombatUnits(boot.registry, *nextBattlefield, nextContent));
+    game::ApplyRunParty(boot.registry);
+
+    const entt::entity entity = FindPartyEntity(boot.registry, boot.run().party[site.member].id);
+    CHECK(entity != entt::null);
+    const auto& loadout = boot.registry.get<game::FSkillLoadout>(entity);
+    CHECK(site.slot < loadout.slots.size());
+    // The fielded slot is the run slot, and it carries the fitted rune.
+    CHECK(loadout.slots[site.slot].skillId == boot.run().party[site.member].skills[site.slot].skillId);
+    CHECK(std::ranges::find(loadout.slots[site.slot].runeIds, picked) != loadout.slots[site.slot].runeIds.end());
+}
+
+void FitAtPickSavesAndRestores() {
+    FBoot boot(UniquePath("equip-save"));
+    RewardWithLoadout(boot);
+    const std::size_t index = CollectRune(boot, kRune);
+    FEquipSite site;
+    CHECK(FindEquipSite(boot, index, site));
+    CHECK(!game::EquipDungeonRune(boot.registry, site.member, site.slot, index));
+    // No explicit save here: the reload below must prove the equip path itself wrote the run (WP-27 §1:
+    // equip/remove pass through the existing SaveDungeonRun), not a save the test added.
+
+    boot.registry.ctx().erase<game::FDungeonRun>();
+    CHECK(game::ContinueDungeonRun(boot.registry));
+    CHECK(boot.run().phase == game::EDungeonPhase::Reward);
+    CHECK(boot.run().party[site.member].skills[site.slot].runeIds == std::vector<std::string>{kRune});
+    CHECK(std::ranges::find(boot.run().runes, std::string(kRune)) == boot.run().runes.end());
+}
+
+void FittedRuneMovesFromPoolToSlot() {
+    FBoot boot(UniquePath("equip-moves"));
+    RewardWithLoadout(boot);
+    const std::size_t index = CollectRune(boot, kRune);
+    const std::size_t poolBefore = boot.run().runes.size();
+    FEquipSite site;
+    CHECK(FindEquipSite(boot, index, site));
+    CHECK(!game::EquipDungeonRune(boot.registry, site.member, site.slot, index));
+
+    CHECK(boot.run().runes.size() == poolBefore - 1);                                   // pool -1
+    CHECK(boot.run().party[site.member].skills[site.slot].runeIds.size() == 1u);        // slot +1
+    // A fitted rune still counts as owned: it is never offered again as an unowned card.
+    CHECK(game::IsRuneOwned(boot.registry, kRune));
+}
+
+void FitLaterKeepsRuneInPool() {
+    FBoot boot(UniquePath("equip-later"));
+    RewardWithLoadout(boot);
+    CHECK(boot.rewards().offer.active);
+    const std::string picked = boot.rewards().offer.candidates.front();
+    CHECK(game::ResolveRuneOffer(boot.registry, 0));  // picked, not fitted
+    CHECK(std::ranges::find(boot.run().runes, picked) != boot.run().runes.end());
+    CHECK(!AnySlotCarries(boot, picked));
+    // "Later at camp" never blocks the run.
+    CHECK(game::ApplyRunIntent(boot.registry, game::ERunIntent::ContinueReward).has_value());
+}
+
+void EquipByIndexWithDuplicateCopies() {
+    FBoot boot(UniquePath("equip-duplicate"));
+    RewardWithLoadout(boot);
+    boot.run().runes = {kRune, kRune};
+    FEquipSite first;
+    CHECK(FindEquipSite(boot, 0, first));
+    CHECK(!game::EquipDungeonRune(boot.registry, first.member, first.slot, 0));
+    CHECK(boot.run().runes == std::vector<std::string>{kRune});  // the first copy moved, one stays
+    FEquipSite second;
+    CHECK(FindEquipSite(boot, 0, second));
+    CHECK(!game::EquipDungeonRune(boot.registry, second.member, second.slot, 0));
+    CHECK(boot.run().runes.empty());
+    CHECK(CarriedCopies(boot, kRune) == 2);
+}
+
+void RewardEquipIsFree() {
+    FBoot boot(UniquePath("equip-free"));
+    RewardWithLoadout(boot);
+    const int materials = boot.run().materials;
+    const std::size_t index = CollectRune(boot, kRune);
+    FEquipSite site;
+    CHECK(FindEquipSite(boot, index, site));
+    CHECK(!game::EquipDungeonRune(boot.registry, site.member, site.slot, index));
+    CHECK(boot.run().materials == materials);
+
+    // The camp path is the same free edit (D-17).
+    boot.run().phase = game::EDungeonPhase::Camp;
+    const std::size_t second = CollectRune(boot, kRune);
+    FEquipSite campSite;
+    CHECK(FindEquipSite(boot, second, campSite));
+    CHECK(!game::EquipDungeonRune(boot.registry, campSite.member, campSite.slot, second));
+    CHECK(boot.run().materials == materials);
+    // Zero CampSpent events: the event tail never carries one and the run log never gets its `camp` line.
+    const auto* events = boot.registry.ctx().find<game::FRunEventLog>();
+    CHECK(events != nullptr);
+    for (const auto& event : events->tail) CHECK(event.kind != game::ERunEventKind::CampSpent);
+    CHECK(RunLogLines(boot.runLog(), "camp").empty());
+}
+
+// ------------------------------------------------------------------------------------------------
+// The `loadout` run-log line (WP-27 §3)
+// ------------------------------------------------------------------------------------------------
+
+void LoadoutLineWritten() {
+    FBoot boot(UniquePath("equip-log"));
+    RewardWithLoadout(boot);
+    const std::size_t index = CollectRune(boot, kRune);
+    FEquipSite rewardSite;
+    CHECK(FindEquipSite(boot, index, rewardSite));
+    CHECK(!game::EquipDungeonRune(boot.registry, rewardSite.member, rewardSite.slot, index));
+
+    // The camp equip passes through the same call and speaks the same line with phase "camp".
+    boot.run().phase = game::EDungeonPhase::Camp;
+    const std::size_t second = CollectRune(boot, kRune);
+    FEquipSite campSite;
+    CHECK(FindEquipSite(boot, second, campSite));
+    CHECK(!game::EquipDungeonRune(boot.registry, campSite.member, campSite.slot, second));
+
+    // Removal logs too (the rule allows it in Reward; the UI exposes it at camp).
+    CHECK(!game::RemoveDungeonRune(boot.registry, campSite.member, campSite.slot, 0));
+
+    const auto lines = RunLogLines(boot.runLog(), "loadout");
+    CHECK(lines.size() == 3u);  // exactly one line per successful edit
+    const auto& equip = lines[0];
+    CHECK(equip.value("t", std::string{}) == "loadout");
+    CHECK(equip.at("depth") == boot.run().depth);
+    CHECK(equip.at("room") == boot.run().room);
+    CHECK(equip.at("phase") == "reward");  // a phase id string, never an int cast
+    CHECK(equip.at("member") == static_cast<int>(rewardSite.member));
+    CHECK(equip.at("slot") == static_cast<int>(rewardSite.slot));
+    CHECK(equip.at("rune") == kRune);
+    CHECK(equip.at("action") == "equip");
+
+    const auto& campEquip = lines[1];
+    CHECK(campEquip.value("t", std::string{}) == "loadout");
+    CHECK(campEquip.at("depth") == boot.run().depth);
+    CHECK(campEquip.at("room") == boot.run().room);
+    CHECK(campEquip.at("phase") == "camp");
+    CHECK(campEquip.at("member") == static_cast<int>(campSite.member));
+    CHECK(campEquip.at("slot") == static_cast<int>(campSite.slot));
+    CHECK(campEquip.at("rune") == kRune);
+    CHECK(campEquip.at("action") == "equip");
+
+    const auto& remove = lines[2];
+    CHECK(remove.value("t", std::string{}) == "loadout");
+    CHECK(remove.at("phase") == "camp");
+    CHECK(remove.at("member") == static_cast<int>(campSite.member));
+    CHECK(remove.at("slot") == static_cast<int>(campSite.slot));
+    CHECK(remove.at("rune") == kRune);
+    CHECK(remove.at("action") == "remove");
+}
+
+void SchemaAcceptsLoadout() {
+    FBoot boot(UniquePath("equip-schema"));
+    RewardWithLoadout(boot);
+    const std::size_t index = CollectRune(boot, kRune);
+    FEquipSite site;
+    CHECK(FindEquipSite(boot, index, site));
+    CHECK(!game::EquipDungeonRune(boot.registry, site.member, site.slot, index));
+
+    const json* loadout = nullptr;
+    for (const auto& event : boot.runLog().events) {
+        if (event.is_object() && event.value("t", std::string{}) == "loadout") {
+            loadout = &event;
+            break;
+        }
+    }
+    CHECK(loadout != nullptr);
+    CHECK(game::FRunEventSchemaValid(*loadout));
+    // The row really is loadout's required-key set: dropping a key flips the verdict.
+    json broken = *loadout;
+    broken.erase("phase");
+    CHECK(!game::FRunEventSchemaValid(broken));
+}
+
+// ------------------------------------------------------------------------------------------------
+// The card text (WP-27 §4)
+// ------------------------------------------------------------------------------------------------
+
+void CardExplainsHooks() {
+    FTempAssets assets("reward-hooks");
+    assets.CopyGameplayData(true);
+    assets.Copy("rewards.json");
+
+    // One row per data-authored hook. The fixture runes below are BUILT from these rows and every expected
+    // card line is built from the same params (event, kind, amount, distance, status), so the table is the
+    // single source for both sides. The phrases follow the real dispatch semantics: a chain hook bounces
+    // `amount` damage to exactly ONE nearest same-side unit of the hit unit (FEffectHooks.cpp ApplyChain
+    // :164-202) — never a count of bounces — and the recipient is the event's `other`
+    // (ActionResolverSystem.h:326-335: OnHit = the target, OnKill = the slain enemy, OnDamageTaken = the
+    // attacker, anything else = the other unit). Fixture-authored: no ship runes.json coupling.
+    struct FHookRow {
+        const char* rune;
+        const char* displayName;
+        const char* event;
+        const char* kind;
+        int amount;
+        int distance;
+        const char* statusId;  // apply_status_target only
+    };
+    const FHookRow rows[] = {
+        {"rune.chain", "Chain", "on_hit", "chain", 2, 1, ""},
+        {"rune.combust", "Combust", "on_kill", "chain", 2, 1, ""},
+        {"rune.hail", "Hail", "on_hit", "chain", 3, 2, ""},  // amount != 2, plural "tiles"
+        {"rune.frostpath", "Frost Path", "on_hit", "apply_status_target", 0, 0, "status.locked_move"},
+        {"rune.guard", "Counter Guard", "on_damage_taken", "apply_status_target", 0, 0, "status.debuff"},
+        {"rune.impact", "Impact", "on_hit", "push", 0, 1, ""},
+        {"rune.yank", "Yank", "on_hit", "pull", 0, 2, ""},            // plural "tiles" on the pull branch
+        {"rune.veil", "Veil", "on_room_clear", "chain", 1, 1, ""},    // no typed recipient: "the other unit"
+    };
+
+    json runes = ReadJsonFile(FixtureDataPath("runes.json"));
+    for (const FHookRow& row : rows) {
+        json effect = {{"kind", row.kind}};
+        if (row.amount != 0) effect["amount"] = row.amount;
+        if (row.distance != 0) effect["distance"] = row.distance;
+        if (std::string_view(row.kind) == "push" || std::string_view(row.kind) == "pull") effect["from"] = "caster";
+        if (row.statusId[0] != '\0') effect["status_id"] = row.statusId;
+        json hook = {{"event", row.event}, {"effect", effect}};
+        json rune = {{"id", row.rune}, {"display_name", row.displayName}, {"hooks", json::array({hook})}};
+        runes["runes"].push_back(rune);
+    }
+    assets.Write("runes.json", runes);
+
+    FBoot boot(UniquePath("reward-hooks"), {assets.root.string(), kShipAssetRoot});
+    StartFresh(boot);
+    WinRoom(boot);  // the fixture chance 1.0 opens an offer; the candidates below are the card set under test
+    auto& rewards = boot.rewards();
+    rewards.offer.active = true;
+    rewards.offer.candidates.clear();
+    for (const FHookRow& row : rows) rewards.offer.candidates.push_back(row.rune);
+
+    const std::string log = RenderModalLog(boot.registry, std::string(game::kRunModalReward));
+    const auto& content = boot.registry.ctx().get<game::gameplay::FContentRegistry>();
+    const auto statusName = [&](const std::string& id) {
+        const auto* row = content.statuses.find(id);
+        return row != nullptr && !row->displayName.empty() ? row->displayName : id;
+    };
+    const auto eventLabel = [](std::string_view event) {
+        if (event == "on_hit") return std::string("On hit");
+        if (event == "on_kill") return std::string("On kill");
+        if (event == "on_damage_taken") return std::string("When hit");
+        return std::string(event);  // HookEventLabel keeps the authored name for the rest
+    };
+    const auto recipient = [](std::string_view event) {
+        if (event == "on_hit") return std::string("the target");
+        if (event == "on_kill") return std::string("the slain enemy");
+        if (event == "on_damage_taken") return std::string("the attacker");
+        return std::string("the other unit");
+    };
+
+    std::vector<std::string> missing;
+    for (const FHookRow& row : rows) {
+        const std::string tiles = row.distance == 1 ? " tile" : " tiles";
+        std::string effect;
+        if (std::string_view(row.kind) == "chain") {
+            // ApplyChain reaches exactly one unit: "{amount} damage to 1 other enemy within N tile(s)".
+            effect = std::to_string(row.amount) + " damage to 1 other enemy within " +
+                     std::to_string(row.distance) + tiles + " of " + recipient(row.event);
+        } else if (std::string_view(row.kind) == "push" || std::string_view(row.kind) == "pull") {
+            effect = std::string(row.kind) + " " + recipient(row.event) + " " +
+                     std::to_string(row.distance) + tiles;
+        } else {
+            effect = "apply " + statusName(row.statusId) + " to " + recipient(row.event);
+        }
+        const std::string expected = eventLabel(row.event) + ": " + effect;
+        if (log.find(expected) == std::string::npos) {
+            missing.push_back(std::string(row.rune) + " expected \"" + expected + "\"");
+        }
+    }
+    for (const std::string& entry : missing) std::cout << "  missing card line: " << entry << '\n';
+    std::cout << "  hook cards checked: " << std::size(rows) << '\n';
+    CHECK(missing.empty());
+
+    CHECK(log.find("No numeric change") == std::string::npos);  // a hooked rune never reads as "no change"
+    // The old count-looking form ("chain x2") must be gone: no card carries an " x<digit>" anywhere, and no
+    // card fell back to the unknown-kind "(dist N)" form either.
+    std::optional<std::size_t> countAt;
+    for (std::size_t at = log.find(" x"); at != std::string::npos; at = log.find(" x", at + 1)) {
+        if (at + 2 < log.size() && log[at + 2] >= '0' && log[at + 2] <= '9') {
+            countAt = at;
+            break;
+        }
+    }
+    if (countAt) std::cout << "  count-looking text at " << *countAt << ": " << log.substr(*countAt, 8) << '\n';
+    CHECK(!countAt.has_value());
+    CHECK(log.find("(dist ") == std::string::npos);
+    // The status speaks its display name: the raw id would only appear if the card fell back to it.
+    CHECK(log.find("status.locked_move") == std::string::npos);
+    CHECK(log.find("status.debuff") == std::string::npos);
+}
+
+/// WP-40 F17: a three-card offer of runes that fit every skill must not push Pick/Skip below the fold of the
+/// 720 px reward modal at 1280x800.
+void OfferModalDoesNotScroll() {
+    FBoot boot(UniquePath("reward-modal-noscroll"));
+    StartFresh(boot);
+    WinRoom(boot);
+    boot.registry.ctx().erase<game::FDungeonGrowth>();
+    auto& rewards = boot.registry.ctx().get<game::FRewards>();
+    rewards.offer.active = true;
+    rewards.offer.candidates = {"rune.power", "rune.swift", "rune.range"};
+
+    std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> surface(
+        SDL_CreateSurface(1280, 800, SDL_PIXELFORMAT_RGBA8888), &SDL_DestroySurface);
+    CHECK(surface != nullptr);
+    FRendererPtr renderer{SDL_CreateSoftwareRenderer(surface.get())};
+    CHECK(renderer != nullptr);
+    auto* window = boot.registry.ctx().find<game::FEngineWindowState>();
+    if (window == nullptr) window = &boot.registry.ctx().emplace<game::FEngineWindowState>();
+    window->width = 1280;
+    window->height = 800;
+    auto* resources = boot.registry.ctx().find<game::FResourceManager>();
+    if (resources == nullptr) resources = &boot.registry.ctx().emplace<game::FResourceManager>();
+    resources->init(renderer.get());
+    CHECK(game::InitializeDungeonArt(boot.registry));
+    std::unique_ptr<ImGuiContext, decltype(&ImGui::DestroyContext)> context(
+        ImGui::CreateContext(), &ImGui::DestroyContext);
+    auto& io = ImGui::GetIO();
+    io.DisplaySize = {1280, 800};
+    io.DeltaTime = 1.f / 60.f;
+    io.Fonts->Build();
+    if (boot.registry.ctx().find<game::FDungeonUiState>() == nullptr) game::InitializeDungeonUi(boot.registry);
+    for (int frame = 0; frame < 3; ++frame) {
+        ImGui::NewFrame();
+        const auto* view = game::FindModalView(boot.registry, game::kRunModalReward);
+        CHECK(view != nullptr);
+        view->render(boot.registry);
+        ImGui::Render();
+    }
+    const ImGuiWindow* modal = ImGui::FindWindowByName("Expedition choice");
+    CHECK(modal != nullptr);
+    if (modal != nullptr) {
+        std::cout << "  modal height " << modal->Size.y << ", scroll max " << modal->ScrollMax.y << '\n';
+        CHECK(modal->ScrollMax.y == 0.f);
+        CHECK(modal->Size.y <= 720.f);
+    }
+}
+
+void FitsLineWraps() {
+    FBoot boot(UniquePath("reward-fits-wrap"));
+    StartFresh(boot);
+    WinRoom(boot);  // no fielded party: the fits list falls back to the unit content (12 skills)
+    // The growth panel would dominate the window height; the offer section is what this test measures.
+    boot.registry.ctx().erase<game::FDungeonGrowth>();
+
+    const auto probe = MeasureFitsWrap(boot.registry, "rune.power", "rune.ember");
+    const auto fitting = game::RuneFittingSkillNames(boot.registry, "rune.power");
+    CHECK(fitting.size() >= 8u);  // the long line: every party skill accepts it
+    {
+        const auto& content = boot.registry.ctx().get<game::gameplay::FContentRegistry>();
+        const auto* powerRune = content.runes.find("rune.power");
+        CHECK(powerRune != nullptr);
+        const auto previews = game::RuneFitPreviews(boot.registry, "rune.power");
+        CHECK(!previews.empty());
+        std::vector<std::string> lines;
+        for (const auto& preview : previews) lines.push_back(game::RuneFitPreviewLine(preview, *powerRune, &content));
+        // the capped inline text reaches the frame: nothing is cut
+        CHECK(probe.longLog.find("Fits: " + game::RuneFitInline(lines)) != std::string::npos);
+        const auto* emberRune = content.runes.find("rune.ember");
+        CHECK(emberRune != nullptr);
+        if (emberRune != nullptr) {
+            const std::string summary = game::RuneEffectSummary(*emberRune, &content);
+            CHECK(!summary.empty());
+            CHECK(probe.shortLog.find(summary.substr(0, 12)) != std::string::npos);  // the short card's effect line rendered
+        }
+    }
+
+    std::cout << "  Fits: modal delta " << probe.longHeight - probe.shortHeight << ", Fits item "
+              << probe.longFitsItemHeight << " vs " << probe.shortFitsItemHeight << ", one text line "
+              << probe.lineHeight << '\n';
+    const float windowDelta = probe.longHeight - probe.shortHeight;
+    const float fitsDelta = probe.longFitsItemHeight - probe.shortFitsItemHeight;
+    // The long Fits string really folds into more than one extra line of height ...
+    CHECK(fitsDelta > 0.5f * probe.lineHeight);
+    // ... and the view did not clip it: the modal grew by exactly that item's delta. With TextDisabled the
+    // clipped item would add ~no window height (windowDelta ~0) and this equality fails.
+    CHECK(windowDelta > fitsDelta - 1.f && windowDelta < fitsDelta + 1.f);
+}
+
+void CampShowsDisplayNames() {
+    FBoot boot(UniquePath("camp-names"));
+    StartFresh(boot);
+    auto& run = boot.run();
+    run.phase = game::EDungeonPhase::Camp;
+    run.party[0].skills = {game::FSkillSlot{"skill.strike", {}}};
+    const std::size_t index = CollectRune(boot, kRune);
+    CHECK(!game::EquipDungeonRune(boot.registry, 0, 0, index));
+
+    // The ImGui log expands the member and "Skills & runes" tree nodes while logging (auto-open depth 2).
+    const std::string log = RenderModalLog(boot.registry, std::string(game::kRunModalCamp), {}, -1);
+    const auto& content = boot.registry.ctx().get<game::gameplay::FContentRegistry>();
+    const auto* skill = content.skills.find("skill.strike");
+    const auto* rune = content.runes.find(kRune);
+    CHECK(skill != nullptr && rune != nullptr);
+    CHECK(log.find(skill->displayName) != std::string::npos);                 // "Heavy Strike", not "skill.strike"
+    CHECK(log.find(rune->displayName + "  [remove]") != std::string::npos);   // "Brutality  [remove]"
+    CHECK(log.find("skill.strike") == std::string::npos);  // the raw id is tooltip-only now
+    CHECK(log.find(kRune) == std::string::npos);
+}
+
+// ------------------------------------------------------------------------------------------------
+// The fit block (WP-27 §1, rendered)
+// ------------------------------------------------------------------------------------------------
+
+void PickedRuneShowsFitBlock() {
+    FBoot boot(UniquePath("equip-fit-block"));
+    RewardWithLoadout(boot);
+    CHECK(boot.rewards().offer.active);
+    const std::string picked = boot.rewards().offer.candidates.front();
+    CHECK(game::ResolveRuneOffer(boot.registry, 0));  // the pick lands in the collected pool
+    CHECK(!boot.rewards().offer.active);
+
+    const auto& content = boot.registry.ctx().get<game::gameplay::FContentRegistry>();
+    const std::string runeName = game::ContentDisplayName(content.runes.find(picked), picked);
+
+    // The pick id is view-owned state (a real click sets it in DrawRuneOfferCard): seed it exactly as that
+    // click would, then read the rendered modal.
+    const std::string log = RenderModalLog(boot.registry, std::string(game::kRunModalReward), [&] {
+        boot.registry.ctx().get<game::FDungeonUiState>().pickedRuneId = picked;
+    });
+    CHECK(log.find("FIT RUNE") != std::string::npos);
+    CHECK(log.find("Equip on:") != std::string::npos);
+    // The offer is resolved but the copy is unfitted: the modal says what was picked instead of claiming
+    // there was no offer at all.
+    CHECK(log.find("Picked: " + runeName + " — fit it now or later at camp.") != std::string::npos);
+    CHECK(log.find("No rune offer this room.") == std::string::npos);
+    // Continue sits right after the offer section, above the growth panel. "Level " is not a safe marker
+    // (the room message may carry "Level up: ..."); "Node points" only exists in the growth panel's line.
+    const std::size_t continueAt = log.find("Continue");
+    const std::size_t growthAt = log.find("Node points");
+    CHECK(continueAt != std::string::npos);
+    CHECK(growthAt != std::string::npos);
+    CHECK(continueAt < growthAt);
+
+    // The block's first legal pair, in the same deterministic walk the rows use (member asc -> slot asc).
+    const auto found = std::ranges::find(boot.run().runes, picked);
+    CHECK(found != boot.run().runes.end());
+    const std::size_t pickedIndex = static_cast<std::size_t>(found - boot.run().runes.begin());
+    FEquipSite site;
+    CHECK(FindEquipSite(boot, pickedIndex, site));
+    const auto& member = boot.run().party[site.member];
+    const std::string skillId = member.skills[site.slot].skillId;
+    const std::string skillName = game::ContentDisplayName(content.skills.find(skillId), skillId);
+    CHECK(log.find(game::MemberName(member)) != std::string::npos);  // the row's member label
+    // The button's log form is ImGui's "[ label ]" (ButtonEx brackets the visible label; "##m<i>s<j>" is
+    // hidden): the first legal pair's skill is the first button the block draws.
+    CHECK(log.find("[ " + skillName + " ]") != std::string::npos);
+    // The hover tooltip ("Equip on <member> · <skill>") is hover-only: a non-hover frame never logs it.
+    CHECK(log.find("Equip on ") == std::string::npos);
+}
+
+/// The pick and the fit through REAL ImGui input events on the modal's own buttons. The seeded post-state
+/// cannot reach the paths the button handlers own — the "No rune offer this room." regression lived
+/// exactly there (equip-critic #1), and the click paragraphs below pin the whole chain: pick handler →
+/// fit handler → the next frame's decided line.
+void FitButtonKeepsPickedState() {
+    FBoot boot(UniquePath("equip-fit-click"));
+    RewardWithLoadout(boot);
+    CHECK(boot.rewards().offer.active);
+    CHECK(!boot.rewards().offer.candidates.empty());
+    const std::string picked = boot.rewards().offer.candidates.front();
+
+    FRewardModalDriver driver(boot.registry);
+    driver.Warmup(4);  // the popup window is born and auto-fitted before any event
+    auto& ui = boot.registry.ctx().get<game::FDungeonUiState>();
+    CHECK(ui.pickedRuneId.empty());
+
+    // 1. Pick card 0's "Pick" button for real: the handler records the pick and resolves the offer.
+    driver.Click(CardButtonId(*driver.ModalWindow(), 0, "Pick"));
+    CHECK(ui.pickedRuneId == picked);
+    CHECK(!boot.rewards().offer.active);
+    const auto found = std::ranges::find(boot.run().runes, picked);
+    CHECK(found != boot.run().runes.end());
+    const std::size_t pickedIndex = static_cast<std::size_t>(found - boot.run().runes.begin());
+
+    // The same deterministic first legal pair the block's own walk finds (member asc -> slot asc), and the
+    // names the view will print (MemberName / ContentDisplayName — the shared display-name rule).
+    FEquipSite site;
+    CHECK(FindEquipSite(boot, pickedIndex, site));
+    const auto& content = boot.registry.ctx().get<game::gameplay::FContentRegistry>();
+    const auto& member = boot.run().party[site.member];
+    const std::string memberName = game::MemberName(member);
+    const std::string skillId = member.skills[site.slot].skillId;
+    const std::string skillName = game::ContentDisplayName(content.skills.find(skillId), skillId);
+    const std::string runeName = game::ContentDisplayName(content.runes.find(picked), picked);
+
+    driver.Warmup(3);  // the auto-fit window picks up the FIT RUNE block's height and settles before we locate in it
+
+    // 2. Fit it through the block's first button, for real.
+    const std::string originalMessage = boot.run().message;
+    const std::string fitLabel =
+        skillName + "##m" + std::to_string(site.member) + "s" + std::to_string(site.slot);
+    driver.Click(ModalButtonId(*driver.ModalWindow(), fitLabel.c_str()));
+
+    const std::string fitted = runeName + " fitted to " + memberName + " · " + skillName + ".";
+    CHECK(AnySlotCarries(boot, picked));                        // the rules really equipped it
+    CHECK(ui.pickedRuneId == picked);                           // the pick stays the view's state
+    CHECK(ui.pickedRuneFit == memberName + " · " + skillName);  // the fit is remembered by name
+    CHECK(boot.run().message.starts_with(originalMessage));     // the step's own message is not clobbered
+    CHECK(boot.run().message.ends_with(fitted));                // the confirmation is appended
+
+    // 3. The next rendered frame speaks the fitted state: no no-offer line, no revived block.
+    const std::string afterLog = driver.CaptureFrame();
+    CHECK(afterLog.find("No rune offer this room.") == std::string::npos);
+    CHECK(afterLog.find("Picked: " + runeName + " — fitted to " + memberName + " · " + skillName + ".") !=
+          std::string::npos);
+    CHECK(afterLog.find("FIT RUNE") == std::string::npos);
+    CHECK(afterLog.find("Equip on:") == std::string::npos);
+
+    // 4. A second unfitted copy of the same rune in the pool must not resurrect the block: the fit state,
+    // not FindUnfittedCopy, decides.
+    CollectRune(boot, picked);
+    const std::string copyLog = driver.CaptureFrame();
+    CHECK(copyLog.find("No rune offer this room.") == std::string::npos);
+    CHECK(copyLog.find("Picked: " + runeName + " — fitted to " + memberName + " · " + skillName + ".") !=
+          std::string::npos);
+    CHECK(copyLog.find("FIT RUNE") == std::string::npos);
+    CHECK(copyLog.find("Equip on:") == std::string::npos);
+}
+
+void RefundPickWithEquippedCopyShowsNoBlock() {
+    FBoot boot(UniquePath("equip-refund-block"));
+    RewardWithLoadout(boot);
+    // Fit the rune first, then take a duplicate pick of the same rune: the refund policy adds no copy.
+    const std::size_t index = CollectRune(boot, kRune);
+    FEquipSite site;
+    CHECK(FindEquipSite(boot, index, site));
+    CHECK(!game::EquipDungeonRune(boot.registry, site.member, site.slot, index));
+    CHECK(std::ranges::find(boot.run().runes, std::string(kRune)) == boot.run().runes.end());
+    boot.rewards().offer.active = true;
+    boot.rewards().offer.candidates = {kRune};
+    const int materials = boot.run().materials;
+    CHECK(game::ResolveRuneOffer(boot.registry, 0));  // already owned + fitted: refund, no new copy
+    CHECK(boot.run().materials == materials + boot.rewards().tables.duplicateRefundMaterials);
+    CHECK(std::ranges::find(boot.run().runes, std::string(kRune)) == boot.run().runes.end());
+
+    const std::string log = RenderModalLog(boot.registry, std::string(game::kRunModalReward), [&] {
+        boot.registry.ctx().get<game::FDungeonUiState>().pickedRuneId = kRune;  // what the pick click records
+    });
+    const auto& content = boot.registry.ctx().get<game::gameplay::FContentRegistry>();
+    const std::string runeName = game::ContentDisplayName(content.runes.find(kRune), kRune);
+    CHECK(log.find("FIT RUNE") == std::string::npos);  // no unfitted copy: no block, Continue only
+    CHECK(log.find("Equip on:") == std::string::npos);
+    // The refund pick still says what was picked — and that there is nothing left to fit.
+    CHECK(log.find("Picked: " + runeName + " — already fitted.") != std::string::npos);
+    CHECK(log.find("No rune offer this room.") == std::string::npos);  // the picked line replaces it
+}
+
+void FitBlockZeroLegalFallsBack() {
+    FBoot boot(UniquePath("equip-zero-legal"));
+    RewardWithLoadout(boot);
+    // No party skill accepts the picked rune: every slot becomes a Support/Duration skill while the rune
+    // demands an Attack skill, so the block's deterministic walk finds no legal pair at all.
+    for (auto& member : boot.run().party) member.skills = {game::FSkillSlot{"skill.buff", {}}};
+    boot.rewards().offer.active = false;  // the pick already resolved the offer
+    const std::size_t index = CollectRune(boot, kUnfittableRune);
+    FEquipSite site;
+    CHECK(!FindEquipSite(boot, index, site));  // the precondition: every pair is refused
+    const auto reason = game::ValidateDungeonRuneEquip(boot.registry, 0, 0, index);
+    CHECK(reason.has_value());
+    CHECK(!reason->empty());
+
+    const std::string log = RenderModalLog(boot.registry, std::string(game::kRunModalReward), [&] {
+        boot.registry.ctx().get<game::FDungeonUiState>().pickedRuneId = kUnfittableRune;
+    });
+    CHECK(log.find("FIT RUNE") != std::string::npos);
+    CHECK(log.find(*reason) != std::string::npos);  // the first refusal in the walk, verbatim
+    CHECK(log.find("Equip later at camp.") != std::string::npos);
+    CHECK(log.find("Equip on:") == std::string::npos);  // zero legal pairs: no rows exist
+}
+
+} // namespace
+
+int main() {
+    // Feature tests get no per-test save directory from CMake: isolate every save under the build tree so a
+    // run can never touch %APPDATA%\Game01P\EmberDungeon.
+    const char* saveDir = nullptr;
+#ifdef _MSC_VER
+#pragma warning(suppress : 4996)  // std::getenv: read-only, no buffer to overflow
+#endif
+    saveDir = std::getenv("GAME01P_SAVE_DIR");
+    if (saveDir == nullptr || *saveDir == '\0') {
+        const std::string path =
+            (std::filesystem::current_path() / "out" / "test-saves" / "reward_equip_tests").string();
+        std::error_code error;
+        std::filesystem::create_directories(path, error);
+        _putenv_s("GAME01P_SAVE_DIR", path.c_str());
+    }
+
+    return game_test::RunTests("reward equip", {
+        {"EquipAllowedInRewardPhase", EquipAllowedInRewardPhase},
+        {"EquipRejectedInBattleDefeatAndEvent", EquipRejectedInBattleDefeatAndEvent},
+        {"EquipStillAllowedAtCamp", EquipStillAllowedAtCamp},
+        {"FitAtPickAppliesNextBattle", FitAtPickAppliesNextBattle},
+        {"FitAtPickSavesAndRestores", FitAtPickSavesAndRestores},
+        {"FittedRuneMovesFromPoolToSlot", FittedRuneMovesFromPoolToSlot},
+        {"FitLaterKeepsRuneInPool", FitLaterKeepsRuneInPool},
+        {"EquipByIndexWithDuplicateCopies", EquipByIndexWithDuplicateCopies},
+        {"RewardEquipIsFree", RewardEquipIsFree},
+        {"LoadoutLineWritten", LoadoutLineWritten},
+        {"SchemaAcceptsLoadout", SchemaAcceptsLoadout},
+        {"CardExplainsHooks", CardExplainsHooks},
+        {"FitsLineWraps", FitsLineWraps},
+        {"OfferModalDoesNotScroll", OfferModalDoesNotScroll},
+        {"CampShowsDisplayNames", CampShowsDisplayNames},
+        {"PickedRuneShowsFitBlock", PickedRuneShowsFitBlock},
+        {"FitButtonKeepsPickedState", FitButtonKeepsPickedState},
+        {"RefundPickWithEquippedCopyShowsNoBlock", RefundPickWithEquippedCopyShowsNoBlock},
+        {"FitBlockZeroLegalFallsBack", FitBlockZeroLegalFallsBack},
+    });
+}

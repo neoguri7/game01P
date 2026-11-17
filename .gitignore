@@ -1,0 +1,106 @@
+oc.ps1
+# ============================================
+# Build output
+# ============================================
+out/
+build/
+build-*/
+Testing/
+.vs/
+.cache/
+.ninja_deps
+.ninja_log
+docs/*
+!docs/wp/
+!docs/design/
+!docs/playtest/
+.claude/settings.local.json
+
+
+.codex
+.codex/
+.agents
+.agents/
+.opencode
+.opencode/
+opencode.json
+AGENTS.md
+.clinerules/
+.pi/
+.github/agents/
+.github/instructions/
+.github/copilot-instructions.md
+
+.mcp.json
+.kilo/
+package-lock.json
+# ============================================
+# Dependencies
+# ============================================
+vcpkg_installed/
+# ============================================
+# CMake generated files
+# ============================================
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+# Per-machine user preset (machine-specific tools/triplets); keep portable presets in CMakePresets.json
+CMakeUserPresets.json
+# ============================================
+# IDE & Editor
+# ============================================
+.vscode/
+.idea/
+*.user
+*.suo
+*.sublime-*
+*.VC.db
+*.VC.VC.opendb
+*.ipch
+# ============================================
+# OS files
+# ============================================
+.DS_Store
+Thumbs.db
+desktop.ini
+DerivedData/
+# ============================================
+# Logs & temp files
+# ============================================
+*.log
+*.tmp
+scripts/remote-windows.env
+*~
+*.orig
+*.rej
+*.swp
+*.swo
+
+# Generated sprite output stays out of git (the old `assetgen` CLI is gone; the asset
+# pipeline keeps its output under asset-pipeline/assets/). Allow the curated animation check sheet.
+assets/sprites/*
+!assets/sprites/animation_check.png
+
+# Local codebase-index cache/config (not committed).
+.codebase-index/
+
+.cortexkit/
+
+# Local Python asset-tool environment and bytecode.
+tools/pixellab/.venv/
+tools/pixellab/__pycache__/
+
+tools/
+tools/*
+style.md
+!/style.md
+.serena/
+
+# Asset pipeline: a self-contained project folder (see asset-pipeline/README.md).
+# The rules above ignore every docs/ directory and every .mcp.json; the pipeline needs both tracked.
+# Its .mcp.json only references ${PIXELLAB_API_TOKEN}; it never contains a secret value.
+!asset-pipeline/docs
+!asset-pipeline/.mcp.json
+asset-pipeline/
