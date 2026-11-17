@@ -27,7 +27,8 @@ jobs:
       - name: Package
         run: |
           mkdir -p out/vcpkg-bincache
-          bash package/macos/package.sh
+          /bin/bash --version | head -n 1
+          /bin/bash package/macos/package.sh
       - name: Save vcpkg binary cache
         if: always()
         uses: actions/cache/save@v4

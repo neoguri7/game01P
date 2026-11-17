@@ -164,7 +164,7 @@ with `CMAKE_EXPORT_COMPILE_COMMANDS=ON` for indexing.
 
 ## Packaging
 
-`node .claude/scripts/package.mjs` builds the static Release preset `windows-msvc-package` and writes a single file, `out/package/EmberDungeon.exe`: no DLLs, no `assets/` folder, no tests, no console window. The first run builds the static vcpkg tree and takes a long time.
+Developer checkout only (`.claude/` is not part of the published `release` branch): `node .claude/scripts/package.mjs` builds the static Release preset `windows-msvc-package` and writes a single file, `out/package/EmberDungeon.exe`: no DLLs, no `assets/` folder, no tests, no console window. The first run builds the static vcpkg tree and takes a long time.
 The assets are embedded in the exe and unpacked on start into `%TEMP%\EmberDungeon\<pack hash>\assets`; set `GAME01P_PACKAGE_CACHE` to use another directory (the hash subfolder is still appended). The game log lands there too.
 The packaged exe changes its working directory to that folder, so pass absolute paths to it (`--capture`, `--record`, `GAME01P_SAVE_DIR`).
 Do not place the exe next to an `assets/` folder: that folder is searched before the embedded copy.

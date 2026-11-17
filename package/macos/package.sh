@@ -42,7 +42,7 @@ smoke() {  # smoke <name> [VAR=value ...]: windowless run from an empty working 
   local name="$1"; shift
   local rc=0
   ( cd "$CHECK/cwd" && env SDL_VIDEO_DRIVER=dummy SDL_AUDIO_DRIVER=dummy SDL_RENDER_DRIVER=software \
-      GAME01P_SAVE_DIR="$CHECK/save-$name" GAME01P_PACKAGE_CACHE="$CHECK/cache" "$@" \
+      GAME01P_SAVE_DIR="$CHECK/save-$name" GAME01P_PACKAGE_CACHE="$CHECK/cache" ${1+"$@"} \
       "$EXE" --ember --smoke-test > "$CHECK/$name.log" 2>&1 ) || rc=$?
   [[ $rc -eq 0 ]] || { tail -n 30 "$CHECK/$name.log" >&2; fail 5 "smoke '$name' failed (exit $rc)"; }
   SMOKE_JSON="${SMOKE_JSON:+$SMOKE_JSON,}\"$name\":$rc"
